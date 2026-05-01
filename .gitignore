@@ -1,0 +1,5 @@
+.DS_Store
+node_modules/
+dist/
+sidepanel-app/node_modules/
+sidepanel-app/dist/

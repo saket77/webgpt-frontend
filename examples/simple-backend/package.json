@@ -1,0 +1,14 @@
+{
+  "name": "webgpt-simple-backend",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Minimal WebGPT-compatible backend example.",
+  "license": "MIT",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js"
+  }
+}

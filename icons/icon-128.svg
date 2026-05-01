@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none">
+  <defs>
+    <linearGradient id="panel" x1="24" y1="20" x2="106" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7E14FF"/>
+      <stop offset="0.58" stop-color="#5B45FF"/>
+      <stop offset="1" stop-color="#1FB6FF"/>
+    </linearGradient>
+    <linearGradient id="bolt" x1="55" y1="36" x2="78" y2="91" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#C9F4FF"/>
+    </linearGradient>
+    <filter id="soft-glow" x="8" y="8" width="112" height="112" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="0" stdDeviation="2.5" flood-color="#FFFFFF" flood-opacity="0.45"/>
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#140032" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#soft-glow)">
+    <rect x="16" y="16" width="96" height="96" rx="23" fill="url(#panel)"/>
+    <path d="M53 36C43.5 36 40 41 40 47C40 52.5 34 52 34 58C34 64 40 63.5 40 69C40 75 43.5 80 53 80" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M75 36C84.5 36 88 41 88 47C88 52.5 94 52 94 58C94 64 88 63.5 88 69C88 75 84.5 80 75 80" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M65.5 35L51.5 64.5H64L58.5 93L79 56.5H66.5L72.5 35H65.5Z" fill="url(#bolt)"/>
+    <path d="M65.5 35L51.5 64.5H64L58.5 93L79 56.5H66.5L72.5 35H65.5Z" stroke="white" stroke-opacity="0.5" stroke-width="1.5" stroke-linejoin="round"/>
+  </g>
+</svg>

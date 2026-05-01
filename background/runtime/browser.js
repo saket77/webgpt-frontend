@@ -1,0 +1,515 @@
+import { sleep } from "../utils/common.js";
+
+const CONTENT_SCRIPT_FILES = [
+  "content-scripts/extract-state/domUtils.js",
+  "content-scripts/extract-state/elementMetadata.js",
+  "content-scripts/extract-state/controlBuilders.js",
+  "content-scripts/extract-state/pageBuilders.js",
+  "content-scripts/extract-state/scrollBuilders.js",
+  "content-scripts/adapters/registry.js",
+  "content-scripts/adapters/canvasQuiz.js",
+  "content-scripts/extractState.js",
+
+  "content-scripts/runner/domUtils.js",
+  "content-scripts/runner/elementSnapshot.js",
+  "content-scripts/runner/candidates.js",
+  "content-scripts/runner/controlScoring.js",
+  "content-scripts/runner/resolver.js",
+  "content-scripts/runner/scrollResolver.js",
+  "content-scripts/runner/primitives.js",
+  "content-scripts/runner/trace.js",
+  "content-scripts/runner/collectionExtractor.js",
+  "content-scripts/runner/actions.js",
+  "content-scripts/runner/replayRunner.js",
+  "content-scripts/runner.js",
+
+  "content-scripts/agent.js",
+];
+
+async function sendMessageToFrame(tabId, frameId, message) {
+  return chrome.tabs.sendMessage(tabId, message, { frameId });
+}
+
+function isInjectableUrl(url) {
+  if (!url || typeof url !== "string") return false;
+
+  return !(
+    url.startsWith("chrome://") ||
+    url.startsWith("chrome-extension://") ||
+    url.startsWith("edge://") ||
+    url.startsWith("about:") ||
+    url.startsWith("devtools://") ||
+    url.startsWith("view-source:")
+  );
+}
+
+function toFrameKey(frameId) {
+  return String(frameId);
+}
+
+function stripTopLevelStateForFrame(frameState) {
+  if (!frameState || typeof frameState !== "object") {
+    return null;
+  }
+
+  const {
+    goal: _goal,
+    step: _step,
+    timestamp: _timestamp,
+    ...rest
+  } = frameState;
+
+  return rest;
+}
+
+function buildSingleFrameRunnerState({
+  aggregateState,
+  frameId,
+  fallbackGoal = "",
+  fallbackStep = 1,
+}) {
+  const frameKey = toFrameKey(frameId);
+  const frameState = aggregateState?.frames?.[frameKey];
+
+  if (!frameState) {
+    throw new Error(`Frame ${frameId} is not present in aggregate state.`);
+  }
+
+  return {
+    goal: aggregateState?.goal || fallbackGoal || "",
+    step: aggregateState?.step || fallbackStep || 1,
+    url: frameState.url || "",
+    title: frameState.title || "",
+    viewport: frameState.viewport || {
+      width: 0,
+      height: 0,
+    },
+    scroll: frameState.scroll || {
+      x: 0,
+      y: 0,
+      viewportWidth: 0,
+      viewportHeight: 0,
+      documentWidth: 0,
+      documentHeight: 0,
+      atTop: true,
+      atBottom: true,
+    },
+    headings: Array.isArray(frameState.headings) ? frameState.headings : [],
+    visibleTextSummary: Array.isArray(frameState.visibleTextSummary)
+      ? frameState.visibleTextSummary
+      : [],
+    overlays: Array.isArray(frameState.overlays) ? frameState.overlays : [],
+    groups: Array.isArray(frameState.groups) ? frameState.groups : [],
+    controls: Array.isArray(frameState.controls) ? frameState.controls : [],
+    scrollableContainers: Array.isArray(frameState.scrollableContainers)
+      ? frameState.scrollableContainers
+      : [],
+    timestamp: aggregateState?.timestamp || new Date().toISOString(),
+  };
+}
+
+function sanitizeActionsForRunner(actions) {
+  return (actions || []).map((action) => {
+    if (!action || typeof action !== "object") return action;
+
+    const { frameId, ...rest } = action;
+    return rest;
+  });
+}
+
+function resolveExecutionFrameId(state, actions) {
+  const frames = state?.frames || {};
+  const frameKeys = Object.keys(frames);
+
+  if (!frameKeys.length) {
+    throw new Error(
+      "Cannot execute actions because aggregate state has no frames.",
+    );
+  }
+
+  const explicitFrameIds = [];
+  for (const action of actions || []) {
+    if (action?.frameId !== undefined && action?.frameId !== null) {
+      explicitFrameIds.push(Number(action.frameId));
+    }
+  }
+
+  const uniqueFrameIds = [...new Set(explicitFrameIds)].filter((v) =>
+    Number.isInteger(v),
+  );
+
+  if (uniqueFrameIds.length > 1) {
+    throw new Error(
+      `Actions span multiple frames (${uniqueFrameIds.join(", ")}). ` +
+        "runActionsInTab currently supports one execution frame per call.",
+    );
+  }
+
+  if (uniqueFrameIds.length === 1) {
+    const frameId = uniqueFrameIds[0];
+    if (!frames[toFrameKey(frameId)]) {
+      throw new Error(
+        `Planner selected frame ${frameId}, but that frame is not present in current state.`,
+      );
+    }
+    return frameId;
+  }
+
+  if (frameKeys.length === 1) {
+    return Number(frameKeys[0]);
+  }
+
+  if (frames["0"]) {
+    return 0;
+  }
+
+  throw new Error(
+    "Could not resolve execution frame. Planner must include frameId when multiple frames exist.",
+  );
+}
+
+async function pingFrame(tabId, frameId) {
+  try {
+    const response = await sendMessageToFrame(tabId, frameId, {
+      type: "PING_WEBGPT",
+    });
+
+    return !!response?.ok;
+  } catch (error) {
+    console.warn("[WebGPT][pingFrame] failed", {
+      tabId,
+      frameId,
+      error: error?.message || String(error),
+    });
+    return false;
+  }
+}
+
+async function injectFrame(tabId, frameId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [frameId] },
+      files: CONTENT_SCRIPT_FILES,
+    });
+    return true;
+  } catch (error) {
+    console.warn("[WebGPT][injectFrame] failed", {
+      tabId,
+      frameId,
+      error: error?.message || String(error),
+    });
+    return false;
+  }
+}
+
+async function injectContentScripts(tabId) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+
+  if (!tab?.id) {
+    throw new Error("Target tab does not exist.");
+  }
+
+  if (!isInjectableUrl(tab.url)) {
+    throw new Error("Cannot attach agent to this type of tab.");
+  }
+
+  const frames = await getAllFrames(tabId).catch(() => []);
+
+  if (!frames.length) {
+    throw new Error("No frames found in target tab.");
+  }
+
+  await Promise.all(frames.map((frame) => injectFrame(tabId, frame.frameId)));
+}
+
+async function getFrameMeta(tabId, frameId, fallback = {}) {
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [frameId] },
+      func: () => ({
+        href: location.href,
+        title: document.title,
+        isTop: window === window.top,
+        controlCount: document.querySelectorAll(
+          "button, a, input, textarea, select, [role]",
+        ).length,
+      }),
+    });
+
+    return results?.[0]?.result || null;
+  } catch (error) {
+    console.warn("[WebGPT][getFrameMeta] failed", {
+      tabId,
+      frameId,
+      error: error?.message || String(error),
+      href: fallback?.href || "",
+    });
+    return null;
+  }
+}
+
+async function getAllFrames(tabId) {
+  const frames = await chrome.webNavigation.getAllFrames({ tabId });
+
+  const normalized = await Promise.all(
+    (frames || []).map(async (frame) => {
+      const meta = await getFrameMeta(tabId, frame.frameId, {
+        href: frame.url || "",
+      });
+
+      return {
+        frameId: frame.frameId,
+        parentFrameId: frame.parentFrameId,
+        href: meta?.href || frame.url || "",
+        title: meta?.title || "",
+        isTop: Boolean(meta?.isTop ?? frame.parentFrameId === -1),
+        controlCount: Number(meta?.controlCount || 0),
+      };
+    }),
+  );
+
+  const sorted = normalized.sort((a, b) => a.frameId - b.frameId);
+  return sorted;
+}
+
+async function getReadyFrames(tabId) {
+  const frames = await getAllFrames(tabId).catch(() => []);
+
+  if (!frames.length) {
+    return [];
+  }
+
+  const results = await Promise.all(
+    frames.map(async (frame) => {
+      const ok = await pingFrame(tabId, frame.frameId);
+      return {
+        ...frame,
+        ok,
+      };
+    }),
+  );
+
+  const readyFrames = results.filter((item) => item.ok);
+
+  return readyFrames;
+}
+
+export async function ensureContentScriptReady(
+  tabId,
+  { attempts = 20, delayMs = 250, allowInjection = true } = {},
+) {
+  for (let i = 0; i < attempts; i++) {
+    const readyFrames = await getReadyFrames(tabId);
+    if (readyFrames.length > 0) {
+      return true;
+    }
+    await sleep(delayMs);
+  }
+
+  if (!allowInjection) {
+    return false;
+  }
+
+  await injectContentScripts(tabId);
+
+  for (let i = 0; i < attempts; i++) {
+    const readyFrames = await getReadyFrames(tabId);
+    if (readyFrames.length > 0) {
+      return true;
+    }
+    await sleep(delayMs);
+  }
+
+  return false;
+}
+
+async function extractStateFromFrame(
+  tabId,
+  frameId,
+  { goal, step, meta = {} },
+) {
+  const response = await sendMessageToFrame(tabId, frameId, {
+    type: "WEBGPT_EXTRACT_STATE",
+    goal,
+    step,
+    meta,
+  });
+
+  if (!response?.ok || !response?.state) {
+    throw new Error(
+      response?.error || `Failed to extract page state from frame ${frameId}.`,
+    );
+  }
+
+  return response.state;
+}
+
+export async function extractStateFromTab(tabId, { goal, step, meta = {} }) {
+  const ready = await ensureContentScriptReady(tabId, {
+    attempts: 20,
+    delayMs: 250,
+    allowInjection: true,
+  });
+
+  if (!ready) {
+    throw new Error("Content script is not ready on the target tab.");
+  }
+
+  const frameDescriptors = await getReadyFrames(tabId);
+
+  if (!frameDescriptors.length) {
+    throw new Error("No ready frames found in the target tab.");
+  }
+
+  const settled = await Promise.allSettled(
+    frameDescriptors.map(async (frame) => {
+      const fullState = await extractStateFromFrame(tabId, frame.frameId, {
+        goal,
+        step,
+        meta,
+      });
+
+      return {
+        frameId: frame.frameId,
+        frameState: stripTopLevelStateForFrame(fullState),
+      };
+    }),
+  );
+
+  const frames = {};
+  const failures = [];
+
+  for (const result of settled) {
+    if (result.status === "fulfilled") {
+      const { frameId, frameState } = result.value;
+      if (frameState) {
+        frames[toFrameKey(frameId)] = frameState;
+      }
+    } else {
+      failures.push(result.reason?.message || String(result.reason));
+    }
+  }
+
+  if (!Object.keys(frames).length) {
+    throw new Error(
+      failures[0] || "Failed to extract page state from all ready frames.",
+    );
+  }
+
+  if (failures.length) {
+    console.warn(
+      "[WebGPT][extractStateFromTab] frame extraction failures",
+      failures,
+    );
+  }
+
+  return {
+    goal: meta.goal || goal || "",
+    step: meta.step || step || 1,
+    timestamp: new Date().toISOString(),
+    frames,
+  };
+}
+export async function runReplayActionsInTab(tabId, replaySteps) {
+  const ready = await ensureContentScriptReady(tabId, {
+    attempts: 20,
+    delayMs: 250,
+    allowInjection: true,
+  });
+
+  if (!ready) {
+    throw new Error("Content script is not ready on the target tab.");
+  }
+
+  const readyFrames = await getReadyFrames(tabId);
+
+  if (!readyFrames.length) {
+    throw new Error("No ready frames found.");
+  }
+
+  const frameId = readyFrames[0].frameId;
+
+  const response = await sendMessageToFrame(tabId, frameId, {
+    type: "WEBGPT_RUN_REPLAY",
+    steps: replaySteps,
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.error || "Replay execution failed.");
+  }
+
+  return response.result;
+}
+
+export async function runActionsInTab(tabId, state, actions) {
+  const ready = await ensureContentScriptReady(tabId, {
+    attempts: 20,
+    delayMs: 250,
+    allowInjection: true,
+  });
+
+  if (!ready) {
+    throw new Error("Content script is not ready on the target tab.");
+  }
+
+  if (!state || typeof state !== "object" || !state.frames) {
+    throw new Error(
+      "runActionsInTab expected aggregate tab state with a frames object.",
+    );
+  }
+
+  const frameId = resolveExecutionFrameId(state, actions);
+  const readyFrames = await getReadyFrames(tabId);
+  const readyFrameIds = new Set(readyFrames.map((frame) => frame.frameId));
+
+  if (!readyFrameIds.has(frameId)) {
+    throw new Error(
+      `Execution frame ${frameId} is not ready. Ready frames: ${Array.from(
+        readyFrameIds,
+      ).join(", ")}`,
+    );
+  }
+
+  const singleFrameState = buildSingleFrameRunnerState({
+    aggregateState: state,
+    frameId,
+  });
+
+  const runnerActions = sanitizeActionsForRunner(actions);
+
+  const response = await sendMessageToFrame(tabId, frameId, {
+    type: "WEBGPT_RUN_ACTIONS",
+    state: singleFrameState,
+    actions: runnerActions,
+  });
+
+  if (!response?.ok) {
+    throw new Error(
+      response?.error || `Failed to execute actions in frame ${frameId}.`,
+    );
+  }
+
+  return {
+    ...response.result,
+    frameId,
+  };
+}
+
+export function actionsMayCauseNavigation(actions) {
+  for (const action of actions || []) {
+    if (!action?.type) continue;
+    if (action.type === "click") return true;
+    if (action.type === "press") return true;
+    if (action.type === "goto") return true;
+  }
+
+  return false;
+}
+
+export const browserRuntime = {
+  actionsMayCauseNavigation,
+  ensureContentScriptReady,
+  extractStateFromTab,
+  runActionsInTab,
+  runReplayActionsInTab,
+};
