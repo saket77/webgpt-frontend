@@ -10,13 +10,8 @@ Think of this repo as the browser-side runtime: sidepanel UI, tab/session orches
 
 Add the recorded demo here before publishing the repo:
 
-```md
-[Watch the WebGPT demo](https://youtu.be/2dVeTRBqNMU)
-```
+[![Watch the WebGPT demo](https://i9.ytimg.com/vi_webp/2dVeTRBqNMU/mq2.webp?sqp=COzm2M8G-oaymwEmCMACELQB8quKqQMa8AEB-AH-CIAC0AWKAgwIABABGFggYChlMA8=&rs=AOn4CLCoW8cF8KR4H7XTugO1OiItfuEOfg)](https://youtu.be/2dVeTRBqNMU)
 
-Suggested caption:
-
-> WebGPT running as a Chrome sidepanel: the extension extracts page controls, sends them to the planner backend, executes returned actions in the browser, waits for navigation when needed, and resumes the loop with fresh page state.
 
 ## Why WebGPT?
 
