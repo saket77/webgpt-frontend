@@ -8,8 +8,6 @@ Think of this repo as the browser-side runtime: sidepanel UI, tab/session orches
 
 ## Demo Video
 
-Add the recorded demo here before publishing the repo:
-
 ```md
 [Watch the WebGPT demo](https://youtu.be/2dVeTRBqNMU)
 ```
@@ -76,14 +74,7 @@ The built sidepanel files are generated into `sidepanel-app/dist/`.
 ### 3. Choose a Backend
 
 Open the WebGPT sidepanel and use the Backend card to choose a compatible planner backend.
-
-Common options:
-
-```text
-https://webgpt-backend-production.up.railway.app
-http://localhost:3000
-http://localhost:8787
-```
+Defaults to https://webgpt-backend-production.up.railway.app
 
 Use `http://localhost:8787` with the included simple backend.
 
