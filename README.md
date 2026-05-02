@@ -10,7 +10,8 @@ Think of this repo as the browser-side runtime: sidepanel UI, tab/session orches
 
 Add the recorded demo here before publishing the repo:
 
-[![Watch the WebGPT demo](https://i9.ytimg.com/vi_webp/2dVeTRBqNMU/mq2.webp?sqp=COzm2M8G-oaymwEmCMACELQB8quKqQMa8AEB-AH-CIAC0AWKAgwIABABGFggYChlMA8=&rs=AOn4CLCoW8cF8KR4H7XTugO1OiItfuEOfg)](https://youtu.be/2dVeTRBqNMU)
+[![Watch the WebGPT demo](https://i9.ytimg.com/vi_webp/J1yGDs0M-gA/mq1.webp?sqp=CJjp2M8G-oaymwEmCMACELQB8quKqQMa8AEB-AH-CIAC0AWKAgwIABABGBUgRih_MA8=&rs=AOn4CLCyBim_PHlqGOERym-W9Y5fh5O9YQ)](https://youtu.be/J1yGDs0M-gA)
+
 
 
 ## Why WebGPT?
