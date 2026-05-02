@@ -1,6 +1,7 @@
 import { getSessionIfExists, saveSession } from "../state/sessionStore.js";
 import { addEvent } from "../events.js";
 import { sleep } from "../utils/common.js";
+import { POST_NAVIGATION_RESUME_SETTLE_MS } from "../config.js";
 
 async function stageNewTabHandoff(tab) {
   const newTabId = tab?.id;
@@ -118,7 +119,7 @@ export function createRegisterTabHandlers({ continueRun, pauseForForcedStop, run
         url: latestSession.lastKnownUrl,
         message: "Navigation complete on attached tab. Resuming agent.",
       });
-      await sleep(10000);
+      await sleep(POST_NAVIGATION_RESUME_SETTLE_MS);
       try {
         await continueRun(tabId, {
           type: "navigation_completed",

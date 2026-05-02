@@ -36,6 +36,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StartCommandRunResponse"
+        default:
+          $ref: "#/components/responses/ErrorJson"
 
   /template-runs/start-command:
     post:
@@ -55,6 +57,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TemplateQueueCommandResponse"
+        default:
+          $ref: "#/components/responses/ErrorJson"
 
   /template-runs/{templateRunId}/complete-current-command:
     post:
@@ -76,6 +80,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CompleteTemplateQueueItemResponse"
+        default:
+          $ref: "#/components/responses/ErrorJson"
 
   /runs/{runId}:
     get:
@@ -98,6 +104,8 @@ paths:
                     const: true
                   run:
                     $ref: "#/components/schemas/RunSnapshot"
+        default:
+          $ref: "#/components/responses/ErrorJson"
 
   /runs/{runId}/command-result:
     post:
@@ -119,6 +127,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CommandResponse"
+        default:
+          $ref: "#/components/responses/ErrorJson"
 
   /runs/{runId}/provide-hint:
     post:
@@ -140,6 +150,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RunMutationResponse"
+        default:
+          $ref: "#/components/responses/ErrorJson"
 
   /runs/{runId}/confirm-success:
     post:
@@ -161,6 +173,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RunMutationResponse"
+        default:
+          $ref: "#/components/responses/ErrorJson"
 
   /runs/{runId}/reject-success:
     post:
@@ -185,12 +199,9 @@ paths:
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/RunMutationResponse"
-                  - type: object
-                    properties:
-                      command:
-                        $ref: "#/components/schemas/Command"
+                $ref: "#/components/schemas/RejectSuccessResponse"
+        default:
+          $ref: "#/components/responses/ErrorJson"
 
   /runs/{runId}/stop:
     post:
@@ -212,6 +223,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OkResponse"
+        default:
+          $ref: "#/components/responses/ErrorJson"
 
   /artifacts:
     get:
@@ -234,6 +247,8 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/SavedArtifactSummary"
+        default:
+          $ref: "#/components/responses/ErrorJson"
 
   /save-successful-run:
     post:
@@ -245,6 +260,8 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/GenericJsonSuccess"
+        default:
+          $ref: "#/components/responses/ErrorJson"
 
   /save-successful-execution-trace:
     post:
@@ -256,6 +273,8 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/GenericJsonSuccess"
+        default:
+          $ref: "#/components/responses/ErrorJson"
 
   /save-successful-replay-artifacts:
     post:
@@ -267,6 +286,8 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/GenericJsonSuccess"
+        default:
+          $ref: "#/components/responses/ErrorJson"
 
 components:
   parameters:
@@ -301,8 +322,14 @@ components:
       content:
         application/json:
           schema:
-            type: object
-            additionalProperties: true
+            $ref: "#/components/schemas/SaveSuccessfulArtifactResponse"
+
+    ErrorJson:
+      description: Error response.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
 
   schemas:
     OkResponse:
@@ -312,6 +339,23 @@ components:
         ok:
           type: boolean
           const: true
+
+    ErrorResponse:
+      type: object
+      required: [ok, error]
+      additionalProperties: true
+      properties:
+        ok:
+          type: boolean
+          const: false
+        error:
+          type: string
+          description: Human-readable error message consumed by the frontend.
+        code:
+          type: string
+          description: Optional stable machine-readable error code.
+        details:
+          $ref: "#/components/schemas/NullableObject"
 
     AnyObject:
       type: object
@@ -375,8 +419,20 @@ components:
           description: Planner-defined final result for the completed item.
 
     CommandResultRequest:
+      oneOf:
+        - $ref: "#/components/schemas/ReplayPreflightRequestedResult"
+        - $ref: "#/components/schemas/StateExtractedResult"
+        - $ref: "#/components/schemas/NavigationCompletedResult"
+        - $ref: "#/components/schemas/ActionsExecutedResult"
+        - $ref: "#/components/schemas/NavigationDetectedResult"
+        - $ref: "#/components/schemas/ReplayBatchExecutedResult"
+      discriminator:
+        propertyName: type
+
+    BaseCommandResultRequest:
       type: object
       required: [type]
+      additionalProperties: false
       properties:
         type:
           $ref: "#/components/schemas/CommandResultType"
@@ -418,16 +474,205 @@ components:
           type: boolean
           default: false
 
+    ReplayPreflightRequestedResult:
+      allOf:
+        - $ref: "#/components/schemas/BaseCommandResultRequest"
+        - type: object
+          required: [type]
+          properties:
+            type:
+              const: replay_preflight_requested
+            artifactFileName:
+              type: string
+              default: ""
+      examples:
+        - type: replay_preflight_requested
+          artifactFileName: saved-run.json
+
+    StateExtractedResult:
+      allOf:
+        - $ref: "#/components/schemas/BaseCommandResultRequest"
+        - type: object
+          required: [type, state]
+          properties:
+            type:
+              const: state_extracted
+            state:
+              $ref: "#/components/schemas/ExtractedState"
+            userHint:
+              type: string
+              default: ""
+            browserContext:
+              $ref: "#/components/schemas/BrowserContext"
+            artifactFileName:
+              type: string
+              default: ""
+      examples:
+        - type: state_extracted
+          state:
+            url: https://example.com
+            title: Example
+            frames: []
+          userHint: ""
+          browserContext:
+            tabId: 123
+            observedUrl: https://example.com
+          artifactFileName: ""
+
+    NavigationCompletedResult:
+      allOf:
+        - $ref: "#/components/schemas/BaseCommandResultRequest"
+        - type: object
+          required: [type, state]
+          properties:
+            type:
+              const: navigation_completed
+            state:
+              $ref: "#/components/schemas/ExtractedState"
+            userHint:
+              type: string
+              default: ""
+            browserContext:
+              $ref: "#/components/schemas/BrowserContext"
+            artifactFileName:
+              type: string
+              default: ""
+      examples:
+        - type: navigation_completed
+          state:
+            url: https://example.com/results
+            title: Results
+            frames: []
+          userHint: ""
+          browserContext:
+            tabId: 123
+            observedUrl: https://example.com/results
+          artifactFileName: ""
+
+    ActionsExecutedResult:
+      allOf:
+        - $ref: "#/components/schemas/BaseCommandResultRequest"
+        - type: object
+          required: [type, command, execution, postState]
+          properties:
+            type:
+              const: actions_executed
+            command:
+              $ref: "#/components/schemas/RunActionsCommand"
+            execution:
+              $ref: "#/components/schemas/ExecutionResult"
+            postState:
+              $ref: "#/components/schemas/ExtractedState"
+            browserContext:
+              $ref: "#/components/schemas/BrowserContext"
+            navigationInfo:
+              $ref: "#/components/schemas/NavigationInfo"
+      examples:
+        - type: actions_executed
+          command:
+            type: run_actions
+            runId: run_123
+            step: 2
+            actions:
+              - type: fill
+                targetId: el_12
+                frameId: 0
+                value: 423 N Holly St
+          execution:
+            ok: true
+            summary: All actions executed.
+            results: []
+          postState:
+            url: https://example.com
+            title: Example
+            frames: []
+          browserContext:
+            tabId: 123
+            observedUrl: https://example.com
+
+    NavigationDetectedResult:
+      allOf:
+        - $ref: "#/components/schemas/BaseCommandResultRequest"
+        - type: object
+          required: [type, command, navigationInfo]
+          properties:
+            type:
+              const: navigation_detected
+            command:
+              $ref: "#/components/schemas/NavigationSourceCommand"
+            execution:
+              oneOf:
+                - $ref: "#/components/schemas/ExecutionResult"
+                - type: "null"
+            browserContext:
+              $ref: "#/components/schemas/BrowserContext"
+            navigationInfo:
+              $ref: "#/components/schemas/NavigationInfo"
+      examples:
+        - type: navigation_detected
+          command:
+            type: run_actions
+            step: 2
+          execution:
+            ok: true
+            summary: Navigation triggered by click.
+            synthetic: true
+            results: []
+          browserContext:
+            tabId: 123
+            observedUrl: https://example.com/results
+          navigationInfo:
+            observedUrl: https://example.com/results
+            loading: true
+            interruptedAfterExecution: true
+            handoffToTabId: null
+            source: click
+
+    ReplayBatchExecutedResult:
+      allOf:
+        - $ref: "#/components/schemas/BaseCommandResultRequest"
+        - type: object
+          required: [type, command, batchResult, navigationInterrupted, navigationInfo]
+          properties:
+            type:
+              const: replay_batch_executed
+            command:
+              $ref: "#/components/schemas/RunReplayBatchCommand"
+            batchResult:
+              $ref: "#/components/schemas/ReplayBatchResult"
+            navigationInterrupted:
+              type: boolean
+            navigationInfo:
+              $ref: "#/components/schemas/NavigationInfo"
+      examples:
+        - type: replay_batch_executed
+          command:
+            type: run_replay_batch
+            runId: run_123
+            step: 1
+            batch:
+              steps: []
+            batchIndex: 0
+            totalBatchCount: 1
+            isFirstBatch: true
+            mayCauseNavigation: false
+            fileName: replay.json
+          batchResult:
+            ok: true
+            results: []
+          navigationInterrupted: false
+          navigationInfo:
+            observedUrl: https://example.com
+            loading: false
+            interruptedAfterExecution: false
+
     ProvideHumanHintRequest:
       type: object
+      description: Records human guidance and clears the backend pause state. The resumed planner turn re-extracts page state through the normal command-result loop.
       properties:
         hint:
           type: string
           default: ""
-        state:
-          oneOf:
-            - $ref: "#/components/schemas/ExtractedState"
-            - type: "null"
         browserContext:
           $ref: "#/components/schemas/BrowserContext"
 
@@ -446,7 +691,9 @@ components:
 
     CommandResponse:
       type: object
-      required: [ok, command]
+      description: Standard envelope for routes that return the next browser command.
+      required: [ok, runId, run, command]
+      additionalProperties: true
       properties:
         ok:
           type: boolean
@@ -461,18 +708,42 @@ components:
           $ref: "#/components/schemas/Command"
         extractedData:
           $ref: "#/components/schemas/NullableObject"
+      examples:
+        - ok: true
+          runId: run_123
+          run:
+            runId: run_123
+            step: 2
+            finalResult: null
+          command:
+            type: run_actions
+            runId: run_123
+            step: 2
+            summary: Fill the search box and press Enter.
+            actions:
+              - type: fill
+                targetId: el_12
+                frameId: 0
+                value: 423 N Holly St
+              - type: press
+                targetId: el_12
+                frameId: 0
+                key: Enter
+            plan:
+              status: act
+              reasoning: The search input is visible.
+              summary: Search for the address.
+              actions: []
+          extractedData: null
 
     StartCommandRunResponse:
-      allOf:
-        - $ref: "#/components/schemas/CommandResponse"
-        - type: object
-          required: [runId]
+      $ref: "#/components/schemas/CommandResponse"
 
     TemplateQueueCommandResponse:
       allOf:
         - $ref: "#/components/schemas/CommandResponse"
         - type: object
-          required: [templateRunId, runId]
+          required: [templateRunId, queue, item]
           properties:
             templateRunId:
               type: string
@@ -483,14 +754,16 @@ components:
 
     CompleteTemplateQueueItemResponse:
       type: object
-      required: [ok, status]
+      required: [ok, status, templateRunId, queue, completedItem, results, item, runId, run, command]
+      additionalProperties: true
       properties:
         ok:
           type: boolean
           const: true
         status:
           type: string
-          description: Use "finished" when the queue has no next item.
+          enum: [next, finished]
+          description: "'next' returns the next item command; 'finished' has no next item."
         templateRunId:
           type: string
         queue:
@@ -505,7 +778,9 @@ components:
         item:
           $ref: "#/components/schemas/NullableObject"
         runId:
-          type: string
+          type:
+            - string
+            - "null"
         run:
           oneOf:
             - $ref: "#/components/schemas/RunSnapshot"
@@ -524,6 +799,28 @@ components:
               oneOf:
                 - $ref: "#/components/schemas/RunSnapshot"
                 - type: "null"
+
+    RejectSuccessResponse:
+      allOf:
+        - $ref: "#/components/schemas/RunMutationResponse"
+        - type: object
+          properties:
+            command:
+              oneOf:
+                - $ref: "#/components/schemas/Command"
+                - type: "null"
+
+    SaveSuccessfulArtifactResponse:
+      type: object
+      required: [ok]
+      additionalProperties: true
+      properties:
+        ok:
+          type: boolean
+          const: true
+        skipped:
+          type: boolean
+          description: True when the backend intentionally treats artifact persistence as a no-op.
 
     RunSnapshot:
       type: object
@@ -679,6 +976,18 @@ components:
         plan:
           $ref: "#/components/schemas/Plan"
 
+    NavigationSourceCommand:
+      type: object
+      required: [type]
+      additionalProperties: true
+      properties:
+        type:
+          const: run_actions
+        step:
+          type: integer
+        runId:
+          type: string
+
     ExtractStateCommand:
       allOf:
         - $ref: "#/components/schemas/BaseCommand"
@@ -693,6 +1002,12 @@ components:
               $ref: "#/components/schemas/AnyObject"
             replay:
               $ref: "#/components/schemas/NullableObject"
+      examples:
+        - type: extract_state
+          runId: run_123
+          step: 1
+          reason: run_started
+          meta: {}
 
     NavigationCompletedCommand:
       allOf:
@@ -706,6 +1021,13 @@ components:
               type: string
             meta:
               $ref: "#/components/schemas/AnyObject"
+      examples:
+        - type: navigation_completed
+          runId: run_123
+          step: 3
+          reason: navigation_completed
+          meta:
+            afterNavigation: true
 
     RunActionsCommand:
       allOf:
@@ -723,6 +1045,25 @@ components:
               type: string
             plannerSummary:
               type: string
+      examples:
+        - type: run_actions
+          runId: run_123
+          step: 2
+          summary: Fill the search box and press Enter.
+          actions:
+            - type: fill
+              targetId: el_12
+              frameId: 0
+              value: 423 N Holly St
+            - type: press
+              targetId: el_12
+              frameId: 0
+              key: Enter
+          plan:
+            status: act
+            reasoning: The search input is visible.
+            summary: Search for the address.
+            actions: []
 
     RunReplayBatchCommand:
       allOf:
@@ -750,6 +1091,17 @@ components:
               type: boolean
             fileName:
               type: string
+      examples:
+        - type: run_replay_batch
+          runId: run_123
+          step: 1
+          batch:
+            steps: []
+          batchIndex: 0
+          totalBatchCount: 1
+          isFirstBatch: true
+          mayCauseNavigation: false
+          fileName: replay.json
 
     WaitForNavigationCommand:
       allOf:
@@ -765,6 +1117,12 @@ components:
               type: string
             source:
               type: string
+      examples:
+        - type: wait_for_navigation
+          runId: run_123
+          step: 2
+          observedUrl: https://example.com/results
+          source: click
 
     AskHumanCommand:
       allOf:
@@ -776,6 +1134,11 @@ components:
               const: ask_human
             message:
               type: string
+      examples:
+        - type: ask_human
+          runId: run_123
+          step: 4
+          message: Please choose the correct account before continuing.
 
     DoneCommand:
       allOf:
@@ -791,6 +1154,14 @@ components:
               type: string
             finalResult:
               description: Planner-defined final result shown in the UI.
+      examples:
+        - type: done
+          runId: run_123
+          step: 5
+          summary: Found the property zoning and dimensions.
+          plannerSummary: Task completed successfully.
+          finalResult:
+            summary: Found the property zoning and dimensions.
 
     BrowserAction:
       type: object

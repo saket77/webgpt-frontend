@@ -1,12 +1,11 @@
 import { addEvent } from "../../events.js";
 import { clearPauseState } from "../session/lifecycle.js";
 import { getSession, saveSession } from "../../state/sessionStore.js";
-import { getLastKnownUrlFromState } from "../../state/stateViews.js";
 
 export async function provideHintAndResumeFlow(
   tabId,
   hint,
-  { continueRun, plannerAdapter, runtime } = {},
+  { continueRun, plannerAdapter } = {},
 ) {
   const session = await getSession(tabId);
 
@@ -26,16 +25,10 @@ export async function provideHintAndResumeFlow(
     throw new Error("Run ID is required.");
   }
 
-  const latestState = await runtime.extractStateFromTab(tabId, {
-    goal: session.goal,
-    step: session.step,
-    meta: { afterHumanInput: true },
-  });
-
   const browserContext = plannerAdapter.buildBrowserContext(
     tabId,
     session,
-    getLastKnownUrlFromState(latestState),
+    session.lastKnownUrl,
   );
 
   await addEvent(tabId, {
@@ -43,7 +36,6 @@ export async function provideHintAndResumeFlow(
     step: session.step,
     hint: text,
     message: text || "Human resumed without hint.",
-    stateCaptured: true,
   });
 
   let result;
@@ -52,7 +44,6 @@ export async function provideHintAndResumeFlow(
     result = await plannerAdapter.provideHumanHint({
       runId: session.runId,
       hint: text,
-      state: latestState,
       browserContext,
     });
   } catch (error) {
@@ -70,10 +61,6 @@ export async function provideHintAndResumeFlow(
 
   const nextSession = plannerAdapter.syncSessionWithRun(session, result.run);
   nextSession.userHint = text;
-  if (latestState) {
-    nextSession.lastKnownUrl =
-      getLastKnownUrlFromState(latestState) || nextSession.lastKnownUrl || "";
-  }
   clearPauseState(nextSession);
   nextSession.stopRequested = false;
   nextSession.attachedTabId = tabId;
