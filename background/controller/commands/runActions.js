@@ -4,6 +4,7 @@ import { getLastKnownUrlFromState } from "../../state/stateViews.js";
 import { tryMarkAwaitingNavigation } from "../tryMarkNavigation.js";
 import { clone, sleep } from "../../utils/common.js";
 import { ensureLiveSession, getCommandStep } from "./context.js";
+import { POST_ACTION_STATE_SETTLE_MS } from "../../config.js";
 
 async function maybeMarkNavigation({
   tabId,
@@ -128,7 +129,7 @@ export async function executeRunActionsCommand(
   let afterState = null;
 
   try {
-    await sleep(10000);
+    await sleep(POST_ACTION_STATE_SETTLE_MS);
 
     afterState = await runtime.extractStateFromTab(tabId, {
       goal: session.goal,

@@ -193,12 +193,10 @@ export function createWebGptApiClient({ baseUrl } = {}) {
     async provideHumanHint({
       runId,
       hint = "",
-      state = null,
       browserContext = {},
     }) {
       const json = await postJsonToApi(`/runs/${runId}/provide-hint`, {
         hint,
-        state,
         browserContext,
       });
 
