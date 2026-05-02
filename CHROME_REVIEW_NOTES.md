@@ -1,6 +1,6 @@
 # Chrome Web Store Review Notes
 
-WebGPT is a user-initiated browser automation side panel. It observes the active tab, sends a structured page state to the user's configured backend, receives a small action plan, and executes DOM actions only after the user starts a run.
+WebGPT is a user-initiated browser automation side panel. It observes the active tab, sends structured page state to the default or user-configured backend, receives a small action plan, and executes DOM actions only after the user starts a run.
 
 ## Permission Rationale
 

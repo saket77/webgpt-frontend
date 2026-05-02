@@ -33,8 +33,8 @@ export function BackendConfigCard() {
               Backend
             </Text>
             <Text size="xs" c="dimmed">
-              Point the extension at any compatible backend. For the simple demo
-              backend, use <Code>http://localhost:8787</Code>.
+              WebGPT uses the hosted planner by default. Override this only for
+              local development or a compatible custom backend.
             </Text>
           </div>
 
@@ -48,7 +48,11 @@ export function BackendConfigCard() {
             Active backend: <Code>{config?.baseUrl || "Loading..."}</Code>
           </Text>
           <Text size="xs" c="dimmed">
-            Default backend: <Code>{config?.defaultBaseUrl || "http://localhost:3000"}</Code>
+            Default planner:{" "}
+            <Code>
+              {config?.defaultBaseUrl ||
+                "https://webgpt-backend-production.up.railway.app"}
+            </Code>
           </Text>
         </Stack>
 

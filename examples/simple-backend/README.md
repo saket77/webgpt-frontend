@@ -1,6 +1,8 @@
 # Simple Backend Example
 
-This is a tiny WebGPT-compatible backend for local testing. It does not plan, call an LLM, inspect the page, or choose controls. It returns one hardcoded `run_actions` command so frontend contributors can see the backend contract in motion.
+This is a tiny WebGPT-compatible backend for local testing. The extension defaults to the hosted WebGPT planner; use this example when you want to inspect the contract locally or test frontend changes without a real planner.
+
+This example does not plan, call an LLM, inspect the page, or choose controls. It returns one hardcoded `run_actions` command so frontend contributors can see the backend contract in motion.
 
 It is intentionally small and dependency-free.
 
