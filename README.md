@@ -1,6 +1,6 @@
-# WebGPT FrontEnd
+# WebGPT Frontend
 
-This folder contains the Chrome extension frontend for WebGPT.
+This repository contains the Chrome extension frontend for WebGPT.
 
 The frontend is the browser-side execution engine. It does not own planning logic. Instead, it:
 
@@ -8,7 +8,7 @@ The frontend is the browser-side execution engine. It does not own planning logi
 - executes browser actions inside content scripts
 - manages session and tab lifecycle in the extension background worker
 - renders the sidepanel UI
-- talks to any backend that implements the documented planner contract
+- talks to a compatible planner backend through a documented adapter contract
 
 ## Folder Layout
 
@@ -18,13 +18,16 @@ The frontend is the browser-side execution engine. It does not own planning logi
 - `docs/` contains frontend-facing integration documentation.
 - `examples/` contains small compatible backend examples.
 
-## Compatible Backend Story
+## Compatible Backends
 
-This frontend is designed to work with a compatible backend rather than a single hard-coded server.
+This frontend is designed to work with any backend that can produce the browser-command vocabulary the extension understands.
 
-A compatible backend must speak the planner command contract documented in [docs/planner-adapter-contract.md](./docs/planner-adapter-contract.md).
+There are two integration layers:
 
-The default backend URL can be changed from the sidepanel UI or through the background message API documented in [docs/backend-configuration.md](./docs/backend-configuration.md).
+- The controller-facing JavaScript `plannerAdapter` interface.
+- The default HTTP adapter, documented in [docs/planner-http-api.openapi.yaml](./docs/planner-http-api.openapi.yaml).
+
+Start with [docs/planner-adapter-contract.md](./docs/planner-adapter-contract.md) for the conceptual contract, or run [examples/simple-backend](./examples/simple-backend/README.md) for a tiny compatible server.
 
 ## Local Development
 
@@ -44,7 +47,7 @@ not intended to be tracked as source.
 1. Open `chrome://extensions`
 2. Enable Developer Mode
 3. Choose "Load unpacked"
-4. Select this `FrontEnd/` folder
+4. Select this repository folder
 
 ### 3. Point the Extension at a Backend
 
@@ -52,14 +55,14 @@ Open the sidepanel and use the Backend card on the Run page.
 
 Examples:
 
-- `http://localhost:3000` for the default planner backend
 - `http://localhost:8787` for [the simple demo backend](./examples/simple-backend/README.md)
+- `http://localhost:3000` if you run a compatible backend on the built-in fallback port
 
 ## Extension Points
 
 ### Compatible Backends
 
-Bring any backend that can speak the WebGPT planner command contract. The frontend does not require the private WebGPT planner server.
+Bring any backend that can speak the WebGPT planner command contract.
 
 Start with [examples/simple-backend](./examples/simple-backend/README.md) if you want the smallest possible compatible server.
 
@@ -74,9 +77,8 @@ See [docs/site-adapter-authoring.md](./docs/site-adapter-authoring.md) for the a
 ## Key Docs
 
 - [docs/planner-adapter-contract.md](./docs/planner-adapter-contract.md)
-- [docs/backend-configuration.md](./docs/backend-configuration.md)
+- [docs/planner-http-api.openapi.yaml](./docs/planner-http-api.openapi.yaml)
 - [docs/site-adapter-authoring.md](./docs/site-adapter-authoring.md)
-- [docs/open-source-release.md](./docs/open-source-release.md)
 - [examples/simple-backend/README.md](./examples/simple-backend/README.md)
 - [CONTRIBUTING.md](./CONTRIBUTING.md)
 - [SECURITY.md](./SECURITY.md)

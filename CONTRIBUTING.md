@@ -1,6 +1,8 @@
-# Contributing To WebGPT FrontEnd
+# Contributing To WebGPT Frontend
 
-This folder is intended to stand on its own as the open-source browser frontend for WebGPT.
+This repository is the browser frontend for WebGPT: a Chrome extension, content-script execution layer, sidepanel UI, and planner-backend integration surface.
+
+The planner itself is intentionally outside this repository. Contributions should keep the frontend useful with compatible backends without moving planner-specific logic into the browser extension.
 
 ## Where To Make Changes
 
@@ -15,9 +17,11 @@ This folder is intended to stand on its own as the open-source browser frontend 
 
 Contributors can make the frontend work with more backends by:
 
-- implementing the documented HTTP contract in another backend
+- implementing the documented HTTP contract in another service
 - adding or improving planner adapter glue in the frontend
-- improving the backend configuration UX and capability surfacing
+- improving backend configuration UX and capability surfacing
+
+The contract lives in [docs/planner-adapter-contract.md](./docs/planner-adapter-contract.md), and the default HTTP API is described by [docs/planner-http-api.openapi.yaml](./docs/planner-http-api.openapi.yaml).
 
 ### Browser-Side Intelligence
 
@@ -57,9 +61,9 @@ Before opening a PR, verify the change in a loaded unpacked extension:
 
 For backend-related changes, also verify that:
 
-1. the frontend can still talk to the default backend
-2. the backend configuration UI can point to another compatible backend
-3. the simple backend example in `examples/simple-backend/` still starts
+1. the backend configuration UI can point to a compatible backend
+2. the simple backend example in `examples/simple-backend/` still starts
+3. any route or payload changes are reflected in the contract docs and OpenAPI file
 
 ## Keep Changes Focused
 

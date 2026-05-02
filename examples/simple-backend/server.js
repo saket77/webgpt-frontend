@@ -3,7 +3,7 @@ const http = require("http");
 const PORT = Number(process.env.PORT || 8787);
 const HOST = process.env.HOST || "127.0.0.1";
 const TARGET_ID = process.env.WEBGPT_SIMPLE_TARGET_ID || "el_45";
-const ADDRESS = process.env.WEBGPT_SIMPLE_ADDRESS || "423 N Holly st";
+const FILL_TEXT = process.env.WEBGPT_SIMPLE_FILL_TEXT || "example search text";
 const ACTION_DELAY_MS = Number(process.env.WEBGPT_SIMPLE_DELAY_MS || 10000);
 
 const runs = new Map();
@@ -22,7 +22,7 @@ function buildHardcodedActions() {
       type: "fill",
       targetId: TARGET_ID,
       frameId: 0,
-      value: ADDRESS,
+      value: FILL_TEXT,
       key: "",
       direction: "",
     },
@@ -92,11 +92,11 @@ function actionCommand(run) {
     actions,
     reasoning:
       "Hardcoded demo backend: fill the configured target control and press Enter.",
-    summary: `Fill "${ADDRESS}" into ${TARGET_ID} and press Enter.`,
+    summary: `Fill "${FILL_TEXT}" into ${TARGET_ID} and press Enter.`,
     plan: {
       status: "act",
       reasoning: "No planner was used. This backend always returns the same actions.",
-      summary: `Fill "${ADDRESS}" into ${TARGET_ID} and press Enter.`,
+      summary: `Fill "${FILL_TEXT}" into ${TARGET_ID} and press Enter.`,
       actions,
     },
   };
@@ -105,7 +105,7 @@ function actionCommand(run) {
 function doneCommand(run) {
   run.step = 1;
   run.finalResult = {
-    summary: `Simple backend filled "${ADDRESS}" into ${TARGET_ID} and pressed Enter.`,
+    summary: `Simple backend filled "${FILL_TEXT}" into ${TARGET_ID} and pressed Enter.`,
   };
 
   return {
@@ -294,5 +294,5 @@ http
   .listen(PORT, HOST, () => {
     console.log(`Simple WebGPT-compatible backend listening at http://${HOST}:${PORT}`);
     console.log(`Hardcoded target ID: ${TARGET_ID}`);
-    console.log(`Hardcoded address: ${ADDRESS}`);
+    console.log(`Hardcoded fill text: ${FILL_TEXT}`);
   });

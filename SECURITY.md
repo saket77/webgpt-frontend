@@ -15,7 +15,7 @@ Include:
 
 ## Scope
 
-This repository contains the WebGPT browser frontend and example backend integrations. The private WebGPT planner backend is not part of this repository.
+This repository contains the WebGPT browser frontend and example backend integrations. Backend services that implement the planner contract are separate systems with their own security boundaries.
 
 Security-sensitive areas include:
 

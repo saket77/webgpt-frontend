@@ -1,0 +1,908 @@
+openapi: 3.1.0
+info:
+  title: WebGPT Planner HTTP API
+  version: 0.1.0
+  description: |
+    HTTP contract implemented by the default WebGPT planner adapter.
+    The browser extension controller consumes a JavaScript plannerAdapter
+    interface; this OpenAPI document describes the HTTP routes used by the
+    default adapter implementation.
+servers:
+  - url: http://localhost:8787
+    description: Simple backend example
+tags:
+  - name: Runs
+  - name: Template Runs
+  - name: Artifacts
+
+paths:
+  /runs/start-command:
+    post:
+      tags: [Runs]
+      operationId: startCommandRun
+      summary: Start an agent run and return the first browser command.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartCommandRunRequest"
+      responses:
+        "200":
+          description: Run started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartCommandRunResponse"
+
+  /template-runs/start-command:
+    post:
+      tags: [Template Runs]
+      operationId: startTemplateQueueCommand
+      summary: Start a template queue and return the first item command.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartTemplateQueueRequest"
+      responses:
+        "200":
+          description: Template queue started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemplateQueueCommandResponse"
+
+  /template-runs/{templateRunId}/complete-current-command:
+    post:
+      tags: [Template Runs]
+      operationId: completeTemplateQueueItem
+      summary: Complete the current template item and optionally return the next item.
+      parameters:
+        - $ref: "#/components/parameters/TemplateRunId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteTemplateQueueItemRequest"
+      responses:
+        "200":
+          description: Template item completion result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompleteTemplateQueueItemResponse"
+
+  /runs/{runId}:
+    get:
+      tags: [Runs]
+      operationId: getRun
+      summary: Get the latest backend run snapshot.
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      responses:
+        "200":
+          description: Run snapshot.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, run]
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  run:
+                    $ref: "#/components/schemas/RunSnapshot"
+
+  /runs/{runId}/command-result:
+    post:
+      tags: [Runs]
+      operationId: postCommandResult
+      summary: Submit browser-side progress and receive the next browser command.
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommandResultRequest"
+      responses:
+        "200":
+          description: Next browser command.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandResponse"
+
+  /runs/{runId}/provide-hint:
+    post:
+      tags: [Runs]
+      operationId: provideHumanHint
+      summary: Resume a paused run with human guidance.
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProvideHumanHintRequest"
+      responses:
+        "200":
+          description: Hint accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunMutationResponse"
+
+  /runs/{runId}/confirm-success:
+    post:
+      tags: [Runs]
+      operationId: confirmRunSuccess
+      summary: Confirm that a completed run succeeded.
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success confirmed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunMutationResponse"
+
+  /runs/{runId}/reject-success:
+    post:
+      tags: [Runs]
+      operationId: rejectRunSuccess
+      summary: Reject a completion and resume the run.
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                hint:
+                  type: string
+                  default: ""
+      responses:
+        "200":
+          description: Completion rejected.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/RunMutationResponse"
+                  - type: object
+                    properties:
+                      command:
+                        $ref: "#/components/schemas/Command"
+
+  /runs/{runId}/stop:
+    post:
+      tags: [Runs]
+      operationId: stopRun
+      summary: Stop or delete a backend run.
+      parameters:
+        - $ref: "#/components/parameters/RunId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StopRunRequest"
+      responses:
+        "200":
+          description: Run stopped.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+
+  /artifacts:
+    get:
+      tags: [Artifacts]
+      operationId: fetchArtifacts
+      summary: List saved successful run artifacts.
+      responses:
+        "200":
+          description: Artifact list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, artifacts]
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  artifacts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SavedArtifactSummary"
+
+  /save-successful-run:
+    post:
+      tags: [Artifacts]
+      operationId: saveSuccessfulRun
+      summary: Persist the successful run snapshot.
+      requestBody:
+        $ref: "#/components/requestBodies/SaveSuccessfulArtifactRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/GenericJsonSuccess"
+
+  /save-successful-execution-trace:
+    post:
+      tags: [Artifacts]
+      operationId: saveSuccessfulExecutionTrace
+      summary: Persist the successful execution trace.
+      requestBody:
+        $ref: "#/components/requestBodies/SaveSuccessfulArtifactRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/GenericJsonSuccess"
+
+  /save-successful-replay-artifacts:
+    post:
+      tags: [Artifacts]
+      operationId: saveSuccessfulReplayArtifacts
+      summary: Persist replay artifacts for a successful run.
+      requestBody:
+        $ref: "#/components/requestBodies/SaveSuccessfulArtifactRequest"
+      responses:
+        "200":
+          $ref: "#/components/responses/GenericJsonSuccess"
+
+components:
+  parameters:
+    RunId:
+      name: runId
+      in: path
+      required: true
+      schema:
+        type: string
+    TemplateRunId:
+      name: templateRunId
+      in: path
+      required: true
+      schema:
+        type: string
+
+  requestBodies:
+    SaveSuccessfulArtifactRequest:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [runId]
+            properties:
+              runId:
+                type: string
+
+  responses:
+    GenericJsonSuccess:
+      description: Successful JSON response. The frontend forwards this result to the UI.
+      content:
+        application/json:
+          schema:
+            type: object
+            additionalProperties: true
+
+  schemas:
+    OkResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          const: true
+
+    AnyObject:
+      type: object
+      additionalProperties: true
+
+    NullableObject:
+      oneOf:
+        - $ref: "#/components/schemas/AnyObject"
+        - type: "null"
+
+    StartCommandRunRequest:
+      type: object
+      required: [goal]
+      properties:
+        goal:
+          type: string
+        inputValues:
+          $ref: "#/components/schemas/AnyObject"
+        isTemplateRun:
+          type: boolean
+          default: false
+        state:
+          oneOf:
+            - $ref: "#/components/schemas/ExtractedState"
+            - type: "null"
+        userHint:
+          type: string
+          default: ""
+        browserContext:
+          $ref: "#/components/schemas/BrowserContext"
+        artifactFileName:
+          type: string
+          default: ""
+
+    StartTemplateQueueRequest:
+      type: object
+      required: [goalTemplate]
+      properties:
+        goalTemplate:
+          type: string
+        inputSchema:
+          type: array
+          items:
+            $ref: "#/components/schemas/InputSchemaItem"
+        inputValues:
+          $ref: "#/components/schemas/AnyObject"
+        artifactFileName:
+          type: string
+          default: ""
+
+    CompleteTemplateQueueItemRequest:
+      type: object
+      required: [runId]
+      properties:
+        runId:
+          type: string
+        summary:
+          type: string
+          default: ""
+        finalResult:
+          description: Planner-defined final result for the completed item.
+
+    CommandResultRequest:
+      type: object
+      required: [type]
+      properties:
+        type:
+          $ref: "#/components/schemas/CommandResultType"
+        step:
+          type:
+            - integer
+            - "null"
+        command:
+          oneOf:
+            - $ref: "#/components/schemas/Command"
+            - $ref: "#/components/schemas/AnyObject"
+        state:
+          oneOf:
+            - $ref: "#/components/schemas/ExtractedState"
+            - type: "null"
+        execution:
+          oneOf:
+            - $ref: "#/components/schemas/ExecutionResult"
+            - type: "null"
+        postState:
+          oneOf:
+            - $ref: "#/components/schemas/ExtractedState"
+            - type: "null"
+        userHint:
+          type: string
+          default: ""
+        browserContext:
+          $ref: "#/components/schemas/BrowserContext"
+        artifactFileName:
+          type: string
+          default: ""
+        navigationInfo:
+          $ref: "#/components/schemas/NavigationInfo"
+        batchResult:
+          oneOf:
+            - $ref: "#/components/schemas/ReplayBatchResult"
+            - type: "null"
+        navigationInterrupted:
+          type: boolean
+          default: false
+
+    ProvideHumanHintRequest:
+      type: object
+      properties:
+        hint:
+          type: string
+          default: ""
+        state:
+          oneOf:
+            - $ref: "#/components/schemas/ExtractedState"
+            - type: "null"
+        browserContext:
+          $ref: "#/components/schemas/BrowserContext"
+
+    StopRunRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          default: stopped_by_user
+        message:
+          type: string
+          default: ""
+        deleteRun:
+          type: boolean
+          default: false
+
+    CommandResponse:
+      type: object
+      required: [ok, command]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        runId:
+          type: string
+        run:
+          oneOf:
+            - $ref: "#/components/schemas/RunSnapshot"
+            - type: "null"
+        command:
+          $ref: "#/components/schemas/Command"
+        extractedData:
+          $ref: "#/components/schemas/NullableObject"
+
+    StartCommandRunResponse:
+      allOf:
+        - $ref: "#/components/schemas/CommandResponse"
+        - type: object
+          required: [runId]
+
+    TemplateQueueCommandResponse:
+      allOf:
+        - $ref: "#/components/schemas/CommandResponse"
+        - type: object
+          required: [templateRunId, runId]
+          properties:
+            templateRunId:
+              type: string
+            queue:
+              $ref: "#/components/schemas/NullableObject"
+            item:
+              $ref: "#/components/schemas/NullableObject"
+
+    CompleteTemplateQueueItemResponse:
+      type: object
+      required: [ok, status]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        status:
+          type: string
+          description: Use "finished" when the queue has no next item.
+        templateRunId:
+          type: string
+        queue:
+          $ref: "#/components/schemas/NullableObject"
+        completedItem:
+          $ref: "#/components/schemas/NullableObject"
+        results:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        item:
+          $ref: "#/components/schemas/NullableObject"
+        runId:
+          type: string
+        run:
+          oneOf:
+            - $ref: "#/components/schemas/RunSnapshot"
+            - type: "null"
+        command:
+          oneOf:
+            - $ref: "#/components/schemas/Command"
+            - type: "null"
+
+    RunMutationResponse:
+      allOf:
+        - $ref: "#/components/schemas/OkResponse"
+        - type: object
+          properties:
+            run:
+              oneOf:
+                - $ref: "#/components/schemas/RunSnapshot"
+                - type: "null"
+
+    RunSnapshot:
+      type: object
+      description: Backend run data. The frontend currently reads step and finalResult.
+      additionalProperties: true
+      properties:
+        runId:
+          type: string
+        step:
+          type: integer
+          minimum: 0
+        finalResult:
+          description: Planner-defined final result shown during success confirmation.
+
+    BrowserContext:
+      type: object
+      additionalProperties: true
+      properties:
+        tabId:
+          type: integer
+        attachedTabId:
+          type: integer
+        lastKnownUrl:
+          type: string
+        observedUrl:
+          type: string
+        goal:
+          type: string
+        step:
+          type: integer
+
+    ExtractedState:
+      type: object
+      description: Structured browser state produced by the extension content scripts.
+      additionalProperties: true
+      properties:
+        url:
+          type: string
+        title:
+          type: string
+        frames:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExtractedFrame"
+
+    ExtractedFrame:
+      type: object
+      additionalProperties: true
+      properties:
+        frameId:
+          type: integer
+        url:
+          type: string
+        title:
+          type: string
+        controls:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExtractedControl"
+        siteAdapter:
+          $ref: "#/components/schemas/SiteAdapterState"
+
+    ExtractedControl:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        tag:
+          type: string
+        label:
+          type: string
+        selector:
+          type: string
+        adapterHints:
+          type: object
+          additionalProperties: true
+
+    SiteAdapterState:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+        pageKind:
+          type: string
+        primaryControlIds:
+          type: array
+          items:
+            type: string
+        actionHintsByTargetId:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/ActionHint"
+        plannerHints:
+          type: array
+          items:
+            type: string
+
+    ActionHint:
+      type: object
+      additionalProperties: true
+      properties:
+        semanticRole:
+          type: string
+        preferredAction:
+          type: string
+          enum: [click, fill, press, select, wait, goto]
+        exactValueMode:
+          type: string
+        navigationAction:
+          type: boolean
+        batchPlacement:
+          type: string
+        verifyAfterAction:
+          type: string
+
+    CommandResultType:
+      type: string
+      enum:
+        - replay_preflight_requested
+        - state_extracted
+        - navigation_completed
+        - actions_executed
+        - navigation_detected
+        - replay_batch_executed
+
+    Command:
+      oneOf:
+        - $ref: "#/components/schemas/ExtractStateCommand"
+        - $ref: "#/components/schemas/NavigationCompletedCommand"
+        - $ref: "#/components/schemas/RunActionsCommand"
+        - $ref: "#/components/schemas/RunReplayBatchCommand"
+        - $ref: "#/components/schemas/WaitForNavigationCommand"
+        - $ref: "#/components/schemas/AskHumanCommand"
+        - $ref: "#/components/schemas/DoneCommand"
+      discriminator:
+        propertyName: type
+
+    BaseCommand:
+      type: object
+      required: [type]
+      additionalProperties: true
+      properties:
+        type:
+          type: string
+        runId:
+          type: string
+        step:
+          type: integer
+        plan:
+          $ref: "#/components/schemas/Plan"
+
+    ExtractStateCommand:
+      allOf:
+        - $ref: "#/components/schemas/BaseCommand"
+        - type: object
+          required: [type]
+          properties:
+            type:
+              const: extract_state
+            reason:
+              type: string
+            meta:
+              $ref: "#/components/schemas/AnyObject"
+            replay:
+              $ref: "#/components/schemas/NullableObject"
+
+    NavigationCompletedCommand:
+      allOf:
+        - $ref: "#/components/schemas/BaseCommand"
+        - type: object
+          required: [type]
+          properties:
+            type:
+              const: navigation_completed
+            reason:
+              type: string
+            meta:
+              $ref: "#/components/schemas/AnyObject"
+
+    RunActionsCommand:
+      allOf:
+        - $ref: "#/components/schemas/BaseCommand"
+        - type: object
+          required: [type, actions]
+          properties:
+            type:
+              const: run_actions
+            actions:
+              type: array
+              items:
+                $ref: "#/components/schemas/BrowserAction"
+            summary:
+              type: string
+            plannerSummary:
+              type: string
+
+    RunReplayBatchCommand:
+      allOf:
+        - $ref: "#/components/schemas/BaseCommand"
+        - type: object
+          required: [type, batch]
+          properties:
+            type:
+              const: run_replay_batch
+            batch:
+              type: object
+              additionalProperties: true
+              properties:
+                steps:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/BrowserAction"
+            batchIndex:
+              type: integer
+            totalBatchCount:
+              type: integer
+            isFirstBatch:
+              type: boolean
+            mayCauseNavigation:
+              type: boolean
+            fileName:
+              type: string
+
+    WaitForNavigationCommand:
+      allOf:
+        - $ref: "#/components/schemas/BaseCommand"
+        - type: object
+          required: [type]
+          properties:
+            type:
+              const: wait_for_navigation
+            observedUrl:
+              type: string
+            url:
+              type: string
+            source:
+              type: string
+
+    AskHumanCommand:
+      allOf:
+        - $ref: "#/components/schemas/BaseCommand"
+        - type: object
+          required: [type]
+          properties:
+            type:
+              const: ask_human
+            message:
+              type: string
+
+    DoneCommand:
+      allOf:
+        - $ref: "#/components/schemas/BaseCommand"
+        - type: object
+          required: [type]
+          properties:
+            type:
+              const: done
+            summary:
+              type: string
+            plannerSummary:
+              type: string
+            finalResult:
+              description: Planner-defined final result shown in the UI.
+
+    BrowserAction:
+      type: object
+      required: [type]
+      additionalProperties: true
+      properties:
+        type:
+          type: string
+          examples: [click, fill, press, wait, goto, scroll]
+        targetId:
+          type: string
+        frameId:
+          type: integer
+        value:
+          type: string
+        key:
+          type: string
+        direction:
+          type: string
+        ms:
+          type: integer
+        url:
+          type: string
+
+    Plan:
+      type: object
+      additionalProperties: true
+      properties:
+        status:
+          type: string
+        reasoning:
+          type: string
+        summary:
+          type: string
+        actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/BrowserAction"
+
+    ExecutionResult:
+      type: object
+      additionalProperties: true
+      properties:
+        ok:
+          type: boolean
+        summary:
+          type: string
+        error:
+          type: string
+        results:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    ReplayBatchResult:
+      type: object
+      additionalProperties: true
+      properties:
+        ok:
+          type: boolean
+        error:
+          type: string
+        results:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    NavigationInfo:
+      type: object
+      additionalProperties: true
+      properties:
+        observedUrl:
+          type: string
+        loading:
+          type: boolean
+        interruptedAfterExecution:
+          type: boolean
+        browserContext:
+          $ref: "#/components/schemas/BrowserContext"
+        handoffToTabId:
+          type:
+            - integer
+            - "null"
+        source:
+          type: string
+
+    InputSchemaItem:
+      type: object
+      additionalProperties: true
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        type:
+          type: string
+        required:
+          type: boolean
+
+    SavedArtifactSummary:
+      type: object
+      additionalProperties: true
+      properties:
+        goal:
+          type: string
+        description:
+          type: string
+        successfulReplayArtifactFileName:
+          type: string
+        updatedAt:
+          type: string
+        inputSchema:
+          type: array
+          items:
+            $ref: "#/components/schemas/InputSchemaItem"

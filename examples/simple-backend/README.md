@@ -25,7 +25,7 @@ The demo action fills one target control and presses Enter.
 
 ```bash
 WEBGPT_SIMPLE_TARGET_ID=el_45 \
-WEBGPT_SIMPLE_ADDRESS="423 N Holly st" \
+WEBGPT_SIMPLE_FILL_TEXT="example search text" \
 PORT=8787 \
 npm start
 ```
@@ -35,12 +35,12 @@ Environment variables:
 - `PORT`: server port, default `8787`
 - `HOST`: bind host, default `127.0.0.1`
 - `WEBGPT_SIMPLE_TARGET_ID`: WebGPT control ID to fill, default `el_45`
-- `WEBGPT_SIMPLE_ADDRESS`: text to fill, default `423 N Holly st`
+- `WEBGPT_SIMPLE_FILL_TEXT`: text to fill, default `example search text`
 - `WEBGPT_SIMPLE_DELAY_MS`: wait before filling, default `10000`
 
 ## What This Proves
 
-The frontend does not require the private WebGPT planner backend. Any backend can work with the extension if it speaks the documented planner command contract.
+Any backend can work with the extension if it speaks the documented planner command contract.
 
 This example implements only the small route subset needed for a one-batch action demo. For the full contract, see:
 
