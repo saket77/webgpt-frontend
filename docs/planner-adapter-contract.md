@@ -7,6 +7,12 @@ There are two related contracts:
 - The JavaScript `plannerAdapter` interface consumed by `background/controller/`.
 - The default HTTP API implemented by `background/adapters/webgpt/`, described in [planner-http-api.openapi.yaml](./planner-http-api.openapi.yaml).
 
+The extension defaults to the hosted WebGPT planner at:
+
+```text
+https://webgpt-backend-production.up.railway.app
+```
+
 If your backend already implements the default HTTP API, point the extension at its base URL in the sidepanel Backend card. If your backend uses different routes or payloads, provide a custom JavaScript adapter and pass it to `createController`.
 
 ## Controller-Facing Adapter
@@ -228,7 +234,7 @@ The default adapter in [`background/adapters/webgpt/api.js`](../background/adapt
 - `POST /save-successful-execution-trace`
 - `POST /save-successful-replay-artifacts`
 
-Use [planner-http-api.openapi.yaml](./planner-http-api.openapi.yaml) as the machine-readable route and payload reference.
+Use [planner-http-api.openapi.yaml](./planner-http-api.openapi.yaml) as the machine-readable route and payload reference. The OpenAPI file lists both the hosted WebGPT planner and the local simple backend example as servers.
 
 ## Minimal Compatible Loop
 

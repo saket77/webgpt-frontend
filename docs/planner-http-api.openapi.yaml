@@ -8,8 +8,10 @@ info:
     interface; this OpenAPI document describes the HTTP routes used by the
     default adapter implementation.
 servers:
+  - url: https://webgpt-backend-production.up.railway.app
+    description: Hosted WebGPT planner
   - url: http://localhost:8787
-    description: Simple backend example
+    description: Simple local backend example
 tags:
   - name: Runs
   - name: Template Runs

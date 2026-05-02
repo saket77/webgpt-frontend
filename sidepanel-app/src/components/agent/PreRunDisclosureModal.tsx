@@ -46,8 +46,8 @@ export function PreRunDisclosureModal({
             content.
           </List.Item>
           <List.Item>
-            Sends structured page state to your configured backend only after
-            you start a run.
+            Sends structured page state to the default or configured backend
+            only after you start a run.
           </List.Item>
           <List.Item>
             Injects local extension scripts dynamically for user-initiated

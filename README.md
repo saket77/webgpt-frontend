@@ -20,14 +20,21 @@ The frontend is the browser-side execution engine. It does not own planning logi
 
 ## Compatible Backends
 
-This frontend is designed to work with any backend that can produce the browser-command vocabulary the extension understands.
+This frontend works out of the box with the hosted WebGPT planner backend:
+
+```text
+https://webgpt-backend-production.up.railway.app
+```
+
+It can also work with any backend that produces the browser-command vocabulary the extension understands.
 
 There are two integration layers:
 
-- The controller-facing JavaScript `plannerAdapter` interface.
+- The default hosted WebGPT planner backend.
+- The controller-facing JavaScript `plannerAdapter` interface for custom integrations.
 - The default HTTP adapter, documented in [docs/planner-http-api.openapi.yaml](./docs/planner-http-api.openapi.yaml).
 
-Start with [docs/planner-adapter-contract.md](./docs/planner-adapter-contract.md) for the conceptual contract, or run [examples/simple-backend](./examples/simple-backend/README.md) for a tiny compatible server.
+Start with the hosted default to see the runtime working, then read [docs/planner-adapter-contract.md](./docs/planner-adapter-contract.md) if you want to bring your own planner backend.
 
 ## Local Development
 
@@ -49,14 +56,17 @@ not intended to be tracked as source.
 3. Choose "Load unpacked"
 4. Select this repository folder
 
-### 3. Point the Extension at a Backend
+### 3. Run With The Default Planner
 
-Open the sidepanel and use the Backend card on the Run page.
+Open the sidepanel, enter a goal, and start a run. By default the extension talks to the hosted WebGPT planner backend.
+
+To use another compatible backend, open the Backend card on the Run page and save a custom base URL.
 
 Examples:
 
+- `https://webgpt-backend-production.up.railway.app` for the hosted WebGPT planner
 - `http://localhost:8787` for [the simple demo backend](./examples/simple-backend/README.md)
-- `http://localhost:3000` if you run a compatible backend on the built-in fallback port
+- `http://localhost:3000` if you run another compatible backend locally
 
 ## Extension Points
 
@@ -64,7 +74,7 @@ Examples:
 
 Bring any backend that can speak the WebGPT planner command contract.
 
-Start with [examples/simple-backend](./examples/simple-backend/README.md) if you want the smallest possible compatible server.
+Start with [examples/simple-backend](./examples/simple-backend/README.md) if you want the smallest possible compatible server for local development.
 
 ### Site Adapters
 
