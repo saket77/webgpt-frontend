@@ -8,6 +8,7 @@ export type StartAgentRequest = {
   artifactFileName?: string | null;
   inputValues?: Record<string, string[]>;
   isTemplate?: boolean;
+  surface?: string;
 };
 
 async function sendToWorker<T = any>(message: any): Promise<T> {
@@ -30,6 +31,7 @@ export function useAgentActions() {
       artifactFileName,
       inputValues,
       isTemplate,
+      surface,
     }: StartAgentRequest) => {
       return sendToWorker<{
         ok?: boolean;
@@ -41,6 +43,7 @@ export function useAgentActions() {
         artifactFileName: artifactFileName || null,
         inputValues: inputValues || {},
         isTemplate: isTemplate || false,
+        surface: surface || "",
       });
     },
     [],

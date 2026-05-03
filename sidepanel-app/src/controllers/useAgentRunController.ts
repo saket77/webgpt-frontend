@@ -49,6 +49,7 @@ export type AgentSession = {
   movedToTabId?: number | null;
   movedFromTabId?: number | null;
   lastKnownUrl?: string;
+  surface?: Surface;
   templateRunId?: string;
   templateQueue?: unknown;
 };
@@ -58,11 +59,19 @@ type UseAgentRunControllerArgs = {
   onLaunchRequestHandled?: () => void;
 };
 
+const DISCLOSURE_STORAGE_KEY = "webgpt_pre_run_disclosure_accepted_v1";
+const WEBGPT_HOST_ORIGINS = ["http://*/*", "https://*/*"];
+const BROWSER_DOM_SURFACE = "browser_dom";
+const GOOGLE_SHEETS_SURFACE = "google_sheets";
+
+type Surface = typeof BROWSER_DOM_SURFACE | typeof GOOGLE_SHEETS_SURFACE;
+
 type StartOverrides = {
   goal?: string;
   artifactFileName?: string | null;
   inputValues?: Record<string, string[]>;
   isTemplate?: boolean;
+  surface?: Surface;
   options?: {
     clearEvents?: boolean;
     pendingStatus?: string;
@@ -79,15 +88,13 @@ type TemplateQueueStartRequest = {
   }>;
   inputValues?: Record<string, string[]>;
   artifactFileName?: string | null;
+  surface?: Surface;
   options?: {
     clearEvents?: boolean;
     pendingStatus?: string;
     successStatus?: string;
   };
 };
-
-const DISCLOSURE_STORAGE_KEY = "webgpt_pre_run_disclosure_accepted_v1";
-const WEBGPT_HOST_ORIGINS = ["http://*/*", "https://*/*"];
 
 async function getActiveTabId() {
   const [tab] = await chrome.tabs.query({
@@ -123,6 +130,53 @@ async function requestWebGptHostAccess() {
   return chrome.permissions.request({
     origins: WEBGPT_HOST_ORIGINS,
   });
+}
+
+function normalizeSurface(value: unknown): Surface {
+  return value === GOOGLE_SHEETS_SURFACE ? GOOGLE_SHEETS_SURFACE : BROWSER_DOM_SURFACE;
+}
+
+async function getTabSurface(tabId: number): Promise<Surface> {
+  const response = await chrome.runtime.sendMessage({
+    type: "WEBGPT_GET_TAB_SURFACE",
+    tabId,
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.error || "Unable to detect tab surface.");
+  }
+
+  return normalizeSurface(response.surface);
+}
+
+async function getGoogleSheetsAuthStatus() {
+  const response = await chrome.runtime.sendMessage({
+    type: "WEBGPT_GET_GOOGLE_SHEETS_AUTH_STATUS",
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.error || "Unable to check Google Sheets auth.");
+  }
+
+  return response as {
+    ok?: boolean;
+    authenticated?: boolean;
+    authStatus?: string;
+    configMissing?: boolean;
+    error?: string;
+  };
+}
+
+async function connectGoogleSheets() {
+  const response = await chrome.runtime.sendMessage({
+    type: "WEBGPT_CONNECT_GOOGLE_SHEETS",
+  });
+
+  if (!response?.ok || !response?.authenticated) {
+    throw new Error(response?.error || "Google Sheets authorization failed.");
+  }
+
+  return response;
 }
 
 function sessionStatusText(session?: AgentSession | null) {
@@ -371,6 +425,8 @@ export function useAgentRunController({
   const [goal, setGoal] = useState("");
   const [artifactFileName, setArtifactFileName] = useState<string | null>(null);
   const [preRunDisclosureOpened, setPreRunDisclosureOpened] = useState(false);
+  const [preRunSurface, setPreRunSurface] =
+    useState<Surface>(BROWSER_DOM_SURFACE);
   const [pendingStartOverrides, setPendingStartOverrides] =
     useState<StartOverrides | null>(null);
   const [pendingTemplateQueueStart, setPendingTemplateQueueStart] =
@@ -407,6 +463,14 @@ export function useAgentRunController({
     setActiveTabId(tabId);
     return tabId;
   }, [activeTabId]);
+
+  const resolveStartSurface = useCallback(
+    async (tabId: number, requestedSurface?: Surface) => {
+      if (requestedSurface) return requestedSurface;
+      return getTabSurface(tabId);
+    },
+    [],
+  );
 
   const getSessionForTab = useCallback(async (tabId: number) => {
     const response = await chrome.runtime.sendMessage({
@@ -536,6 +600,10 @@ export function useAgentRunController({
       const effectiveGoal = overrides.goal ?? goal ?? "";
       const effectiveArtifactFileName =
         overrides.artifactFileName ?? artifactFileName ?? null;
+      const effectiveSurface = await resolveStartSurface(
+        tabId,
+        overrides.surface,
+      );
 
       const response = await startAgentRun(
         {
@@ -544,6 +612,7 @@ export function useAgentRunController({
           artifactFileName: effectiveArtifactFileName,
           inputValues: overrides.inputValues,
           isTemplate: Boolean(overrides.isTemplate),
+          surface: effectiveSurface,
         },
         overrides.options,
       );
@@ -555,6 +624,7 @@ export function useAgentRunController({
         ...(prev || {}),
         goal: effectiveGoal,
         attachedTabId: tabId,
+        surface: effectiveSurface,
         running: true,
         awaitingNavigation: false,
         pausedReason: null,
@@ -563,12 +633,16 @@ export function useAgentRunController({
 
       return response;
     },
-    [artifactFileName, ensureActiveTabId, goal, startAgentRun],
+    [artifactFileName, ensureActiveTabId, goal, resolveStartSurface, startAgentRun],
   );
 
   const startTemplateQueueAfterPreRunChecks = useCallback(
     async (request: TemplateQueueStartRequest) => {
       const tabId = await ensureActiveTabId();
+      const effectiveSurface = await resolveStartSurface(
+        tabId,
+        request.surface,
+      );
 
       return runAction(
         "start",
@@ -584,6 +658,7 @@ export function useAgentRunController({
             inputSchema: request.inputSchema || [],
             inputValues: request.inputValues || {},
             artifactFileName: request.artifactFileName || "",
+            surface: effectiveSurface,
           });
 
           if (!response?.ok) {
@@ -598,6 +673,7 @@ export function useAgentRunController({
             ...(prev || {}),
             goal: result.item?.goal || request.goalTemplate || "",
             attachedTabId: tabId,
+            surface: effectiveSurface,
             running: true,
             awaitingNavigation: false,
             pausedReason: null,
@@ -616,16 +692,48 @@ export function useAgentRunController({
         },
       );
     },
-    [ensureActiveTabId, runAction, setEventLog],
+    [ensureActiveTabId, resolveStartSurface, runAction, setEventLog],
   );
 
   const handleStart = useCallback(
     async (overrides: StartOverrides = {}) => {
+      const tabId = await ensureActiveTabId();
+      const surface = await resolveStartSurface(tabId, overrides.surface);
+
+      if (surface === GOOGLE_SHEETS_SURFACE) {
+        const authStatus = await getGoogleSheetsAuthStatus();
+
+        if (authStatus.configMissing) {
+          const message =
+            authStatus.error || "Google Sheets OAuth is not configured.";
+          setError(message);
+          setStatus(message);
+          return {
+            ok: false,
+            requiresGoogleSheetsAuth: true,
+          };
+        }
+
+        if (!authStatus.authenticated) {
+          setPendingStartOverrides({ ...overrides, surface });
+          setPreRunSurface(surface);
+          setPreRunDisclosureOpened(true);
+          setStatus("Connect Google Sheets before starting.");
+          return {
+            ok: false,
+            requiresGoogleSheetsAuth: true,
+          };
+        }
+
+        return startAgentAfterPreRunChecks({ ...overrides, surface });
+      }
+
       const disclosureAccepted = await hasAcceptedPreRunDisclosure();
       const hasHostAccess = await hasWebGptHostAccess();
 
       if (!disclosureAccepted || !hasHostAccess) {
-        setPendingStartOverrides(overrides);
+        setPendingStartOverrides({ ...overrides, surface });
+        setPreRunSurface(surface);
         setPreRunDisclosureOpened(true);
         setStatus("Review WebGPT access before starting.");
         return {
@@ -634,19 +742,58 @@ export function useAgentRunController({
         };
       }
 
-      return startAgentAfterPreRunChecks(overrides);
+      return startAgentAfterPreRunChecks({ ...overrides, surface });
     },
-    [setStatus, startAgentAfterPreRunChecks],
+    [
+      ensureActiveTabId,
+      resolveStartSurface,
+      setError,
+      setStatus,
+      startAgentAfterPreRunChecks,
+    ],
   );
 
   const handleStartTemplateQueue = useCallback(
     async (request: TemplateQueueStartRequest) => {
+      const tabId = await ensureActiveTabId();
+      const surface = await resolveStartSurface(tabId, request.surface);
+
+      if (surface === GOOGLE_SHEETS_SURFACE) {
+        const authStatus = await getGoogleSheetsAuthStatus();
+
+        if (authStatus.configMissing) {
+          const message =
+            authStatus.error || "Google Sheets OAuth is not configured.";
+          setError(message);
+          setStatus(message);
+          return {
+            ok: false,
+            requiresGoogleSheetsAuth: true,
+          };
+        }
+
+        if (!authStatus.authenticated) {
+          setPendingTemplateQueueStart({ ...request, surface });
+          setPendingStartOverrides(null);
+          setPreRunSurface(surface);
+          setPreRunDisclosureOpened(true);
+          setStatus("Connect Google Sheets before starting.");
+          return {
+            ok: false,
+            requiresGoogleSheetsAuth: true,
+          };
+        }
+
+        return startTemplateQueueAfterPreRunChecks({ ...request, surface });
+      }
+
       const disclosureAccepted = await hasAcceptedPreRunDisclosure();
       const hasHostAccess = await hasWebGptHostAccess();
 
       if (!disclosureAccepted || !hasHostAccess) {
-        setPendingTemplateQueueStart(request);
+        setPendingTemplateQueueStart({ ...request, surface });
         setPendingStartOverrides(null);
+        setPreRunSurface(surface);
         setPreRunDisclosureOpened(true);
         setStatus("Review WebGPT access before starting.");
         return {
@@ -655,15 +802,22 @@ export function useAgentRunController({
         };
       }
 
-      return startTemplateQueueAfterPreRunChecks(request);
+      return startTemplateQueueAfterPreRunChecks({ ...request, surface });
     },
-    [setStatus, startTemplateQueueAfterPreRunChecks],
+    [
+      ensureActiveTabId,
+      resolveStartSurface,
+      setError,
+      setStatus,
+      startTemplateQueueAfterPreRunChecks,
+    ],
   );
 
   const handlePreRunDisclosureCancel = useCallback(() => {
     setPreRunDisclosureOpened(false);
     setPendingStartOverrides(null);
     setPendingTemplateQueueStart(null);
+    setPreRunSurface(BROWSER_DOM_SURFACE);
     setStatus("Start cancelled.");
   }, [setStatus]);
 
@@ -671,23 +825,32 @@ export function useAgentRunController({
     try {
       setBusyAction("permissions");
       setError(null);
-      setStatus("Requesting website access...");
+      setStatus(
+        preRunSurface === GOOGLE_SHEETS_SURFACE
+          ? "Connecting Google Sheets..."
+          : "Requesting website access...",
+      );
 
-      const granted = await requestWebGptHostAccess();
+      if (preRunSurface === GOOGLE_SHEETS_SURFACE) {
+        await connectGoogleSheets();
+      } else {
+        const granted = await requestWebGptHostAccess();
 
-      if (!granted) {
-        throw new Error(
-          "Website access was not granted. WebGPT needs this to run on pages you choose.",
-        );
+        if (!granted) {
+          throw new Error(
+            "Website access was not granted. WebGPT needs this to run on pages you choose.",
+          );
+        }
+
+        await setAcceptedPreRunDisclosure();
       }
-
-      await setAcceptedPreRunDisclosure();
 
       const overrides = pendingStartOverrides || {};
       const templateQueueRequest = pendingTemplateQueueStart;
       setPreRunDisclosureOpened(false);
       setPendingStartOverrides(null);
       setPendingTemplateQueueStart(null);
+      setPreRunSurface(BROWSER_DOM_SURFACE);
 
       if (templateQueueRequest) {
         await startTemplateQueueAfterPreRunChecks(templateQueueRequest);
@@ -703,6 +866,7 @@ export function useAgentRunController({
   }, [
     pendingStartOverrides,
     pendingTemplateQueueStart,
+    preRunSurface,
     setBusyAction,
     setError,
     setStatus,
@@ -907,6 +1071,7 @@ export function useAgentRunController({
     setGoal,
     artifactFileName,
     preRunDisclosureOpened,
+    preRunSurface,
 
     activeTabId,
     attachedTabId,

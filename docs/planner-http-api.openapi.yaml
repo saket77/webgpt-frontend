@@ -754,7 +754,7 @@ components:
 
     CompleteTemplateQueueItemResponse:
       type: object
-      required: [ok, status, templateRunId, queue, completedItem, results, item, runId, run, command]
+      required: [ok, status, templateRunId, queue, completedItem]
       additionalProperties: true
       properties:
         ok:
@@ -762,8 +762,8 @@ components:
           const: true
         status:
           type: string
-          enum: [next, finished]
-          description: "'next' returns the next item command; 'finished' has no next item."
+          enum: [next_run, finished]
+          description: "'next_run' returns the next item command; 'finished' has no next item."
         templateRunId:
           type: string
         queue:

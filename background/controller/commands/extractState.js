@@ -6,6 +6,7 @@ import {
 } from "../../state/stateViews.js";
 import { clone } from "../../utils/common.js";
 import { ensureLiveSession, getCommandStep } from "./context.js";
+import { BROWSER_DOM_SURFACE, normalizeSurface } from "../../runtime/surfaces.js";
 
 export async function executeExtractStateCommand(
   tabId,
@@ -14,6 +15,13 @@ export async function executeExtractStateCommand(
 ) {
   let session = await ensureLiveSession(tabId);
   const step = getCommandStep(command, session);
+  const commandSurface = normalizeSurface(command?.surface);
+  const sessionSurface = normalizeSurface(session.surface);
+  const tabSurface = await runtime.detectSurfaceForTab?.(tabId).catch(() => null);
+  const surface =
+    sessionSurface === "google_sheets" && tabSurface?.surface === "google_sheets"
+      ? "google_sheets"
+      : commandSurface || sessionSurface || tabSurface?.surface || BROWSER_DOM_SURFACE;
   const replay = command?.replay || null;
   const resultType =
     command?.type === "navigation_completed"
@@ -37,6 +45,7 @@ export async function executeExtractStateCommand(
   const state = await runtime.extractStateFromTab(tabId, {
     goal: session.goal,
     step,
+    surface,
     meta:
       command?.meta ||
       (command?.type === "navigation_completed"
@@ -47,6 +56,7 @@ export async function executeExtractStateCommand(
   const stateSummary = getAggregateStateSummary(state);
 
   session = await getSession(tabId);
+  session.surface = state?.surface || surface;
   session.lastKnownUrl =
     getLastKnownUrlFromState(state) || session.lastKnownUrl || "";
   await saveSession(tabId, session);
@@ -84,6 +94,7 @@ export async function executeExtractStateCommand(
       stateSummary.url,
     ),
     artifactFileName: "",
+    surface: session.surface,
   });
 
   const nextCommand = commandResponse.command || {};
@@ -104,7 +115,13 @@ export async function executeExtractStateCommand(
     reasoning: plan.reasoning || "",
     summary: nextCommand.summary || plan.summary || "",
     plannerSummary: nextCommand.plannerSummary || "",
-    actions: clone(nextCommand.actions || plan.actions || []),
+    actions: clone(
+      nextCommand.actions ||
+        nextCommand.commands ||
+        plan.actions ||
+        plan.commands ||
+        [],
+    ),
   });
 
   const stopAfterPlan = await stopIfRequested(

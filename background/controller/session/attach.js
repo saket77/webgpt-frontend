@@ -57,11 +57,15 @@ export function createAttachSessionToTab({ runtime }) {
       );
     }
 
-    const targetReady = await runtime.ensureContentScriptReady(toTabId, {
-      attempts: 10,
-      delayMs: 200,
-      allowInjection: true,
-    });
+    const targetSurface = await runtime.detectSurfaceForTab?.(toTabId);
+    const isGoogleSheetsTarget = targetSurface?.surface === "google_sheets";
+    const targetReady = isGoogleSheetsTarget
+      ? true
+      : await runtime.ensureContentScriptReady(toTabId, {
+          attempts: 10,
+          delayMs: 200,
+          allowInjection: true,
+        });
 
     if (!targetReady) {
       throw new Error("Could not prepare the target tab for WebGPT.");
@@ -89,6 +93,7 @@ export function createAttachSessionToTab({ runtime }) {
       awaitingNavigation: false,
       stopRequested: false,
       lastKnownUrl: targetTab.url || sourceSession.lastKnownUrl || "",
+      surface: targetSurface?.surface || sourceSession.surface || "browser_dom",
     };
 
     await moveSession(fromTabId, toTabId, nextSession);

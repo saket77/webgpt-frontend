@@ -14,6 +14,14 @@ function getFrameMap(state) {
   return state.frames;
 }
 
+function isGoogleSheetsState(state) {
+  return Boolean(
+    state?.surface === "google_sheets" ||
+      state?.spreadsheetId ||
+      state?.visibleGrid,
+  );
+}
+
 function getFrameIds(state) {
   return toSortedNumericKeys(getFrameMap(state))
     .map((key) => Number(key))
@@ -143,6 +151,10 @@ export function getLastKnownUrlFromState(state) {
     return "";
   }
 
+  if (isGoogleSheetsState(state)) {
+    return state.url || "";
+  }
+
   const primaryUrl = getPrimaryUrl(state);
   if (primaryUrl) {
     return primaryUrl;
@@ -162,6 +174,26 @@ export function getLastKnownUrlFromState(state) {
 }
 
 export function getAggregateStateSummary(state) {
+  if (isGoogleSheetsState(state)) {
+    return {
+      frameCount: 0,
+      primaryFrameId: null,
+      url: state?.url || "",
+      title: state?.spreadsheetTitle || state?.title || "",
+      controlsCount: 0,
+      scrollableContainersCount: 0,
+      headingsCount: 0,
+      visibleTextCount: Array.isArray(state?.visibleGrid?.values)
+        ? state.visibleGrid.values.reduce(
+            (count, row) => count + (Array.isArray(row) ? row.length : 0),
+            0,
+          )
+        : 0,
+      overlaysCount: 0,
+      timestamp: state?.timestamp || "",
+    };
+  }
+
   const primaryFrameId = getPrimaryFrameId(state);
   const primaryFrame = getPrimaryFrame(state);
 

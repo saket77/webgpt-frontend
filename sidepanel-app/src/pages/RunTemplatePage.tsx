@@ -3,6 +3,7 @@ import { Button, Card, Stack, Text } from "@mantine/core";
 import {
   CurrentStepCard,
   EventLogCard,
+  PreRunDisclosureModal,
   RunAgentHumanHintCard,
   SuccessConfirmationCard,
 } from "../components/agent";
@@ -47,6 +48,14 @@ export default function RunTemplatePage({
       />
 
       <ErrorAlert />
+
+      <PreRunDisclosureModal
+        opened={agent.preRunDisclosureOpened}
+        loading={agent.busyAction === "permissions"}
+        surface={agent.preRunSurface}
+        onAccept={() => void agent.handlePreRunDisclosureAccept()}
+        onCancel={agent.handlePreRunDisclosureCancel}
+      />
 
       <Card withBorder radius="md" p="md">
         <Stack gap="xs">

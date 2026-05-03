@@ -26,6 +26,7 @@ export function getEmptySession(tabId) {
     artifactFileName: "",
     events: [],
     lastKnownUrl: "",
+    surface: "browser_dom",
     movedToTabId: null,
     movedFromTabId: null,
     finalResult: null,

@@ -35,6 +35,7 @@ export default function RunAgentPage(props: RunAgentPageProps) {
       <PreRunDisclosureModal
         opened={controller.preRunDisclosureOpened}
         loading={controller.busyAction === "permissions"}
+        surface={controller.preRunSurface}
         onAccept={() => void controller.handlePreRunDisclosureAccept()}
         onCancel={controller.handlePreRunDisclosureCancel}
       />

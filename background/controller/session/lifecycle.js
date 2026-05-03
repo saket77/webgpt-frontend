@@ -29,6 +29,7 @@ export function clearLocalRunTracking(session, { keepGoal = false } = {}) {
   session.pausedReason = "";
   session.pendingStep = null;
   session.lastKnownUrl = "";
+  session.surface = "browser_dom";
   session.finalResult = null;
   session.pendingNewTab = null;
   session.replayRunning = false;

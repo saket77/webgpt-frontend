@@ -55,6 +55,7 @@ export function createWebGptApiClient({ baseUrl } = {}) {
       userHint = "",
       browserContext = {},
       artifactFileName = "",
+      surface = "",
     }) {
       const json = await postJsonToApi(`/runs/start-command`, {
         goal,
@@ -64,6 +65,7 @@ export function createWebGptApiClient({ baseUrl } = {}) {
         userHint,
         browserContext,
         artifactFileName,
+        surface,
       });
 
       if (!json?.ok || !json?.runId || !json?.command) {
@@ -82,12 +84,14 @@ export function createWebGptApiClient({ baseUrl } = {}) {
       inputSchema = [],
       inputValues = {},
       artifactFileName = "",
+      surface = "",
     }) {
       const json = await postJsonToApi(`/template-runs/start-command`, {
         goalTemplate,
         inputSchema,
         inputValues,
         artifactFileName,
+        surface,
       });
 
       if (!json?.ok || !json?.templateRunId || !json?.runId || !json?.command) {
@@ -159,6 +163,7 @@ export function createWebGptApiClient({ baseUrl } = {}) {
       userHint = "",
       browserContext = {},
       artifactFileName = "",
+      surface = "",
       navigationInfo = {},
       batchResult = null,
       navigationInterrupted = false,
@@ -173,6 +178,7 @@ export function createWebGptApiClient({ baseUrl } = {}) {
         userHint,
         browserContext,
         artifactFileName,
+        surface,
         navigationInfo,
         batchResult,
         navigationInterrupted,
