@@ -2,9 +2,9 @@
 
 ![WebGPT icon](./icons/icon-128.png)
 
-WebGPT is a Chrome extension frontend for AI-powered browser automation. It observes the active tab, extracts structured page state, sends that state to a compatible planner backend, and safely executes the browser commands returned by that backend.
+WebGPT is a Chrome extension frontend for AI-powered browser automation. It observes the active tab, extracts structured page or runtime state, sends that state to a compatible planner backend, and safely executes the commands returned by that backend.
 
-Think of this repo as the browser-side runtime: sidepanel UI, tab/session orchestration, DOM extraction, action execution, replay support, and the HTTP adapter contract that lets planner backends plug in cleanly.
+Think of this repo as the browser-side runtime: sidepanel UI, tab/session orchestration, DOM extraction, runtime surfaces, action execution, replay support, and the HTTP adapter contract that lets planner backends plug in cleanly.
 
 ## Demo Video
 
@@ -23,6 +23,7 @@ Web automation agents are easiest to iterate on when the browser runtime and pla
 - **Browser-native execution**: runs as a Chrome extension, using content scripts to inspect and operate on the current page.
 - **Backend-agnostic planning**: use the hosted WebGPT planner or point the extension at any backend that speaks the documented command contract.
 - **Structured page state**: extracts frames, controls, labels, scroll containers, URLs, titles, and site-adapter hints for planner use.
+- **Runtime surfaces**: can route non-DOM products such as Google Sheets through dedicated runtime clients while preserving the same planner loop.
 - **Human-in-the-loop recovery**: supports planner pauses, human hints, success confirmation, and rejected-success resume flows.
 - **Navigation-aware loops**: detects likely navigation, waits for the new document, and resumes with fresh state.
 - **OpenAPI contract**: the default HTTP planner API is documented in `docs/planner-http-api.openapi.yaml`.
@@ -33,24 +34,25 @@ Web automation agents are easiest to iterate on when the browser runtime and pla
 User goal
   -> sidepanel UI
   -> background controller
-  -> content-script state extraction
+  -> runtime state extraction
   -> planner backend
-  -> browser command
-  -> content-script action runner
+  -> frontend command
+  -> runtime executor
   -> post-action state extraction
   -> next planner turn
 ```
 
-Backends do not need to know how to click DOM nodes directly. They return high-level browser commands such as:
+Backends do not need to know how to click DOM nodes or call browser APIs directly. They return high-level commands such as:
 
 - `extract_state`
 - `run_actions`
+- `run_google_sheets_commands`
 - `wait_for_navigation`
 - `ask_human`
 - `done`
 - `run_replay_batch`
 
-The extension owns browser execution and lifecycle details.
+The extension owns browser execution, runtime auth, runtime API calls, and lifecycle details.
 
 ## Quick Start
 
@@ -149,8 +151,8 @@ Command responses use the standard envelope:
 ## Project Layout
 
 ```text
-background/        Extension service worker, controller flows, session state, backend adapters
-content-scripts/  DOM state extraction, action resolution, action execution, site adapters
+background/        Extension service worker, runtime surfaces, controller flows, session state, backend adapters
+content-scripts/  DOM state extraction, action resolution, DOM action execution, site adapters
 sidepanel-app/    React sidepanel UI
 docs/             Planner contracts, OpenAPI spec, adapter docs
 examples/         Minimal compatible backend examples
@@ -172,6 +174,23 @@ The Canvas quiz adapter is an example:
 ```text
 content-scripts/adapters/canvasQuiz.js
 ```
+
+## Runtime Surfaces
+
+Runtime surfaces are a sibling extension point to site adapters. Use them when a product is better controlled through a durable API or browser capability than through generic DOM clicks.
+
+The first non-DOM runtime is Google Sheets:
+
+```text
+background/runtime/googleSheets.js
+```
+
+It detects Google Sheets tabs, requests Google Sheets access through Chrome identity, extracts spreadsheet state, executes curated Sheets API commands, and routes Sheets replay steps through the same controller loop.
+
+Start here:
+
+- [Runtime authoring guide](./docs/runtime-authoring.md)
+- [Google Sheets surface v0](./docs/surfaces/google-sheets-v0.md)
 
 ## Development Commands
 
@@ -201,8 +220,8 @@ ruby -e 'require "yaml"; YAML.load_file("docs/planner-http-api.openapi.yaml"); p
 
 - Keep the browser controller backend-agnostic.
 - Keep planner-specific routes and compatibility inside adapters.
-- Prefer structured page state over screenshots or raw HTML dumps.
-- Keep content scripts responsible for browser execution, not planning.
+- Prefer structured page/runtime state over screenshots or raw HTML dumps.
+- Keep content scripts and runtimes responsible for execution, not planning.
 - Use the OpenAPI contract as the source of truth for compatible HTTP backends.
 - Make human intervention explicit: hints, pauses, confirmations, and resume flows should be visible in the session history.
 

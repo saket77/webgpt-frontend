@@ -17,6 +17,8 @@ The frontend loop stays generic:
 
 Adapters make page state easier to understand without creating a second execution model.
 
+If a workflow needs a different execution model, such as API-backed Google Sheets commands instead of DOM clicks, use a runtime surface instead. See [Runtime authoring guide](./runtime-authoring.md).
+
 ## Current Files
 
 Adapter code lives in:

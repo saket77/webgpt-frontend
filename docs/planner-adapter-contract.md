@@ -68,7 +68,22 @@ The controller should remain backend-agnostic. Put route names, auth headers, re
 }
 ```
 
-Backends may ignore fields they do not need, but they should treat `goal`, `step`, and the observed URL fields as useful planner context.
+Backends may ignore fields they do not need, but they should treat `goal`, `step`, `surface`, and the observed URL fields as useful planner context.
+
+For non-DOM runtimes, `surface` tells the backend which planner vocabulary to use:
+
+```json
+{
+  "tabId": 123,
+  "attachedTabId": 123,
+  "surface": "google_sheets",
+  "lastKnownUrl": "https://docs.google.com/spreadsheets/d/sheet-id/edit#gid=0",
+  "observedUrl": "https://docs.google.com/spreadsheets/d/sheet-id/edit#gid=0",
+  "url": "https://docs.google.com/spreadsheets/d/sheet-id/edit#gid=0",
+  "goal": "Mark row 12 complete",
+  "step": 1
+}
+```
 
 ## Run Snapshot
 
@@ -97,6 +112,7 @@ The frontend calls `postCommandResult` after each browser-side event. Compatible
 - `state_extracted`: sends structured page state after extraction.
 - `navigation_completed`: sends fresh state after a document navigation settles.
 - `actions_executed`: sends action execution results and post-action state.
+- `google_sheets_commands_executed`: sends Google Sheets runtime command results and post-command spreadsheet state.
 - `navigation_detected`: reports likely navigation triggered by actions.
 - `replay_batch_executed`: reports execution of a replay batch.
 
@@ -159,6 +175,33 @@ Execute browser actions through the content-script runner.
 ```
 
 Actions are resolved against the extracted controls the frontend sent earlier. Use `frameId` when the target belongs to a non-primary frame.
+
+### `run_google_sheets_commands`
+
+Execute curated Google Sheets runtime commands through the extension's Google Sheets runtime.
+
+```json
+{
+  "type": "run_google_sheets_commands",
+  "surface": "google_sheets",
+  "step": 2,
+  "commands": [
+    {
+      "name": "write_values",
+      "sheetName": "Customers",
+      "range": "D12",
+      "values": [["Done"]]
+    }
+  ],
+  "plan": {
+    "status": "continue",
+    "reasoning": "Update the status cell for the matched customer.",
+    "summary": "Mark the customer done."
+  }
+}
+```
+
+The current Google Sheets command vocabulary is documented in [Google Sheets surface v0](./surfaces/google-sheets-v0.md).
 
 ### `run_replay_batch`
 
@@ -257,5 +300,6 @@ A compatible backend or adapter should provide:
 - `finalResult.summary` when a run completes
 - handling for the frontend result types listed above
 - successful JSON responses for artifact routes, even if artifact persistence is a no-op
+- surface-aware routing when it accepts non-DOM states such as `google_sheets`
 
 Keep backend-specific details out of the generic controller. The adapter boundary is what lets this frontend stay reusable.
