@@ -13,7 +13,7 @@ import { useState } from "react";
 type PreRunDisclosureModalProps = {
   opened: boolean;
   loading?: boolean;
-  surface?: "browser_dom" | "google_sheets";
+  surface?: "browser_dom" | "google_sheets" | "microsoft_excel";
   onAccept: () => void;
   onCancel: () => void;
 };
@@ -27,6 +27,9 @@ export function PreRunDisclosureModal({
 }: PreRunDisclosureModalProps) {
   const [confirmed, setConfirmed] = useState(false);
   const isGoogleSheets = surface === "google_sheets";
+  const isMicrosoftExcel = surface === "microsoft_excel";
+  const isApiSurface = isGoogleSheets || isMicrosoftExcel;
+  const productName = isMicrosoftExcel ? "Microsoft Excel" : "Google Sheets";
 
   const handleCancel = () => {
     setConfirmed(false);
@@ -42,35 +45,36 @@ export function PreRunDisclosureModal({
     <Modal
       opened={opened}
       onClose={handleCancel}
-      title={isGoogleSheets ? "Connect Google Sheets" : "Before WebGPT runs"}
+      title={isApiSurface ? `Connect ${productName}` : "Before WebGPT runs"}
       centered
       closeOnClickOutside={!loading}
       closeOnEscape={!loading}
     >
       <Stack gap="sm">
         <Text size="sm">
-          {isGoogleSheets
-            ? "WebGPT needs Google Sheets access so it can read spreadsheet state and execute the sheet updates you request."
+          {isApiSurface
+            ? `WebGPT needs ${productName} access so it can read workbook state and execute the spreadsheet updates you request.`
             : "WebGPT needs access to the current website so it can observe the page, plan the next step, and execute actions you request."}
         </Text>
 
         <List size="sm" spacing={4}>
-          {isGoogleSheets ? (
+          {isApiSurface ? (
             <>
               <List.Item>
-                Reads spreadsheet title, sheet tabs, selected range, and a
+                Reads workbook title, sheet tabs, selected range, and a
                 bounded grid snapshot.
               </List.Item>
               <List.Item>
-                Executes curated Sheets API commands like reading, writing,
+                Executes curated spreadsheet API commands like reading, writing,
                 appending, finding rows, formatting, and selecting ranges.
               </List.Item>
               <List.Item>
-                Gets the Google token through Chrome on this device; WebGPT does
-                not store Google tokens on the backend.
+                Gets the {isMicrosoftExcel ? "Microsoft" : "Google"} token
+                through Chrome on this device; WebGPT does not store spreadsheet
+                tokens on the backend.
               </List.Item>
               <List.Item>
-                Sends structured Sheets state and execution results to the
+                Sends structured spreadsheet state and execution results to the
                 configured backend only after you start a run.
               </List.Item>
             </>
@@ -97,8 +101,10 @@ export function PreRunDisclosureModal({
         </List>
 
         <Alert color="blue" variant="light">
-          {isGoogleSheets
-            ? "Chrome will ask you to connect your Google account for Sheets access. This is required before the planner loop starts on a spreadsheet."
+          {isApiSurface
+            ? `Chrome will ask you to connect your ${
+                isMicrosoftExcel ? "Microsoft" : "Google"
+              } account for ${productName} access. This is required before the planner loop starts on a spreadsheet.`
             : "Chrome will ask you to grant website access. WebGPT uses this access for browser automation on sites you choose to run it on."}
         </Alert>
 
@@ -106,8 +112,8 @@ export function PreRunDisclosureModal({
           checked={confirmed}
           onChange={(event) => setConfirmed(event.currentTarget.checked)}
           label={
-            isGoogleSheets
-              ? "I understand and want to connect Google Sheets for this WebGPT run."
+            isApiSurface
+              ? `I understand and want to connect ${productName} for this WebGPT run.`
               : "I understand and want to allow WebGPT to run on websites I choose."
           }
         />

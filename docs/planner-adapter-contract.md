@@ -85,6 +85,8 @@ For non-DOM runtimes, `surface` tells the backend which planner vocabulary to us
 }
 ```
 
+Microsoft Excel uses the same `surface` field with `microsoft_excel` and Excel/SharePoint URLs.
+
 ## Run Snapshot
 
 The backend `run` object is mostly opaque to the frontend. The controller currently reads:
@@ -113,6 +115,7 @@ The frontend calls `postCommandResult` after each browser-side event. Compatible
 - `navigation_completed`: sends fresh state after a document navigation settles.
 - `actions_executed`: sends action execution results and post-action state.
 - `google_sheets_commands_executed`: sends Google Sheets runtime command results and post-command spreadsheet state.
+- `microsoft_excel_commands_executed`: sends Microsoft Excel runtime command results and post-command workbook state.
 - `navigation_detected`: reports likely navigation triggered by actions.
 - `replay_batch_executed`: reports execution of a replay batch.
 
@@ -202,6 +205,33 @@ Execute curated Google Sheets runtime commands through the extension's Google Sh
 ```
 
 The current Google Sheets command vocabulary is documented in [Google Sheets surface v0](./surfaces/google-sheets-v0.md).
+
+### `run_microsoft_excel_commands`
+
+Execute curated Microsoft Excel runtime commands through the extension's Microsoft Excel runtime.
+
+```json
+{
+  "type": "run_microsoft_excel_commands",
+  "surface": "microsoft_excel",
+  "step": 2,
+  "commands": [
+    {
+      "name": "write_range",
+      "worksheetName": "Customers",
+      "range": "D12",
+      "values": [["Done"]]
+    }
+  ],
+  "plan": {
+    "status": "continue",
+    "reasoning": "Update the status cell for the matched customer.",
+    "summary": "Mark the customer done."
+  }
+}
+```
+
+The current Microsoft Excel command vocabulary is documented in [Microsoft Excel surface v0](./surfaces/microsoft-excel-v0.md).
 
 ### `run_replay_batch`
 
@@ -300,6 +330,6 @@ A compatible backend or adapter should provide:
 - `finalResult.summary` when a run completes
 - handling for the frontend result types listed above
 - successful JSON responses for artifact routes, even if artifact persistence is a no-op
-- surface-aware routing when it accepts non-DOM states such as `google_sheets`
+- surface-aware routing when it accepts non-DOM states such as `google_sheets` and `microsoft_excel`
 
 Keep backend-specific details out of the generic controller. The adapter boundary is what lets this frontend stay reusable.

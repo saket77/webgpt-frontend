@@ -18,6 +18,8 @@ import {
   detectSurfaceForTab,
   getGoogleSheetsAuthStatus,
   connectGoogleSheets,
+  getMicrosoftExcelAuthStatus,
+  connectMicrosoftExcel,
 } from "./controller/index.js";
 
 async function getActiveTabId() {
@@ -159,6 +161,18 @@ export function registerMessageHandlers() {
 
       if (message?.type === "WEBGPT_CONNECT_GOOGLE_SHEETS") {
         const result = await connectGoogleSheets();
+        sendResponse(result);
+        return;
+      }
+
+      if (message?.type === "WEBGPT_GET_MICROSOFT_EXCEL_AUTH_STATUS") {
+        const result = await getMicrosoftExcelAuthStatus();
+        sendResponse(result);
+        return;
+      }
+
+      if (message?.type === "WEBGPT_CONNECT_MICROSOFT_EXCEL") {
+        const result = await connectMicrosoftExcel();
         sendResponse(result);
         return;
       }

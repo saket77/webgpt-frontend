@@ -23,7 +23,7 @@ Web automation agents are easiest to iterate on when the browser runtime and pla
 - **Browser-native execution**: runs as a Chrome extension, using content scripts to inspect and operate on the current page.
 - **Backend-agnostic planning**: use the hosted WebGPT planner or point the extension at any backend that speaks the documented command contract.
 - **Structured page state**: extracts frames, controls, labels, scroll containers, URLs, titles, and site-adapter hints for planner use.
-- **Runtime surfaces**: can route non-DOM products such as Google Sheets through dedicated runtime clients while preserving the same planner loop.
+- **Runtime surfaces**: can route non-DOM products such as Google Sheets and Microsoft Excel through dedicated runtime clients while preserving the same planner loop.
 - **Human-in-the-loop recovery**: supports planner pauses, human hints, success confirmation, and rejected-success resume flows.
 - **Navigation-aware loops**: detects likely navigation, waits for the new document, and resumes with fresh state.
 - **OpenAPI contract**: the default HTTP planner API is documented in `docs/planner-http-api.openapi.yaml`.
@@ -47,6 +47,7 @@ Backends do not need to know how to click DOM nodes or call browser APIs directl
 - `extract_state`
 - `run_actions`
 - `run_google_sheets_commands`
+- `run_microsoft_excel_commands`
 - `wait_for_navigation`
 - `ask_human`
 - `done`
@@ -179,18 +180,22 @@ content-scripts/adapters/canvasQuiz.js
 
 Runtime surfaces are a sibling extension point to site adapters. Use them when a product is better controlled through a durable API or browser capability than through generic DOM clicks.
 
-The first non-DOM runtime is Google Sheets:
+The first non-DOM runtimes are Google Sheets and Microsoft Excel:
 
 ```text
 background/runtime/googleSheets.js
+background/runtime/microsoftExcel.js
 ```
 
-It detects Google Sheets tabs, requests Google Sheets access through Chrome identity, extracts spreadsheet state, executes curated Sheets API commands, and routes Sheets replay steps through the same controller loop.
+Google Sheets detects Sheets tabs, requests Sheets access through Chrome identity, extracts spreadsheet state, executes curated Sheets API commands, and routes Sheets replay steps through the same controller loop.
+
+Microsoft Excel detects Excel workbooks opened in Microsoft 365 / SharePoint, requests Microsoft Graph access through Chrome identity + PKCE, resolves the workbook to a Graph drive item, extracts workbook state, executes curated Excel commands, and routes Excel replay steps through the same controller loop.
 
 Start here:
 
 - [Runtime authoring guide](./docs/runtime-authoring.md)
 - [Google Sheets surface v0](./docs/surfaces/google-sheets-v0.md)
+- [Microsoft Excel surface v0](./docs/surfaces/microsoft-excel-v0.md)
 
 ## Development Commands
 

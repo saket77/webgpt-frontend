@@ -1,5 +1,6 @@
 export const BROWSER_DOM_SURFACE = "browser_dom";
 export const GOOGLE_SHEETS_SURFACE = "google_sheets";
+export const MICROSOFT_EXCEL_SURFACE = "microsoft_excel";
 
 export function normalizeSurface(value) {
   const text = String(value || "").trim().toLowerCase();
@@ -10,6 +11,16 @@ export function normalizeSurface(value) {
     text === "sheets"
   ) {
     return GOOGLE_SHEETS_SURFACE;
+  }
+
+  if (
+    text === MICROSOFT_EXCEL_SURFACE ||
+    text === "microsoft-excel" ||
+    text === "excel" ||
+    text === "excel_online" ||
+    text === "excel-online"
+  ) {
+    return MICROSOFT_EXCEL_SURFACE;
   }
 
   if (
@@ -30,8 +41,31 @@ export function isGoogleSheetsUrl(url) {
   );
 }
 
+export function isMicrosoftExcelUrl(url) {
+  const text = String(url || "");
+  const isMicrosoftHost =
+    /^https:\/\/[^/]*\.sharepoint\.com\//i.test(text) ||
+    /^https:\/\/[^/]*-my\.sharepoint\.com\//i.test(text) ||
+    /^https:\/\/onedrive\.live\.com\//i.test(text) ||
+    /^https:\/\/[^/]*\.officeapps\.live\.com\//i.test(text) ||
+    /^https:\/\/(www\.)?office\.com\//i.test(text) ||
+    /^https:\/\/(www\.)?microsoft365\.com\//i.test(text);
+
+  if (!isMicrosoftHost) return false;
+
+  return (
+    /\/:x:\//i.test(text) ||
+    /\/_layouts\/15\/Doc\.aspx/i.test(text) ||
+    /\/_layouts\/xlviewerinternal\.aspx/i.test(text) ||
+    /\/excel\.aspx/i.test(text) ||
+    /[?&](file|sourcedoc|resid)=/i.test(text)
+  );
+}
+
 export function detectSurfaceFromUrl(url) {
-  return isGoogleSheetsUrl(url) ? GOOGLE_SHEETS_SURFACE : BROWSER_DOM_SURFACE;
+  if (isGoogleSheetsUrl(url)) return GOOGLE_SHEETS_SURFACE;
+  if (isMicrosoftExcelUrl(url)) return MICROSOFT_EXCEL_SURFACE;
+  return BROWSER_DOM_SURFACE;
 }
 
 export async function detectSurfaceForTab(tabId) {

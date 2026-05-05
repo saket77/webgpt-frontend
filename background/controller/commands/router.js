@@ -3,6 +3,7 @@ import { executeExtractStateCommand } from "./extractState.js";
 import { executeWaitForNavigationCommand } from "./navigation.js";
 import { executeRunActionsCommand } from "./runActions.js";
 import { executeRunGoogleSheetsCommandsCommand } from "./runGoogleSheetsCommands.js";
+import { executeRunMicrosoftExcelCommandsCommand } from "./runMicrosoftExcelCommands.js";
 import { executeRunReplayBatchCommand } from "./replayBatch.js";
 import {
   buildAskHumanTerminal,
@@ -50,6 +51,15 @@ export async function executeCommand(
 
   if (command?.type === "run_google_sheets_commands") {
     return executeRunGoogleSheetsCommandsCommand(tabId, command, {
+      lastState,
+      plannerAdapter,
+      runtime,
+      stopIfRequested,
+    });
+  }
+
+  if (command?.type === "run_microsoft_excel_commands") {
+    return executeRunMicrosoftExcelCommandsCommand(tabId, command, {
       lastState,
       plannerAdapter,
       runtime,

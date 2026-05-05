@@ -6,7 +6,16 @@ import {
 } from "../../state/stateViews.js";
 import { clone } from "../../utils/common.js";
 import { ensureLiveSession, getCommandStep } from "./context.js";
-import { BROWSER_DOM_SURFACE, normalizeSurface } from "../../runtime/surfaces.js";
+import {
+  BROWSER_DOM_SURFACE,
+  GOOGLE_SHEETS_SURFACE,
+  MICROSOFT_EXCEL_SURFACE,
+  normalizeSurface,
+} from "../../runtime/surfaces.js";
+
+function isApiRuntimeSurface(surface) {
+  return [GOOGLE_SHEETS_SURFACE, MICROSOFT_EXCEL_SURFACE].includes(surface);
+}
 
 export async function executeExtractStateCommand(
   tabId,
@@ -19,8 +28,8 @@ export async function executeExtractStateCommand(
   const sessionSurface = normalizeSurface(session.surface);
   const tabSurface = await runtime.detectSurfaceForTab?.(tabId).catch(() => null);
   const surface =
-    sessionSurface === "google_sheets" && tabSurface?.surface === "google_sheets"
-      ? "google_sheets"
+    isApiRuntimeSurface(sessionSurface) && tabSurface?.surface === sessionSurface
+      ? sessionSurface
       : commandSurface || sessionSurface || tabSurface?.surface || BROWSER_DOM_SURFACE;
   const replay = command?.replay || null;
   const resultType =

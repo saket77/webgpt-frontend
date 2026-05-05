@@ -27,6 +27,7 @@ Runtime code lives in:
 background/runtime/
   browser.js        Browser DOM runtime: content-script extraction, DOM action execution, DOM replay
   googleSheets.js   Google Sheets runtime: Chrome identity auth, Sheets API extraction, Sheets command execution
+  microsoftExcel.js Microsoft Excel runtime: Microsoft auth, Graph extraction, Excel command execution
   index.js          Runtime facade used by the controller
   surfaces.js       Surface IDs and active-tab detection
 ```
@@ -130,6 +131,7 @@ Risky runtime commands:
 - commands that depend on fragile visual coordinates
 
 For Google Sheets v0, see [Google Sheets surface v0](./surfaces/google-sheets-v0.md).
+For Microsoft Excel v0, see [Microsoft Excel surface v0](./surfaces/microsoft-excel-v0.md).
 
 ## Adding A Runtime
 
@@ -195,6 +197,21 @@ The important architectural split is:
 - backend: planner routing, surface spec, command choice, canonical history, summarization, replay artifact creation
 
 That lets this open frontend stay powerful without baking proprietary planning logic into the extension.
+
+## Microsoft Excel Runtime
+
+The Microsoft Excel runtime follows the same seam for Excel workbooks opened in Microsoft 365 / SharePoint:
+
+- detects likely Excel web workbook tabs on SharePoint, Office, and Microsoft 365 URLs
+- requests Microsoft Graph access through `chrome.identity.launchWebAuthFlow`
+- uses auth code + PKCE and stores tokens in extension storage, not the backend
+- resolves the open workbook URL into a Graph `driveItem`
+- reads workbook metadata, worksheets, and a bounded `A1:T50` planning snapshot
+- executes `read_range`, `write_range`, `append_rows`, `find_rows`, `format_range`, `set_active_range`, and `list_worksheets`
+- posts `microsoft_excel_commands_executed` back through the normal command-result route
+- supports Excel replay artifacts through the runtime replay hook
+
+The important difference from Google Sheets is workbook resolution: the runtime must translate the current Excel/SharePoint URL into a Graph drive/item identity before workbook APIs can run.
 
 ## Runtime Vs Site Adapter
 

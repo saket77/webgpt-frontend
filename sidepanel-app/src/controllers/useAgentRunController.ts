@@ -63,8 +63,12 @@ const DISCLOSURE_STORAGE_KEY = "webgpt_pre_run_disclosure_accepted_v1";
 const WEBGPT_HOST_ORIGINS = ["http://*/*", "https://*/*"];
 const BROWSER_DOM_SURFACE = "browser_dom";
 const GOOGLE_SHEETS_SURFACE = "google_sheets";
+const MICROSOFT_EXCEL_SURFACE = "microsoft_excel";
 
-type Surface = typeof BROWSER_DOM_SURFACE | typeof GOOGLE_SHEETS_SURFACE;
+type Surface =
+  | typeof BROWSER_DOM_SURFACE
+  | typeof GOOGLE_SHEETS_SURFACE
+  | typeof MICROSOFT_EXCEL_SURFACE;
 
 type StartOverrides = {
   goal?: string;
@@ -133,7 +137,9 @@ async function requestWebGptHostAccess() {
 }
 
 function normalizeSurface(value: unknown): Surface {
-  return value === GOOGLE_SHEETS_SURFACE ? GOOGLE_SHEETS_SURFACE : BROWSER_DOM_SURFACE;
+  if (value === GOOGLE_SHEETS_SURFACE) return GOOGLE_SHEETS_SURFACE;
+  if (value === MICROSOFT_EXCEL_SURFACE) return MICROSOFT_EXCEL_SURFACE;
+  return BROWSER_DOM_SURFACE;
 }
 
 async function getTabSurface(tabId: number): Promise<Surface> {
@@ -174,6 +180,36 @@ async function connectGoogleSheets() {
 
   if (!response?.ok || !response?.authenticated) {
     throw new Error(response?.error || "Google Sheets authorization failed.");
+  }
+
+  return response;
+}
+
+async function getMicrosoftExcelAuthStatus() {
+  const response = await chrome.runtime.sendMessage({
+    type: "WEBGPT_GET_MICROSOFT_EXCEL_AUTH_STATUS",
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.error || "Unable to check Microsoft Excel auth.");
+  }
+
+  return response as {
+    ok?: boolean;
+    authenticated?: boolean;
+    authStatus?: string;
+    configMissing?: boolean;
+    error?: string;
+  };
+}
+
+async function connectMicrosoftExcel() {
+  const response = await chrome.runtime.sendMessage({
+    type: "WEBGPT_CONNECT_MICROSOFT_EXCEL",
+  });
+
+  if (!response?.ok || !response?.authenticated) {
+    throw new Error(response?.error || "Microsoft Excel authorization failed.");
   }
 
   return response;
@@ -700,17 +736,22 @@ export function useAgentRunController({
       const tabId = await ensureActiveTabId();
       const surface = await resolveStartSurface(tabId, overrides.surface);
 
-      if (surface === GOOGLE_SHEETS_SURFACE) {
-        const authStatus = await getGoogleSheetsAuthStatus();
+      if (surface === GOOGLE_SHEETS_SURFACE || surface === MICROSOFT_EXCEL_SURFACE) {
+        const authStatus =
+          surface === GOOGLE_SHEETS_SURFACE
+            ? await getGoogleSheetsAuthStatus()
+            : await getMicrosoftExcelAuthStatus();
+        const surfaceLabel =
+          surface === GOOGLE_SHEETS_SURFACE ? "Google Sheets" : "Microsoft Excel";
 
         if (authStatus.configMissing) {
           const message =
-            authStatus.error || "Google Sheets OAuth is not configured.";
+            authStatus.error || `${surfaceLabel} OAuth is not configured.`;
           setError(message);
           setStatus(message);
           return {
             ok: false,
-            requiresGoogleSheetsAuth: true,
+            requiresSurfaceAuth: true,
           };
         }
 
@@ -718,10 +759,10 @@ export function useAgentRunController({
           setPendingStartOverrides({ ...overrides, surface });
           setPreRunSurface(surface);
           setPreRunDisclosureOpened(true);
-          setStatus("Connect Google Sheets before starting.");
+          setStatus(`Connect ${surfaceLabel} before starting.`);
           return {
             ok: false,
-            requiresGoogleSheetsAuth: true,
+            requiresSurfaceAuth: true,
           };
         }
 
@@ -758,17 +799,22 @@ export function useAgentRunController({
       const tabId = await ensureActiveTabId();
       const surface = await resolveStartSurface(tabId, request.surface);
 
-      if (surface === GOOGLE_SHEETS_SURFACE) {
-        const authStatus = await getGoogleSheetsAuthStatus();
+      if (surface === GOOGLE_SHEETS_SURFACE || surface === MICROSOFT_EXCEL_SURFACE) {
+        const authStatus =
+          surface === GOOGLE_SHEETS_SURFACE
+            ? await getGoogleSheetsAuthStatus()
+            : await getMicrosoftExcelAuthStatus();
+        const surfaceLabel =
+          surface === GOOGLE_SHEETS_SURFACE ? "Google Sheets" : "Microsoft Excel";
 
         if (authStatus.configMissing) {
           const message =
-            authStatus.error || "Google Sheets OAuth is not configured.";
+            authStatus.error || `${surfaceLabel} OAuth is not configured.`;
           setError(message);
           setStatus(message);
           return {
             ok: false,
-            requiresGoogleSheetsAuth: true,
+            requiresSurfaceAuth: true,
           };
         }
 
@@ -777,10 +823,10 @@ export function useAgentRunController({
           setPendingStartOverrides(null);
           setPreRunSurface(surface);
           setPreRunDisclosureOpened(true);
-          setStatus("Connect Google Sheets before starting.");
+          setStatus(`Connect ${surfaceLabel} before starting.`);
           return {
             ok: false,
-            requiresGoogleSheetsAuth: true,
+            requiresSurfaceAuth: true,
           };
         }
 
@@ -828,11 +874,15 @@ export function useAgentRunController({
       setStatus(
         preRunSurface === GOOGLE_SHEETS_SURFACE
           ? "Connecting Google Sheets..."
+          : preRunSurface === MICROSOFT_EXCEL_SURFACE
+            ? "Connecting Microsoft Excel..."
           : "Requesting website access...",
       );
 
       if (preRunSurface === GOOGLE_SHEETS_SURFACE) {
         await connectGoogleSheets();
+      } else if (preRunSurface === MICROSOFT_EXCEL_SURFACE) {
+        await connectMicrosoftExcel();
       } else {
         const granted = await requestWebGptHostAccess();
 

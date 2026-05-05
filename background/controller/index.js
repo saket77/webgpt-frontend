@@ -89,9 +89,11 @@ export function createController({
     attachSessionToTab,
     confirmSuccess,
     connectGoogleSheets: runtime.connectGoogleSheets,
+    connectMicrosoftExcel: runtime.connectMicrosoftExcel,
     continueRun,
     detectSurfaceForTab: runtime.detectSurfaceForTab,
     getGoogleSheetsAuthStatus: runtime.getGoogleSheetsAuthStatus,
+    getMicrosoftExcelAuthStatus: runtime.getMicrosoftExcelAuthStatus,
     getSessionState: lifecycle.getSessionState,
     listArtifacts,
     pauseForForcedStop: lifecycle.pauseForForcedStop,
@@ -110,10 +112,13 @@ const defaultController = createController();
 export const attachSessionToTab = defaultController.attachSessionToTab;
 export const confirmSuccess = defaultController.confirmSuccess;
 export const connectGoogleSheets = defaultController.connectGoogleSheets;
+export const connectMicrosoftExcel = defaultController.connectMicrosoftExcel;
 export const continueRun = defaultController.continueRun;
 export const detectSurfaceForTab = defaultController.detectSurfaceForTab;
 export const getGoogleSheetsAuthStatus =
   defaultController.getGoogleSheetsAuthStatus;
+export const getMicrosoftExcelAuthStatus =
+  defaultController.getMicrosoftExcelAuthStatus;
 export const getSessionState = defaultController.getSessionState;
 export const listArtifacts = defaultController.listArtifacts;
 export const pauseForForcedStop = defaultController.pauseForForcedStop;
