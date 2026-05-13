@@ -53,6 +53,7 @@ export default function RunTemplatePage({
         showSessionGoal={false}
         allowFreeformStart={false}
         autoScrollOnMount={false}
+        showEmptySuggestions={false}
         activeTabId={agent.activeTabId}
         attachedTabId={agent.attachedTabId}
         session={agent.session}

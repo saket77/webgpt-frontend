@@ -77,6 +77,7 @@ type AgentChatPanelProps = {
   showSessionGoal?: boolean;
   allowFreeformStart?: boolean;
   autoScrollOnMount?: boolean;
+  showEmptySuggestions?: boolean;
   onStart: (submittedGoal?: string) => void;
   onStop: () => void;
   onReset: () => void;
@@ -343,6 +344,7 @@ export function AgentChatPanel({
   showSessionGoal = true,
   allowFreeformStart = true,
   autoScrollOnMount = true,
+  showEmptySuggestions = true,
   onStart,
   onStop,
   onReset,
@@ -490,7 +492,7 @@ export function AgentChatPanel({
               </Paper>
             ) : null}
 
-            {eventLog.length === 0 && !visibleGoal ? (
+            {showEmptySuggestions && eventLog.length === 0 && !visibleGoal ? (
               <Stack className="empty-state" gap="sm">
                 <Text fw={800}>Try asking</Text>
                 <Button
