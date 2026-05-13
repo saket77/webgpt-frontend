@@ -55,7 +55,7 @@ export function TemplateControlPanel({
   onStop,
 }: TemplateControlPanelProps) {
   return (
-    <Card withBorder radius="md" p="md">
+    <Card className="template-control-panel" withBorder radius="md" p="md">
       <Stack gap="md">
         <Text fw={700}>Inputs</Text>
 

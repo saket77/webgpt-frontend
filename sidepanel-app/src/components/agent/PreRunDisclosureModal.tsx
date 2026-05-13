@@ -43,6 +43,7 @@ export function PreRunDisclosureModal({
 
   return (
     <Modal
+      className="disclosure-modal"
       opened={opened}
       onClose={handleCancel}
       title={isApiSurface ? `Connect ${productName}` : "Before WebGPT runs"}

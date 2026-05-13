@@ -14,7 +14,7 @@ export function TemplateResultsCard({ results }: TemplateResultsCardProps) {
   if (results.length === 0) return null;
 
   return (
-    <Card withBorder radius="md" p="md">
+    <Card className="routine-results" withBorder radius="md" p="md">
       <Stack gap="sm">
         <Text fw={700}>Completed summaries</Text>
 

@@ -93,6 +93,9 @@ export function createSessionLifecycleHandlers({ plannerAdapter }) {
     }
 
     session.stopRequested = true;
+    session.running = false;
+    session.awaitingNavigation = false;
+    session.pausedReason = "forced_stop";
     await saveSession(tabId, session);
     if (session.runId) {
       try {
@@ -125,7 +128,7 @@ export function createSessionLifecycleHandlers({ plannerAdapter }) {
     session.running = false;
     session.awaitingNavigation = false;
     session.stopRequested = false;
-    session.pausedReason = "awaiting_human_hint";
+    session.pausedReason = "forced_stop";
 
     if (session.runId) {
       try {

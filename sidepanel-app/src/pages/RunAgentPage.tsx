@@ -1,16 +1,11 @@
 import { Stack } from "@mantine/core";
 
 import {
-  BackendConfigCard,
-  CurrentStepCard,
-  EventLogCard,
+  AgentChatPanel,
   PreRunDisclosureModal,
-  RunAgentControlPanel,
-  RunAgentHumanHintCard,
-  SuccessConfirmationCard,
 } from "../components/agent";
 
-import { ErrorAlert, PageHeader } from "../components/common";
+import { ErrorAlert } from "../components/common";
 
 import type { RunLaunchRequest } from "../hooks/useAgentLaunchRequest";
 import { useAgentRunController } from "../controllers/useAgentRunController";
@@ -21,17 +16,15 @@ type RunAgentPageProps = {
 };
 
 export default function RunAgentPage(props: RunAgentPageProps) {
-  const controller = useAgentRunController(props);
+  const controller = useAgentRunController({
+    ...props,
+    sessionScope: "home",
+  });
 
   return (
-    <Stack p="md" gap="md">
-      {/* Header */}
-      <PageHeader title="Run Agent" />
-
-      {/* Error */}
+    <Stack className="run-page" gap="md">
       <ErrorAlert />
 
-      {/* Control Panel */}
       <PreRunDisclosureModal
         opened={controller.preRunDisclosureOpened}
         loading={controller.busyAction === "permissions"}
@@ -40,47 +33,28 @@ export default function RunAgentPage(props: RunAgentPageProps) {
         onCancel={controller.handlePreRunDisclosureCancel}
       />
 
-      <RunAgentControlPanel
+      <AgentChatPanel
         goal={controller.goal}
         setGoal={controller.setGoal}
-        artifactFileName={controller.artifactFileName}
-        canStart={controller.canStart}
-        canStop={controller.canStop}
-        canRefresh={controller.canRefresh}
-        canAttach={controller.canAttach}
-        canReset={controller.canReset}
-        onStart={() => void controller.handleStart()}
-        onStop={() => void controller.handleStop()}
-        onRefresh={() => void controller.handleRefresh()}
-        onAttachToActiveTab={() => void controller.handleAttachToActiveTab()}
-        onReset={() => void controller.handleReset()}
-      />
-
-      <BackendConfigCard />
-
-      {/* Current Step */}
-      <CurrentStepCard
         activeTabId={controller.activeTabId}
         attachedTabId={controller.attachedTabId}
         session={controller.session}
-      />
-
-      {/* Success Confirmation */}
-      {controller.awaitingConfirmation && (
-        <SuccessConfirmationCard
-          description="Accept if the task is complete. Reject to resume the loop with a hint."
-          onAccept={() => void controller.handleAcceptSuccess()}
-          onReject={() => void controller.handleRejectSuccess()}
-        />
-      )}
-
-      {/* Human Assist */}
-      <RunAgentHumanHintCard
+        isRunning={controller.isRunning}
+        isAwaitingNavigation={controller.isAwaitingNavigation}
+        awaitingConfirmation={controller.awaitingConfirmation}
+        awaitingHumanHint={controller.awaitingHumanHint}
+        canStart={controller.canStart}
+        canStop={controller.canStop}
+        canReset={controller.canReset}
+        onStart={(submittedGoal) =>
+          void controller.handleStart({ goal: submittedGoal || controller.goal })
+        }
+        onStop={() => void controller.handleStop()}
+        onReset={() => void controller.handleReset()}
         onSendHint={() => void controller.handleSendHint()}
+        onAcceptSuccess={() => void controller.handleAcceptSuccess()}
+        onRejectSuccess={() => void controller.handleRejectSuccess()}
       />
-
-      {/* Event Log */}
-      <EventLogCard />
     </Stack>
   );
 }

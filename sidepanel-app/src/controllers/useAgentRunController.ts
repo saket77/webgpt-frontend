@@ -37,6 +37,7 @@ export type AgentEvent = {
 };
 
 export type AgentSession = {
+  runId?: string;
   goal?: string;
   running?: boolean;
   stopRequested?: boolean;
@@ -50,13 +51,18 @@ export type AgentSession = {
   movedFromTabId?: number | null;
   lastKnownUrl?: string;
   surface?: Surface;
+  isTemplateRun?: boolean;
   templateRunId?: string;
   templateQueue?: unknown;
+  artifactFileName?: string;
 };
+
+type SessionScope = "home" | "template";
 
 type UseAgentRunControllerArgs = {
   launchRequest?: RunLaunchRequest | null;
   onLaunchRequestHandled?: () => void;
+  sessionScope?: SessionScope;
 };
 
 const DISCLOSURE_STORAGE_KEY = "webgpt_pre_run_disclosure_accepted_v1";
@@ -241,6 +247,50 @@ function sessionStatusText(session?: AgentSession | null) {
   }
 
   return "Idle";
+}
+
+function sessionHasWork(session?: AgentSession | null) {
+  return Boolean(
+    session?.runId ||
+      session?.goal ||
+      session?.events?.length ||
+      session?.templateRunId ||
+      session?.templateQueue,
+  );
+}
+
+function isTemplateSession(session?: AgentSession | null) {
+  return Boolean(
+    session?.isTemplateRun || session?.templateRunId || session?.templateQueue,
+  );
+}
+
+function sessionMatchesScope(
+  session: AgentSession | null,
+  scope?: SessionScope,
+) {
+  if (!scope || !sessionHasWork(session)) return true;
+
+  return scope === "template"
+    ? isTemplateSession(session)
+    : !isTemplateSession(session);
+}
+
+function foreignSessionStatusText(scope?: SessionScope) {
+  if (scope === "template") {
+    return "Home session active. Open Home to continue.";
+  }
+
+  return "Routine session active. Open Routines to continue.";
+}
+
+function foreignSessionBlocksStart(session?: AgentSession | null) {
+  return Boolean(
+    session?.running ||
+      session?.awaitingNavigation ||
+      session?.pausedReason ||
+      session?.stopRequested,
+  );
 }
 
 function applyEventToSession(
@@ -457,6 +507,7 @@ export function deriveEffectiveSessionState(
 export function useAgentRunController({
   launchRequest,
   onLaunchRequestHandled,
+  sessionScope,
 }: UseAgentRunControllerArgs = {}) {
   const [goal, setGoal] = useState("");
   const [artifactFileName, setArtifactFileName] = useState<string | null>(null);
@@ -471,6 +522,9 @@ export function useAgentRunController({
   const [activeTabId, setActiveTabId] = useState<number | null>(null);
   const [attachedTabId, setAttachedTabId] = useState<number | null>(null);
   const [session, setSession] = useState<AgentSession | null>(null);
+  const [foreignSession, setForeignSession] = useState<AgentSession | null>(
+    null,
+  );
 
   const {
     status,
@@ -552,19 +606,29 @@ export function useAgentRunController({
 
       const { tabId, session: nextSession } = await resolveSessionTarget();
 
+      if (!sessionMatchesScope(nextSession, sessionScope)) {
+        setSession(null);
+        setForeignSession(nextSession);
+        setEventLog([]);
+        setAttachedTabId(nextSession.attachedTabId || tabId);
+        setStatus(foreignSessionStatusText(sessionScope));
+        if (sessionScope === "home") {
+          setGoal("");
+        }
+        return;
+      }
+
+      setForeignSession(null);
       setSession(nextSession);
       setStatus(sessionStatusText(nextSession));
       setEventLog(nextSession.events || []);
       setAttachedTabId(nextSession.attachedTabId || tabId);
-
-      if (nextSession.goal) {
-        setGoal(nextSession.goal);
-      }
+      setGoal(nextSession.goal || "");
     } catch (err: any) {
       setError(err?.message || String(err));
       setStatus(err?.message || "Failed to refresh session");
     }
-  }, [resolveSessionTarget, setError, setEventLog, setStatus]);
+  }, [resolveSessionTarget, sessionScope, setError, setEventLog, setGoal, setStatus]);
 
   useEffect(() => {
     void refreshSessionView();
@@ -608,6 +672,10 @@ export function useAgentRunController({
   useEffect(() => {
     const lastEvent = eventLog[eventLog.length - 1] as AgentEvent | undefined;
     if (!lastEvent) return;
+    if (foreignSession) {
+      setEventLog([]);
+      return;
+    }
 
     setSession((prev) => applyEventToSession(prev, lastEvent));
 
@@ -621,7 +689,7 @@ export function useAgentRunController({
     ) {
       setAttachedTabId(lastEvent.toTabId);
     }
-  }, [eventLog]);
+  }, [eventLog, foreignSession, setEventLog]);
 
   useEffect(() => {
     if (session) {
@@ -656,6 +724,7 @@ export function useAgentRunController({
       if (!response?.ok) return response;
 
       setAttachedTabId(tabId);
+      setForeignSession(null);
       setSession((prev) => ({
         ...(prev || {}),
         goal: effectiveGoal,
@@ -705,6 +774,7 @@ export function useAgentRunController({
 
           const result = response.result || {};
           setAttachedTabId(tabId);
+          setForeignSession(null);
           setSession((prev) => ({
             ...(prev || {}),
             goal: result.item?.goal || request.goalTemplate || "",
@@ -925,7 +995,7 @@ export function useAgentRunController({
   ]);
 
   const handleStop = useCallback(async () => {
-    const { tabId } = await resolveSessionTarget();
+    const tabId = attachedTabId ?? activeTabId ?? (await getActiveTabId());
 
     const response = await stopAgentRun(tabId);
 
@@ -933,11 +1003,15 @@ export function useAgentRunController({
 
     setSession((prev) => ({
       ...(prev || {}),
-      stopRequested: true,
+      attachedTabId: tabId,
+      running: false,
+      awaitingNavigation: false,
+      pausedReason: "forced_stop",
+      stopRequested: false,
     }));
 
     return response;
-  }, [resolveSessionTarget, stopAgentRun]);
+  }, [activeTabId, attachedTabId, stopAgentRun]);
 
   const handleRefresh = useCallback(async () => {
     try {
@@ -1048,7 +1122,7 @@ export function useAgentRunController({
   }, [hint, rejectAgentSuccess, resolveSessionTarget]);
 
   const handleReset = useCallback(async () => {
-    const { tabId } = await resolveSessionTarget();
+    const tabId = attachedTabId ?? activeTabId ?? (await getActiveTabId());
 
     const response = await resetAgentSession(tabId);
 
@@ -1058,7 +1132,7 @@ export function useAgentRunController({
     setAttachedTabId(null);
 
     return response;
-  }, [resetAgentSession, resolveSessionTarget]);
+  }, [activeTabId, attachedTabId, resetAgentSession]);
 
   const applyLaunchRequest = useCallback(
     (request: RunLaunchRequest) => {
@@ -1101,20 +1175,41 @@ export function useAgentRunController({
     (lastEvent?.kind === "paused" &&
       lastEvent?.reason === "awaiting_success_confirmation");
 
+  const awaitingHumanHint =
+    pausedReason === "awaiting_human_hint" ||
+    (lastEvent?.kind === "paused" &&
+      lastEvent?.reason === "awaiting_human_hint");
+
   const hasGoal = Boolean(goal.trim());
 
   const canStart =
-    hasGoal && !isRunning && !isAwaitingNavigation && busyAction !== "start";
+    hasGoal &&
+    !isRunning &&
+    !isAwaitingNavigation &&
+    !awaitingHumanHint &&
+    !foreignSessionBlocksStart(foreignSession) &&
+    busyAction !== "start";
 
-  const canStop = !session?.stopRequested && busyAction !== "stop";
+  const runHasStarted = isRunning || isAwaitingNavigation || busyAction === "start";
+
+  const canStop =
+    runHasStarted && !session?.stopRequested && busyAction !== "stop";
 
   const canRefresh = busyAction !== "refresh";
 
   const canAttach =
     !isRunning && !isAwaitingNavigation && busyAction !== "attach";
 
+  const hasSessionToReset = Boolean(session || eventLog.length > 0);
+
   const canReset =
-    !isRunning && !isAwaitingNavigation && busyAction !== "reset";
+    hasSessionToReset &&
+    !isRunning &&
+    !isAwaitingNavigation &&
+    !awaitingConfirmation &&
+    busyAction !== "reset" &&
+    busyAction !== "start" &&
+    busyAction !== "stop";
 
   return {
     goal,
@@ -1139,6 +1234,7 @@ export function useAgentRunController({
     isAwaitingNavigation,
     pausedReason,
     awaitingConfirmation,
+    awaitingHumanHint,
 
     canStart,
     canStop,

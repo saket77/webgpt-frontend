@@ -104,7 +104,12 @@ export async function executeRunActionsCommand(
 
     if (navigation) return navigation;
 
-    throw error;
+    execution = {
+      ok: false,
+      summary: "Action execution failed.",
+      error: error?.message || String(error),
+      results: [],
+    };
   }
 
   session = await getSession(tabId);

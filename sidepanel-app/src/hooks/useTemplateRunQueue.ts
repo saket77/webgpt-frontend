@@ -110,6 +110,7 @@ export function useTemplateRunQueue({
 }: UseTemplateRunQueueArgs) {
   const {
     awaitingConfirmation,
+    awaitingHumanHint,
     busyAction,
     handleAcceptSuccess: acceptAgentSuccess,
     handleRejectSuccess: rejectAgentSuccess,
@@ -178,6 +179,7 @@ export function useTemplateRunQueue({
 
   const canStart = useMemo(() => {
     if (isRunning) return false;
+    if (awaitingHumanHint) return false;
     if (!artifact.successfulReplayArtifactFileName) return false;
 
     return (artifact.inputSchema || []).every((input) => {
@@ -187,13 +189,17 @@ export function useTemplateRunQueue({
     });
   }, [
     isRunning,
+    awaitingHumanHint,
     artifact.successfulReplayArtifactFileName,
     artifact.inputSchema,
     singleRunInputValues,
   ]);
 
   const canMoveIndex =
-    !isRunning && !awaitingConfirmation && busyAction == null;
+    !isRunning &&
+    !awaitingConfirmation &&
+    !awaitingHumanHint &&
+    busyAction == null;
 
   const handleInputChange = useCallback(
     (key: string, index: number, value: string) => {

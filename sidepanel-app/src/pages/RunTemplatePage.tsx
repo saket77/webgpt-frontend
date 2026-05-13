@@ -1,14 +1,11 @@
-import { Button, Card, Stack, Text } from "@mantine/core";
+import { Button, Group, Paper, Stack, Text } from "@mantine/core";
 
 import {
-  CurrentStepCard,
-  EventLogCard,
+  AgentChatPanel,
   PreRunDisclosureModal,
-  RunAgentHumanHintCard,
-  SuccessConfirmationCard,
 } from "../components/agent";
 
-import { ErrorAlert, PageHeader } from "../components/common";
+import { ErrorAlert } from "../components/common";
 import {
   TemplateControlPanel,
   TemplateResultsCard,
@@ -27,7 +24,9 @@ export default function RunTemplatePage({
   artifact,
   onBack,
 }: RunTemplatePageProps) {
-  const agent = useAgentRunController();
+  const agent = useAgentRunController({
+    sessionScope: "template",
+  });
 
   const template = useTemplateRunQueue({
     artifact,
@@ -35,18 +34,7 @@ export default function RunTemplatePage({
   });
 
   return (
-    <Stack p="md" gap="md">
-      <PageHeader
-        title="Run Template"
-        rightSection={
-          onBack ? (
-            <Button variant="default" size="xs" onClick={onBack}>
-              Back
-            </Button>
-          ) : null
-        }
-      />
-
+    <Stack className="run-page" gap="md">
       <ErrorAlert />
 
       <PreRunDisclosureModal
@@ -57,72 +45,82 @@ export default function RunTemplatePage({
         onCancel={agent.handlePreRunDisclosureCancel}
       />
 
-      <Card withBorder radius="md" p="md">
-        <Stack gap="xs">
-          <Text fw={700}>{artifact.goal || "Untitled template"}</Text>
-
-          <Text size="sm" c="dimmed">
-            {artifact.description || "No description available"}
-          </Text>
-
-          <Text size="xs" c="dimmed">
-            Replay artifact: {artifact.successfulReplayArtifactFileName || "—"}
-          </Text>
-
-          <Text size="xs" c="dimmed">
-            Current item: {template.currentIndex + 1} / {template.totalRuns}
-          </Text>
-        </Stack>
-      </Card>
-
-      <TemplateControlPanel
-        inputSchema={artifact.inputSchema || []}
-        inputValues={template.inputValues}
-        currentIndex={template.currentIndex}
-        totalRuns={template.totalRuns}
-        renderedGoal={template.renderedGoal}
-        isRunning={agent.isRunning}
-        busyAction={agent.busyAction}
-        queueMode={template.queueMode}
-        canStart={template.canStart}
-        canMoveIndex={template.canMoveIndex}
-        onInputChange={template.handleInputChange}
-        onAddValue={template.handleAddValue}
-        onRemoveValue={template.handleRemoveValue}
-        onPrevious={() =>
-          template.setCurrentIndex((prev) => Math.max(prev - 1, 0))
-        }
-        onNext={() =>
-          template.setCurrentIndex((prev) =>
-            Math.min(prev + 1, template.totalRuns - 1),
-          )
-        }
-        onStartCurrent={() => void template.handleStartCurrent()}
-        onStartQueue={() => void template.handleStartQueue()}
-        onStop={() => void template.handleStop()}
-      />
-
-      <CurrentStepCard
+      <AgentChatPanel
+        title="Routine"
+        subtitle={`${template.currentIndex + 1} of ${template.totalRuns}`}
+        goal={template.renderedGoal}
+        setGoal={() => undefined}
+        showSessionGoal={false}
+        allowFreeformStart={false}
+        autoScrollOnMount={false}
         activeTabId={agent.activeTabId}
         attachedTabId={agent.attachedTabId}
         session={agent.session}
-      />
-
-      {agent.awaitingConfirmation ? (
-        <SuccessConfirmationCard
-          description="Accept if the current item is complete. Reject to resume it with a hint."
-          onAccept={() => void template.handleAcceptSuccess()}
-          onReject={() => void template.handleRejectSuccess()}
-        />
-      ) : null}
-
-      <RunAgentHumanHintCard
+        isRunning={agent.isRunning}
+        isAwaitingNavigation={agent.isAwaitingNavigation}
+        awaitingConfirmation={agent.awaitingConfirmation}
+        awaitingHumanHint={agent.awaitingHumanHint}
+        canStart={template.canStart}
+        canStop={agent.canStop}
+        canReset={agent.canReset}
+        onStart={() => void template.handleStartCurrent()}
+        onStop={() => void template.handleStop()}
+        onReset={() => void agent.handleReset()}
         onSendHint={() => void template.handleSendHint()}
+        onAcceptSuccess={() => void template.handleAcceptSuccess()}
+        onRejectSuccess={() => void template.handleRejectSuccess()}
+        preActivity={
+          <Paper className="routine-setup" withBorder>
+            <Stack gap="md">
+              <Group justify="space-between" align="flex-start">
+                <div>
+                  <Text fw={800} size="lg">
+                    {artifact.goal || "Untitled routine"}
+                  </Text>
+                  <Text size="sm" c="dimmed">
+                    {artifact.description || "No description available"}
+                  </Text>
+                </div>
+                {onBack ? (
+                  <Button variant="default" radius="xl" onClick={onBack}>
+                    Back
+                  </Button>
+                ) : null}
+              </Group>
+
+              <TemplateControlPanel
+                inputSchema={artifact.inputSchema || []}
+                inputValues={template.inputValues}
+                currentIndex={template.currentIndex}
+                totalRuns={template.totalRuns}
+                renderedGoal={template.renderedGoal}
+                isRunning={agent.isRunning}
+                busyAction={agent.busyAction}
+                queueMode={template.queueMode}
+                canStart={template.canStart}
+                canMoveIndex={template.canMoveIndex}
+                onInputChange={template.handleInputChange}
+                onAddValue={template.handleAddValue}
+                onRemoveValue={template.handleRemoveValue}
+                onPrevious={() =>
+                  template.setCurrentIndex((prev) => Math.max(prev - 1, 0))
+                }
+                onNext={() =>
+                  template.setCurrentIndex((prev) =>
+                    Math.min(prev + 1, template.totalRuns - 1),
+                  )
+                }
+                onStartCurrent={() => void template.handleStartCurrent()}
+                onStartQueue={() => void template.handleStartQueue()}
+                onStop={() => void template.handleStop()}
+              />
+            </Stack>
+          </Paper>
+        }
+        postActivity={
+          <TemplateResultsCard results={template.templateResults} />
+        }
       />
-
-      <TemplateResultsCard results={template.templateResults} />
-
-      <EventLogCard />
     </Stack>
   );
 }

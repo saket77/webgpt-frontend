@@ -254,9 +254,15 @@ async function sheetsFetch(spreadsheetId, path, options = {}, retry = true) {
 
   const json = await response.json().catch(() => null);
   if (!response.ok) {
+    const message = json?.error?.message || "";
+    if (/must not be an Office file/i.test(message)) {
+      throw new Error(
+        "Google Sheets API cannot edit this file because it is an Office/XLSX file opened in Google Sheets. Convert it to a native Google Sheet first with File > Save as Google Sheets, then run WebGPT on the converted spreadsheet.",
+      );
+    }
+
     throw new Error(
-      json?.error?.message ||
-        `Google Sheets API request failed with status ${response.status}.`,
+      message || `Google Sheets API request failed with status ${response.status}.`,
     );
   }
 
