@@ -137,6 +137,7 @@ export async function executeRunActionsCommand(
 
   try {
     await sleep(POST_ACTION_STATE_SETTLE_MS);
+    await sleep(POST_ACTION_STATE_SETTLE_MS);
 
     afterState = await runtime.extractStateFromTab(tabId, {
       goal: session.goal,
