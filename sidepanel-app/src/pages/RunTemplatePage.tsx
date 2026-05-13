@@ -66,7 +66,7 @@ export default function RunTemplatePage({
         canReset={agent.canReset}
         onStart={() => void template.handleStartCurrent()}
         onStop={() => void template.handleStop()}
-        onReset={() => void agent.handleReset()}
+        onReset={() => void template.handleReset()}
         onSendHint={() => void template.handleSendHint()}
         onAcceptSuccess={() => void template.handleAcceptSuccess()}
         onRejectSuccess={() => void template.handleRejectSuccess()}
@@ -95,7 +95,7 @@ export default function RunTemplatePage({
                 currentIndex={template.currentIndex}
                 totalRuns={template.totalRuns}
                 renderedGoal={template.renderedGoal}
-                isRunning={agent.isRunning}
+                isRunning={agent.isRunning || agent.isAwaitingNavigation}
                 busyAction={agent.busyAction}
                 queueMode={template.queueMode}
                 canStart={template.canStart}
@@ -115,11 +115,10 @@ export default function RunTemplatePage({
                 onStartQueue={() => void template.handleStartQueue()}
                 onStop={() => void template.handleStop()}
               />
+
+              <TemplateResultsCard results={template.templateResults} />
             </Stack>
           </Paper>
-        }
-        postActivity={
-          <TemplateResultsCard results={template.templateResults} />
         }
       />
     </Stack>

@@ -363,7 +363,7 @@ export function AgentChatPanel({
   const composerLocked =
     !awaitingUserInput && (agentBusy || !allowFreeformStart);
   const activityIsLive =
-    isRunning || isAwaitingNavigation || awaitingUserInput;
+    isRunning || isAwaitingNavigation || awaitingHumanHint;
   const runControlsVisible = isRunning || isAwaitingNavigation || busyAction === "start";
   const visibleGoal =
     submittedGoal ||

@@ -442,6 +442,39 @@ export function deriveEffectiveSessionState(
   let inferredAwaitingNavigation = awaitingNavigationFromSession;
   let inferredPausedReason = pausedReasonFromSession;
 
+  if (
+    lastEvent &&
+    [
+      "success_confirmed",
+      "template_queue_finished",
+      "session_reset",
+      "fatal_error",
+      "max_steps_reached",
+    ].includes(lastEvent.kind)
+  ) {
+    inferredRunning = false;
+    inferredAwaitingNavigation = false;
+    inferredPausedReason = null;
+  }
+
+  if (lastEvent?.kind === "stopped_by_user") {
+    inferredRunning = false;
+    inferredAwaitingNavigation = false;
+    inferredPausedReason = "forced_stop";
+  }
+
+  if (lastEvent?.kind === "paused") {
+    inferredRunning = false;
+    inferredAwaitingNavigation = false;
+    inferredPausedReason = lastEvent.reason || "paused";
+  }
+
+  if (lastEvent?.kind === "awaiting_navigation") {
+    inferredRunning = false;
+    inferredAwaitingNavigation = true;
+    inferredPausedReason = null;
+  }
+
   if (!session && lastEvent) {
     if (
       [
@@ -463,37 +496,6 @@ export function deriveEffectiveSessionState(
       inferredPausedReason = null;
     }
 
-    if (lastEvent.kind === "awaiting_navigation") {
-      inferredRunning = false;
-      inferredAwaitingNavigation = true;
-      inferredPausedReason = null;
-    }
-
-    if (lastEvent.kind === "paused") {
-      inferredRunning = false;
-      inferredAwaitingNavigation = false;
-      inferredPausedReason = lastEvent.reason || "paused";
-    }
-
-    if (lastEvent.kind === "stopped_by_user") {
-      inferredRunning = false;
-      inferredAwaitingNavigation = false;
-      inferredPausedReason = "forced_stop";
-    }
-
-    if (
-      [
-        "success_confirmed",
-        "template_queue_finished",
-        "session_reset",
-        "fatal_error",
-        "max_steps_reached",
-      ].includes(lastEvent.kind)
-    ) {
-      inferredRunning = false;
-      inferredAwaitingNavigation = false;
-      inferredPausedReason = null;
-    }
   }
 
   return {
