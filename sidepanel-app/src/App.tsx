@@ -1,16 +1,17 @@
 import { useCallback, useState } from "react";
-import { AppShell, Button, Group } from "@mantine/core";
+import { ActionIcon, AppShell, Group, Tooltip } from "@mantine/core";
 import RunAgentPage from "./pages/RunAgentPage";
 import RunTemplatePage from "./pages/RunTemplatePage";
 import SavedArtifactsPage from "./pages/SavedArtifactsPage";
+import SettingsPage from "./pages/SettingsPage";
 import type { SavedArtifactSummary } from "./hooks/useSavedArtifacts";
 import type { RunLaunchRequest } from "./hooks/useAgentLaunchRequest";
 import { AgentUXProvider } from "./providers";
 
-type Page = "run" | "saved" | "template";
+type Page = "home" | "saved" | "template" | "settings";
 
 export default function App() {
-  const [page, setPage] = useState<Page>("run");
+  const [page, setPage] = useState<Page>("home");
   const [launchRequest, setLaunchRequest] = useState<RunLaunchRequest | null>(
     null,
   );
@@ -28,7 +29,7 @@ export default function App() {
 
   const handleOpenRunPage = useCallback(() => {
     setSelectedArtifact(null);
-    setPage("run");
+    setPage("home");
   }, []);
 
   const handleOpenSavedPage = useCallback(() => {
@@ -40,49 +41,84 @@ export default function App() {
   }, []);
 
   return (
-    <AppShell padding="md">
-      <AppShell.Header p="sm">
-        <Group justify="space-between">
-          <strong>WebGPT</strong>
-          <Group>
-            <Button
-              size="xs"
-              variant={page === "run" ? "filled" : "light"}
-              onClick={handleOpenRunPage}
-            >
-              Run
-            </Button>
-            <Button
-              size="xs"
-              variant={page === "saved" ? "filled" : "light"}
-              onClick={handleOpenSavedPage}
-            >
-              Saved
-            </Button>
+    <AppShell padding={0}>
+      <AppShell.Header className="app-header">
+        <Group justify="flex-end" wrap="nowrap" h="100%">
+          <Group gap={8} wrap="nowrap">
+            <Tooltip label="Home">
+              <ActionIcon
+                className="nav-action"
+                radius="md"
+                variant="transparent"
+                data-active={page === "home" ? "true" : undefined}
+                onClick={handleOpenRunPage}
+                aria-label="Home"
+              >
+                H
+              </ActionIcon>
+            </Tooltip>
+            <Tooltip label="Routines">
+              <ActionIcon
+                className="nav-action"
+                radius="md"
+                variant="transparent"
+                data-active={
+                  page === "saved" || page === "template" ? "true" : undefined
+                }
+                onClick={handleOpenSavedPage}
+                aria-label="Routines"
+              >
+                R
+              </ActionIcon>
+            </Tooltip>
+            <Tooltip label="Settings">
+              <ActionIcon
+                className="nav-action nav-action-settings"
+                radius="md"
+                variant="transparent"
+                data-active={page === "settings" ? "true" : undefined}
+                onClick={() => setPage("settings")}
+                aria-label="Settings"
+              >
+                ⚙
+              </ActionIcon>
+            </Tooltip>
           </Group>
         </Group>
       </AppShell.Header>
-      <AgentUXProvider>
-        <AppShell.Main pt="60px">
-          {page === "run" ? (
+      <AppShell.Main className="app-main">
+        {page === "home" ? (
+          <AgentUXProvider key="home">
             <RunAgentPage
               launchRequest={launchRequest}
               onLaunchRequestHandled={handleLaunchRequestHandled}
             />
-          ) : null}
+          </AgentUXProvider>
+        ) : null}
 
-          {page === "saved" ? (
-            <SavedArtifactsPage onOpenArtifact={handleOpenArtifact} />
-          ) : null}
+        {page === "saved" ? (
+          <SavedArtifactsPage onOpenArtifact={handleOpenArtifact} />
+        ) : null}
 
-          {page === "template" && selectedArtifact ? (
+        {page === "template" && selectedArtifact ? (
+          <AgentUXProvider
+            key={`template-${
+              selectedArtifact.successfulReplayArtifactFileName ||
+              selectedArtifact.goal ||
+              "routine"
+            }`}
+          >
             <RunTemplatePage
               artifact={selectedArtifact}
               onBack={handleBackFromTemplate}
             />
-          ) : null}
-        </AppShell.Main>{" "}
-      </AgentUXProvider>
+          </AgentUXProvider>
+        ) : null}
+
+        {page === "settings" ? (
+          <SettingsPage onBack={handleOpenRunPage} />
+        ) : null}
+      </AppShell.Main>
     </AppShell>
   );
 }

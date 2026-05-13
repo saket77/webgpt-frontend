@@ -110,9 +110,11 @@ export function useTemplateRunQueue({
 }: UseTemplateRunQueueArgs) {
   const {
     awaitingConfirmation,
+    awaitingHumanHint,
     busyAction,
     handleAcceptSuccess: acceptAgentSuccess,
     handleRejectSuccess: rejectAgentSuccess,
+    handleReset: resetAgentSession,
     handleSendHint: sendAgentHint,
     handleStart: startAgent,
     handleStartTemplateQueue: startTemplateQueue,
@@ -141,6 +143,18 @@ export function useTemplateRunQueue({
     buildInitialInputValues(artifact.inputSchema || []),
   );
 
+  const clearCompletedResults = useCallback(() => {
+    setTemplateResults([]);
+  }, []);
+
+  const clearQueueState = useCallback(() => {
+    setQueueMode(false);
+    setPendingQueueStartEventKey("");
+    handledTerminalEventKeyRef.current = "";
+    startedQueueStartEventKeyRef.current = "";
+    handledTemplateEventKeyRef.current = "";
+  }, []);
+
   useEffect(() => {
     setInputValues(buildInitialInputValues(artifact.inputSchema || []));
     setEventLog([]);
@@ -148,13 +162,17 @@ export function useTemplateRunQueue({
     setStatus("Template loaded.");
     setHint("");
     setCurrentIndex(0);
-    setQueueMode(false);
-    handledTerminalEventKeyRef.current = "";
-    startedQueueStartEventKeyRef.current = "";
-    handledTemplateEventKeyRef.current = "";
-    setPendingQueueStartEventKey("");
-    setTemplateResults([]);
-  }, [artifact, setError, setEventLog, setHint, setStatus]);
+    clearQueueState();
+    clearCompletedResults();
+  }, [
+    artifact,
+    clearCompletedResults,
+    clearQueueState,
+    setError,
+    setEventLog,
+    setHint,
+    setStatus,
+  ]);
 
   const totalRuns = useMemo(
     () => getTotalRunCount(artifact.inputSchema || [], inputValues),
@@ -178,6 +196,7 @@ export function useTemplateRunQueue({
 
   const canStart = useMemo(() => {
     if (isRunning) return false;
+    if (awaitingHumanHint) return false;
     if (!artifact.successfulReplayArtifactFileName) return false;
 
     return (artifact.inputSchema || []).every((input) => {
@@ -187,13 +206,17 @@ export function useTemplateRunQueue({
     });
   }, [
     isRunning,
+    awaitingHumanHint,
     artifact.successfulReplayArtifactFileName,
     artifact.inputSchema,
     singleRunInputValues,
   ]);
 
   const canMoveIndex =
-    !isRunning && !awaitingConfirmation && busyAction == null;
+    !isRunning &&
+    !awaitingConfirmation &&
+    !awaitingHumanHint &&
+    busyAction == null;
 
   const handleInputChange = useCallback(
     (key: string, index: number, value: string) => {
@@ -243,6 +266,10 @@ export function useTemplateRunQueue({
   );
 
   const handleStartCurrent = useCallback(async () => {
+    if (!queueMode) {
+      clearCompletedResults();
+    }
+
     const response = await startAgent({
       goal: renderedGoal,
       artifactFileName: artifact.successfulReplayArtifactFileName || null,
@@ -262,6 +289,8 @@ export function useTemplateRunQueue({
     }
   }, [
     startAgent,
+    clearCompletedResults,
+    queueMode,
     artifact.successfulReplayArtifactFileName,
     currentIndex,
     renderedGoal,
@@ -270,6 +299,8 @@ export function useTemplateRunQueue({
   ]);
 
   const handleStartQueue = useCallback(async () => {
+    clearCompletedResults();
+
     const lastEventKey = isTerminalEvent(lastEvent)
       ? getEventKey(lastEvent)
       : "";
@@ -300,6 +331,7 @@ export function useTemplateRunQueue({
     }
   }, [
     startTemplateQueue,
+    clearCompletedResults,
     lastEvent,
     artifact.goal,
     artifact.inputSchema,
@@ -356,6 +388,13 @@ export function useTemplateRunQueue({
   const handleStop = useCallback(async () => {
     await stopAgent();
   }, [stopAgent]);
+
+  const handleReset = useCallback(async () => {
+    clearCompletedResults();
+    clearQueueState();
+    setCurrentIndex(0);
+    await resetAgentSession();
+  }, [clearCompletedResults, clearQueueState, resetAgentSession]);
 
   const handleSendHint = useCallback(async () => {
     await sendAgentHint();
@@ -453,9 +492,11 @@ export function useTemplateRunQueue({
       lastEvent.kind === "fatal_error" ||
       lastEvent.kind === "session_reset"
     ) {
-      setQueueMode(false);
-      setPendingQueueStartEventKey("");
-      startedQueueStartEventKeyRef.current = "";
+      clearQueueState();
+      if (lastEvent.kind === "session_reset") {
+        clearCompletedResults();
+        setCurrentIndex(0);
+      }
       return;
     }
 
@@ -477,7 +518,15 @@ export function useTemplateRunQueue({
 
     setPendingQueueStartEventKey(eventKey);
     setCurrentIndex((prev) => prev + 1);
-  }, [lastEvent, queueMode, currentIndex, totalRuns, setStatus]);
+  }, [
+    lastEvent,
+    queueMode,
+    currentIndex,
+    totalRuns,
+    clearCompletedResults,
+    clearQueueState,
+    setStatus,
+  ]);
 
   useEffect(() => {
     if (!pendingQueueStartEventKey) return;
@@ -531,6 +580,7 @@ export function useTemplateRunQueue({
     handleAcceptSuccess,
     handleRejectSuccess,
     handleStop,
+    handleReset,
     handleSendHint,
   };
 }

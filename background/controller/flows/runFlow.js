@@ -8,6 +8,7 @@ import {
   saveSession,
 } from "../../state/sessionStore.js";
 import { clone } from "../../utils/common.js";
+import { BROWSER_DOM_SURFACE, normalizeSurface } from "../../runtime/surfaces.js";
 import { handleAskHumanPlan, handleDonePlan } from "./terminalPause.js";
 import { handleTemplateQueueDoneFlow } from "./templateQueueFlow.js";
 
@@ -89,6 +90,7 @@ export async function continueRunFlow(
       tabId,
       initialCommand || {
         type: "extract_state",
+        surface: session.surface || BROWSER_DOM_SURFACE,
         runId: session.runId,
         step: session.step + 1,
         reason: session.step === 0 ? "run_started" : "run_resumed",
@@ -199,6 +201,7 @@ export async function startAgentFlow(
   inputValues = {},
   isTemplate,
   artifactFileName = "",
+  surface = "",
   { continueRun, plannerAdapter, runtime } = {},
 ) {
   const resumeRun =
@@ -226,6 +229,10 @@ export async function startAgentFlow(
   session.pendingNewTab = null;
   session.replayRunning = false;
   session.artifactFileName = String(artifactFileName || "");
+  session.surface =
+    normalizeSurface(surface) ||
+    (await runtime.detectSurfaceForTab?.(tabId))?.surface ||
+    BROWSER_DOM_SURFACE;
 
   await replaceSession(tabId, session);
 
@@ -234,6 +241,7 @@ export async function startAgentFlow(
     inputValues: session.inputValues,
     isTemplateRun: Boolean(session.isTemplateRun),
     artifactFileName: session.artifactFileName,
+    surface: session.surface,
   });
 
   session = await getSession(tabId);

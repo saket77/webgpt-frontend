@@ -15,6 +15,11 @@ import {
   getSessionState,
   attachSessionToTab,
   listArtifacts,
+  detectSurfaceForTab,
+  getGoogleSheetsAuthStatus,
+  connectGoogleSheets,
+  getMicrosoftExcelAuthStatus,
+  connectMicrosoftExcel,
 } from "./controller/index.js";
 
 async function getActiveTabId() {
@@ -60,6 +65,7 @@ export function registerMessageHandlers() {
           message.inputValues || {},
           message.isTemplate || false,
           message.artifactFileName || "",
+          message.surface || "",
         );
         sendResponse({ ok: true, result });
         return;
@@ -71,6 +77,7 @@ export function registerMessageHandlers() {
           inputSchema: message.inputSchema || [],
           inputValues: message.inputValues || {},
           artifactFileName: message.artifactFileName || "",
+          surface: message.surface || "",
         });
         sendResponse({ ok: true, result });
         return;
@@ -136,6 +143,37 @@ export function registerMessageHandlers() {
         const activeTabId = await getActiveTabId();
         const result = await attachSessionToTab(message.tabId, activeTabId);
         sendResponse({ ok: true, result });
+        return;
+      }
+
+      if (message?.type === "WEBGPT_GET_TAB_SURFACE") {
+        const tabId = message.tabId || (await getActiveTabId());
+        const result = await detectSurfaceForTab(tabId);
+        sendResponse({ ok: true, ...result });
+        return;
+      }
+
+      if (message?.type === "WEBGPT_GET_GOOGLE_SHEETS_AUTH_STATUS") {
+        const result = await getGoogleSheetsAuthStatus();
+        sendResponse(result);
+        return;
+      }
+
+      if (message?.type === "WEBGPT_CONNECT_GOOGLE_SHEETS") {
+        const result = await connectGoogleSheets();
+        sendResponse(result);
+        return;
+      }
+
+      if (message?.type === "WEBGPT_GET_MICROSOFT_EXCEL_AUTH_STATUS") {
+        const result = await getMicrosoftExcelAuthStatus();
+        sendResponse(result);
+        return;
+      }
+
+      if (message?.type === "WEBGPT_CONNECT_MICROSOFT_EXCEL") {
+        const result = await connectMicrosoftExcel();
+        sendResponse(result);
         return;
       }
 

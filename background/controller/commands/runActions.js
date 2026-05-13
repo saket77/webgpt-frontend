@@ -5,6 +5,7 @@ import { tryMarkAwaitingNavigation } from "../tryMarkNavigation.js";
 import { clone, sleep } from "../../utils/common.js";
 import { ensureLiveSession, getCommandStep } from "./context.js";
 import { POST_ACTION_STATE_SETTLE_MS } from "../../config.js";
+import { BROWSER_DOM_SURFACE } from "../../runtime/surfaces.js";
 
 async function maybeMarkNavigation({
   tabId,
@@ -61,6 +62,7 @@ export async function executeRunActionsCommand(
     state = await runtime.extractStateFromTab(tabId, {
       goal: session.goal,
       step,
+      surface: BROWSER_DOM_SURFACE,
       meta: { beforeActions: true },
     });
   }
@@ -102,7 +104,12 @@ export async function executeRunActionsCommand(
 
     if (navigation) return navigation;
 
-    throw error;
+    execution = {
+      ok: false,
+      summary: "Action execution failed.",
+      error: error?.message || String(error),
+      results: [],
+    };
   }
 
   session = await getSession(tabId);
@@ -130,10 +137,12 @@ export async function executeRunActionsCommand(
 
   try {
     await sleep(POST_ACTION_STATE_SETTLE_MS);
+    await sleep(POST_ACTION_STATE_SETTLE_MS);
 
     afterState = await runtime.extractStateFromTab(tabId, {
       goal: session.goal,
       step: command.step || step,
+      surface: BROWSER_DOM_SURFACE,
       meta: { afterActions: true },
     });
   } catch (error) {
@@ -157,6 +166,7 @@ export async function executeRunActionsCommand(
     command,
     execution,
     postState: afterState,
+    surface: BROWSER_DOM_SURFACE,
     browserContext: plannerAdapter.buildBrowserContext(
       tabId,
       session,
@@ -171,6 +181,7 @@ export async function executeRunActionsCommand(
     commandResult.run || commandResult.command?.run,
   );
   session.userHint = execution?.ok ? "" : session.userHint;
+  session.surface = BROWSER_DOM_SURFACE;
   session.lastKnownUrl =
     getLastKnownUrlFromState(afterState) || session.lastKnownUrl || "";
   session.attachedTabId = tabId;

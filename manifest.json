@@ -8,13 +8,39 @@
     "scripting",
     "tabs",
     "storage",
-    "sidePanel"
+    "sidePanel",
+    "identity"
+  ],
+
+  "host_permissions": [
+    "https://sheets.googleapis.com/*",
+    "https://graph.microsoft.com/*",
+    "https://login.microsoftonline.com/*"
   ],
 
   "optional_host_permissions": [
     "http://*/*",
     "https://*/*"
   ],
+
+  "oauth2": {
+    "client_id": "1027462228605-g5mcb97mfutu3f7ndiv94vbv0cnbnmr2.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/spreadsheets"
+    ]
+  },
+
+  "webgptMicrosoft": {
+    "tenant_id": "5f44338e-5544-4443-87aa-b3e0bcb959c8",
+    "client_id": "e5d47109-6c2a-491a-8b10-1b456924ef2b",
+    "scopes": [
+      "openid",
+      "profile",
+      "offline_access",
+      "User.Read",
+      "Files.ReadWrite"
+    ]
+  },
 
   "background": {
     "service_worker": "background/service-worker.js",

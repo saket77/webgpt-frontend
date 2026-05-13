@@ -258,6 +258,7 @@ export async function executeRunReplayBatchCommand(
     type: "replay_batch_executed",
     command,
     batchResult,
+    surface: session.surface || "",
     navigationInterrupted,
     navigationInfo,
   });

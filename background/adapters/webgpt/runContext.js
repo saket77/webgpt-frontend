@@ -12,11 +12,15 @@ export function syncSessionWithRun(session, run) {
 }
 
 export function buildBrowserContext(tabId, session, observedUrl = "") {
+  const url = observedUrl || session.lastKnownUrl || "";
+
   return {
     tabId,
     attachedTabId: session.attachedTabId || tabId,
+    surface: session.surface || "browser_dom",
     lastKnownUrl: session.lastKnownUrl || "",
     observedUrl: observedUrl || "",
+    url,
     goal: session.goal || "",
     step: session.step || 0,
   };

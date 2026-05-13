@@ -54,8 +54,12 @@ export function TemplateControlPanel({
   onStartQueue,
   onStop,
 }: TemplateControlPanelProps) {
+  const stopVisible =
+    isRunning || busyAction === "start" || busyAction === "stop";
+  const stopDisabled = busyAction === "start" || busyAction === "stop";
+
   return (
-    <Card withBorder radius="md" p="md">
+    <Card className="template-control-panel" withBorder radius="md" p="md">
       <Stack gap="md">
         <Text fw={700}>Inputs</Text>
 
@@ -159,15 +163,17 @@ export function TemplateControlPanel({
             Start Queue
           </Button>
 
-          <Button
-            variant="outline"
-            color="red"
-            onClick={onStop}
-            disabled={busyAction === "stop"}
-            loading={busyAction === "stop"}
-          >
-            Stop
-          </Button>
+          {stopVisible ? (
+            <Button
+              variant="outline"
+              color="red"
+              onClick={onStop}
+              disabled={stopDisabled}
+              loading={busyAction === "stop"}
+            >
+              Stop
+            </Button>
+          ) : null}
         </Group>
       </Stack>
     </Card>

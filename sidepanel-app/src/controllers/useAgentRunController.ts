@@ -37,6 +37,7 @@ export type AgentEvent = {
 };
 
 export type AgentSession = {
+  runId?: string;
   goal?: string;
   running?: boolean;
   stopRequested?: boolean;
@@ -49,20 +50,38 @@ export type AgentSession = {
   movedToTabId?: number | null;
   movedFromTabId?: number | null;
   lastKnownUrl?: string;
+  surface?: Surface;
+  isTemplateRun?: boolean;
   templateRunId?: string;
   templateQueue?: unknown;
+  artifactFileName?: string;
 };
+
+type SessionScope = "home" | "template";
 
 type UseAgentRunControllerArgs = {
   launchRequest?: RunLaunchRequest | null;
   onLaunchRequestHandled?: () => void;
+  sessionScope?: SessionScope;
 };
+
+const DISCLOSURE_STORAGE_KEY = "webgpt_pre_run_disclosure_accepted_v1";
+const WEBGPT_HOST_ORIGINS = ["http://*/*", "https://*/*"];
+const BROWSER_DOM_SURFACE = "browser_dom";
+const GOOGLE_SHEETS_SURFACE = "google_sheets";
+const MICROSOFT_EXCEL_SURFACE = "microsoft_excel";
+
+type Surface =
+  | typeof BROWSER_DOM_SURFACE
+  | typeof GOOGLE_SHEETS_SURFACE
+  | typeof MICROSOFT_EXCEL_SURFACE;
 
 type StartOverrides = {
   goal?: string;
   artifactFileName?: string | null;
   inputValues?: Record<string, string[]>;
   isTemplate?: boolean;
+  surface?: Surface;
   options?: {
     clearEvents?: boolean;
     pendingStatus?: string;
@@ -79,15 +98,13 @@ type TemplateQueueStartRequest = {
   }>;
   inputValues?: Record<string, string[]>;
   artifactFileName?: string | null;
+  surface?: Surface;
   options?: {
     clearEvents?: boolean;
     pendingStatus?: string;
     successStatus?: string;
   };
 };
-
-const DISCLOSURE_STORAGE_KEY = "webgpt_pre_run_disclosure_accepted_v1";
-const WEBGPT_HOST_ORIGINS = ["http://*/*", "https://*/*"];
 
 async function getActiveTabId() {
   const [tab] = await chrome.tabs.query({
@@ -125,6 +142,85 @@ async function requestWebGptHostAccess() {
   });
 }
 
+function normalizeSurface(value: unknown): Surface {
+  if (value === GOOGLE_SHEETS_SURFACE) return GOOGLE_SHEETS_SURFACE;
+  if (value === MICROSOFT_EXCEL_SURFACE) return MICROSOFT_EXCEL_SURFACE;
+  return BROWSER_DOM_SURFACE;
+}
+
+async function getTabSurface(tabId: number): Promise<Surface> {
+  const response = await chrome.runtime.sendMessage({
+    type: "WEBGPT_GET_TAB_SURFACE",
+    tabId,
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.error || "Unable to detect tab surface.");
+  }
+
+  return normalizeSurface(response.surface);
+}
+
+async function getGoogleSheetsAuthStatus() {
+  const response = await chrome.runtime.sendMessage({
+    type: "WEBGPT_GET_GOOGLE_SHEETS_AUTH_STATUS",
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.error || "Unable to check Google Sheets auth.");
+  }
+
+  return response as {
+    ok?: boolean;
+    authenticated?: boolean;
+    authStatus?: string;
+    configMissing?: boolean;
+    error?: string;
+  };
+}
+
+async function connectGoogleSheets() {
+  const response = await chrome.runtime.sendMessage({
+    type: "WEBGPT_CONNECT_GOOGLE_SHEETS",
+  });
+
+  if (!response?.ok || !response?.authenticated) {
+    throw new Error(response?.error || "Google Sheets authorization failed.");
+  }
+
+  return response;
+}
+
+async function getMicrosoftExcelAuthStatus() {
+  const response = await chrome.runtime.sendMessage({
+    type: "WEBGPT_GET_MICROSOFT_EXCEL_AUTH_STATUS",
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.error || "Unable to check Microsoft Excel auth.");
+  }
+
+  return response as {
+    ok?: boolean;
+    authenticated?: boolean;
+    authStatus?: string;
+    configMissing?: boolean;
+    error?: string;
+  };
+}
+
+async function connectMicrosoftExcel() {
+  const response = await chrome.runtime.sendMessage({
+    type: "WEBGPT_CONNECT_MICROSOFT_EXCEL",
+  });
+
+  if (!response?.ok || !response?.authenticated) {
+    throw new Error(response?.error || "Microsoft Excel authorization failed.");
+  }
+
+  return response;
+}
+
 function sessionStatusText(session?: AgentSession | null) {
   if (!session) return "Idle";
 
@@ -151,6 +247,50 @@ function sessionStatusText(session?: AgentSession | null) {
   }
 
   return "Idle";
+}
+
+function sessionHasWork(session?: AgentSession | null) {
+  return Boolean(
+    session?.runId ||
+      session?.goal ||
+      session?.events?.length ||
+      session?.templateRunId ||
+      session?.templateQueue,
+  );
+}
+
+function isTemplateSession(session?: AgentSession | null) {
+  return Boolean(
+    session?.isTemplateRun || session?.templateRunId || session?.templateQueue,
+  );
+}
+
+function sessionMatchesScope(
+  session: AgentSession | null,
+  scope?: SessionScope,
+) {
+  if (!scope || !sessionHasWork(session)) return true;
+
+  return scope === "template"
+    ? isTemplateSession(session)
+    : !isTemplateSession(session);
+}
+
+function foreignSessionStatusText(scope?: SessionScope) {
+  if (scope === "template") {
+    return "Home session active. Open Home to continue.";
+  }
+
+  return "Routine session active. Open Routines to continue.";
+}
+
+function foreignSessionBlocksStart(session?: AgentSession | null) {
+  return Boolean(
+    session?.running ||
+      session?.awaitingNavigation ||
+      session?.pausedReason ||
+      session?.stopRequested,
+  );
 }
 
 function applyEventToSession(
@@ -302,6 +442,39 @@ export function deriveEffectiveSessionState(
   let inferredAwaitingNavigation = awaitingNavigationFromSession;
   let inferredPausedReason = pausedReasonFromSession;
 
+  if (
+    lastEvent &&
+    [
+      "success_confirmed",
+      "template_queue_finished",
+      "session_reset",
+      "fatal_error",
+      "max_steps_reached",
+    ].includes(lastEvent.kind)
+  ) {
+    inferredRunning = false;
+    inferredAwaitingNavigation = false;
+    inferredPausedReason = null;
+  }
+
+  if (lastEvent?.kind === "stopped_by_user") {
+    inferredRunning = false;
+    inferredAwaitingNavigation = false;
+    inferredPausedReason = "forced_stop";
+  }
+
+  if (lastEvent?.kind === "paused") {
+    inferredRunning = false;
+    inferredAwaitingNavigation = false;
+    inferredPausedReason = lastEvent.reason || "paused";
+  }
+
+  if (lastEvent?.kind === "awaiting_navigation") {
+    inferredRunning = false;
+    inferredAwaitingNavigation = true;
+    inferredPausedReason = null;
+  }
+
   if (!session && lastEvent) {
     if (
       [
@@ -323,37 +496,6 @@ export function deriveEffectiveSessionState(
       inferredPausedReason = null;
     }
 
-    if (lastEvent.kind === "awaiting_navigation") {
-      inferredRunning = false;
-      inferredAwaitingNavigation = true;
-      inferredPausedReason = null;
-    }
-
-    if (lastEvent.kind === "paused") {
-      inferredRunning = false;
-      inferredAwaitingNavigation = false;
-      inferredPausedReason = lastEvent.reason || "paused";
-    }
-
-    if (lastEvent.kind === "stopped_by_user") {
-      inferredRunning = false;
-      inferredAwaitingNavigation = false;
-      inferredPausedReason = "forced_stop";
-    }
-
-    if (
-      [
-        "success_confirmed",
-        "template_queue_finished",
-        "session_reset",
-        "fatal_error",
-        "max_steps_reached",
-      ].includes(lastEvent.kind)
-    ) {
-      inferredRunning = false;
-      inferredAwaitingNavigation = false;
-      inferredPausedReason = null;
-    }
   }
 
   return {
@@ -367,10 +509,13 @@ export function deriveEffectiveSessionState(
 export function useAgentRunController({
   launchRequest,
   onLaunchRequestHandled,
+  sessionScope,
 }: UseAgentRunControllerArgs = {}) {
   const [goal, setGoal] = useState("");
   const [artifactFileName, setArtifactFileName] = useState<string | null>(null);
   const [preRunDisclosureOpened, setPreRunDisclosureOpened] = useState(false);
+  const [preRunSurface, setPreRunSurface] =
+    useState<Surface>(BROWSER_DOM_SURFACE);
   const [pendingStartOverrides, setPendingStartOverrides] =
     useState<StartOverrides | null>(null);
   const [pendingTemplateQueueStart, setPendingTemplateQueueStart] =
@@ -379,6 +524,9 @@ export function useAgentRunController({
   const [activeTabId, setActiveTabId] = useState<number | null>(null);
   const [attachedTabId, setAttachedTabId] = useState<number | null>(null);
   const [session, setSession] = useState<AgentSession | null>(null);
+  const [foreignSession, setForeignSession] = useState<AgentSession | null>(
+    null,
+  );
 
   const {
     status,
@@ -407,6 +555,14 @@ export function useAgentRunController({
     setActiveTabId(tabId);
     return tabId;
   }, [activeTabId]);
+
+  const resolveStartSurface = useCallback(
+    async (tabId: number, requestedSurface?: Surface) => {
+      if (requestedSurface) return requestedSurface;
+      return getTabSurface(tabId);
+    },
+    [],
+  );
 
   const getSessionForTab = useCallback(async (tabId: number) => {
     const response = await chrome.runtime.sendMessage({
@@ -452,19 +608,29 @@ export function useAgentRunController({
 
       const { tabId, session: nextSession } = await resolveSessionTarget();
 
+      if (!sessionMatchesScope(nextSession, sessionScope)) {
+        setSession(null);
+        setForeignSession(nextSession);
+        setEventLog([]);
+        setAttachedTabId(nextSession.attachedTabId || tabId);
+        setStatus(foreignSessionStatusText(sessionScope));
+        if (sessionScope === "home") {
+          setGoal("");
+        }
+        return;
+      }
+
+      setForeignSession(null);
       setSession(nextSession);
       setStatus(sessionStatusText(nextSession));
       setEventLog(nextSession.events || []);
       setAttachedTabId(nextSession.attachedTabId || tabId);
-
-      if (nextSession.goal) {
-        setGoal(nextSession.goal);
-      }
+      setGoal(nextSession.goal || "");
     } catch (err: any) {
       setError(err?.message || String(err));
       setStatus(err?.message || "Failed to refresh session");
     }
-  }, [resolveSessionTarget, setError, setEventLog, setStatus]);
+  }, [resolveSessionTarget, sessionScope, setError, setEventLog, setGoal, setStatus]);
 
   useEffect(() => {
     void refreshSessionView();
@@ -508,6 +674,10 @@ export function useAgentRunController({
   useEffect(() => {
     const lastEvent = eventLog[eventLog.length - 1] as AgentEvent | undefined;
     if (!lastEvent) return;
+    if (foreignSession) {
+      setEventLog([]);
+      return;
+    }
 
     setSession((prev) => applyEventToSession(prev, lastEvent));
 
@@ -521,7 +691,7 @@ export function useAgentRunController({
     ) {
       setAttachedTabId(lastEvent.toTabId);
     }
-  }, [eventLog]);
+  }, [eventLog, foreignSession, setEventLog]);
 
   useEffect(() => {
     if (session) {
@@ -536,6 +706,10 @@ export function useAgentRunController({
       const effectiveGoal = overrides.goal ?? goal ?? "";
       const effectiveArtifactFileName =
         overrides.artifactFileName ?? artifactFileName ?? null;
+      const effectiveSurface = await resolveStartSurface(
+        tabId,
+        overrides.surface,
+      );
 
       const response = await startAgentRun(
         {
@@ -544,6 +718,7 @@ export function useAgentRunController({
           artifactFileName: effectiveArtifactFileName,
           inputValues: overrides.inputValues,
           isTemplate: Boolean(overrides.isTemplate),
+          surface: effectiveSurface,
         },
         overrides.options,
       );
@@ -551,10 +726,12 @@ export function useAgentRunController({
       if (!response?.ok) return response;
 
       setAttachedTabId(tabId);
+      setForeignSession(null);
       setSession((prev) => ({
         ...(prev || {}),
         goal: effectiveGoal,
         attachedTabId: tabId,
+        surface: effectiveSurface,
         running: true,
         awaitingNavigation: false,
         pausedReason: null,
@@ -563,12 +740,16 @@ export function useAgentRunController({
 
       return response;
     },
-    [artifactFileName, ensureActiveTabId, goal, startAgentRun],
+    [artifactFileName, ensureActiveTabId, goal, resolveStartSurface, startAgentRun],
   );
 
   const startTemplateQueueAfterPreRunChecks = useCallback(
     async (request: TemplateQueueStartRequest) => {
       const tabId = await ensureActiveTabId();
+      const effectiveSurface = await resolveStartSurface(
+        tabId,
+        request.surface,
+      );
 
       return runAction(
         "start",
@@ -584,6 +765,7 @@ export function useAgentRunController({
             inputSchema: request.inputSchema || [],
             inputValues: request.inputValues || {},
             artifactFileName: request.artifactFileName || "",
+            surface: effectiveSurface,
           });
 
           if (!response?.ok) {
@@ -594,10 +776,12 @@ export function useAgentRunController({
 
           const result = response.result || {};
           setAttachedTabId(tabId);
+          setForeignSession(null);
           setSession((prev) => ({
             ...(prev || {}),
             goal: result.item?.goal || request.goalTemplate || "",
             attachedTabId: tabId,
+            surface: effectiveSurface,
             running: true,
             awaitingNavigation: false,
             pausedReason: null,
@@ -616,16 +800,53 @@ export function useAgentRunController({
         },
       );
     },
-    [ensureActiveTabId, runAction, setEventLog],
+    [ensureActiveTabId, resolveStartSurface, runAction, setEventLog],
   );
 
   const handleStart = useCallback(
     async (overrides: StartOverrides = {}) => {
+      const tabId = await ensureActiveTabId();
+      const surface = await resolveStartSurface(tabId, overrides.surface);
+
+      if (surface === GOOGLE_SHEETS_SURFACE || surface === MICROSOFT_EXCEL_SURFACE) {
+        const authStatus =
+          surface === GOOGLE_SHEETS_SURFACE
+            ? await getGoogleSheetsAuthStatus()
+            : await getMicrosoftExcelAuthStatus();
+        const surfaceLabel =
+          surface === GOOGLE_SHEETS_SURFACE ? "Google Sheets" : "Microsoft Excel";
+
+        if (authStatus.configMissing) {
+          const message =
+            authStatus.error || `${surfaceLabel} OAuth is not configured.`;
+          setError(message);
+          setStatus(message);
+          return {
+            ok: false,
+            requiresSurfaceAuth: true,
+          };
+        }
+
+        if (!authStatus.authenticated) {
+          setPendingStartOverrides({ ...overrides, surface });
+          setPreRunSurface(surface);
+          setPreRunDisclosureOpened(true);
+          setStatus(`Connect ${surfaceLabel} before starting.`);
+          return {
+            ok: false,
+            requiresSurfaceAuth: true,
+          };
+        }
+
+        return startAgentAfterPreRunChecks({ ...overrides, surface });
+      }
+
       const disclosureAccepted = await hasAcceptedPreRunDisclosure();
       const hasHostAccess = await hasWebGptHostAccess();
 
       if (!disclosureAccepted || !hasHostAccess) {
-        setPendingStartOverrides(overrides);
+        setPendingStartOverrides({ ...overrides, surface });
+        setPreRunSurface(surface);
         setPreRunDisclosureOpened(true);
         setStatus("Review WebGPT access before starting.");
         return {
@@ -634,19 +855,63 @@ export function useAgentRunController({
         };
       }
 
-      return startAgentAfterPreRunChecks(overrides);
+      return startAgentAfterPreRunChecks({ ...overrides, surface });
     },
-    [setStatus, startAgentAfterPreRunChecks],
+    [
+      ensureActiveTabId,
+      resolveStartSurface,
+      setError,
+      setStatus,
+      startAgentAfterPreRunChecks,
+    ],
   );
 
   const handleStartTemplateQueue = useCallback(
     async (request: TemplateQueueStartRequest) => {
+      const tabId = await ensureActiveTabId();
+      const surface = await resolveStartSurface(tabId, request.surface);
+
+      if (surface === GOOGLE_SHEETS_SURFACE || surface === MICROSOFT_EXCEL_SURFACE) {
+        const authStatus =
+          surface === GOOGLE_SHEETS_SURFACE
+            ? await getGoogleSheetsAuthStatus()
+            : await getMicrosoftExcelAuthStatus();
+        const surfaceLabel =
+          surface === GOOGLE_SHEETS_SURFACE ? "Google Sheets" : "Microsoft Excel";
+
+        if (authStatus.configMissing) {
+          const message =
+            authStatus.error || `${surfaceLabel} OAuth is not configured.`;
+          setError(message);
+          setStatus(message);
+          return {
+            ok: false,
+            requiresSurfaceAuth: true,
+          };
+        }
+
+        if (!authStatus.authenticated) {
+          setPendingTemplateQueueStart({ ...request, surface });
+          setPendingStartOverrides(null);
+          setPreRunSurface(surface);
+          setPreRunDisclosureOpened(true);
+          setStatus(`Connect ${surfaceLabel} before starting.`);
+          return {
+            ok: false,
+            requiresSurfaceAuth: true,
+          };
+        }
+
+        return startTemplateQueueAfterPreRunChecks({ ...request, surface });
+      }
+
       const disclosureAccepted = await hasAcceptedPreRunDisclosure();
       const hasHostAccess = await hasWebGptHostAccess();
 
       if (!disclosureAccepted || !hasHostAccess) {
-        setPendingTemplateQueueStart(request);
+        setPendingTemplateQueueStart({ ...request, surface });
         setPendingStartOverrides(null);
+        setPreRunSurface(surface);
         setPreRunDisclosureOpened(true);
         setStatus("Review WebGPT access before starting.");
         return {
@@ -655,15 +920,22 @@ export function useAgentRunController({
         };
       }
 
-      return startTemplateQueueAfterPreRunChecks(request);
+      return startTemplateQueueAfterPreRunChecks({ ...request, surface });
     },
-    [setStatus, startTemplateQueueAfterPreRunChecks],
+    [
+      ensureActiveTabId,
+      resolveStartSurface,
+      setError,
+      setStatus,
+      startTemplateQueueAfterPreRunChecks,
+    ],
   );
 
   const handlePreRunDisclosureCancel = useCallback(() => {
     setPreRunDisclosureOpened(false);
     setPendingStartOverrides(null);
     setPendingTemplateQueueStart(null);
+    setPreRunSurface(BROWSER_DOM_SURFACE);
     setStatus("Start cancelled.");
   }, [setStatus]);
 
@@ -671,23 +943,36 @@ export function useAgentRunController({
     try {
       setBusyAction("permissions");
       setError(null);
-      setStatus("Requesting website access...");
+      setStatus(
+        preRunSurface === GOOGLE_SHEETS_SURFACE
+          ? "Connecting Google Sheets..."
+          : preRunSurface === MICROSOFT_EXCEL_SURFACE
+            ? "Connecting Microsoft Excel..."
+          : "Requesting website access...",
+      );
 
-      const granted = await requestWebGptHostAccess();
+      if (preRunSurface === GOOGLE_SHEETS_SURFACE) {
+        await connectGoogleSheets();
+      } else if (preRunSurface === MICROSOFT_EXCEL_SURFACE) {
+        await connectMicrosoftExcel();
+      } else {
+        const granted = await requestWebGptHostAccess();
 
-      if (!granted) {
-        throw new Error(
-          "Website access was not granted. WebGPT needs this to run on pages you choose.",
-        );
+        if (!granted) {
+          throw new Error(
+            "Website access was not granted. WebGPT needs this to run on pages you choose.",
+          );
+        }
+
+        await setAcceptedPreRunDisclosure();
       }
-
-      await setAcceptedPreRunDisclosure();
 
       const overrides = pendingStartOverrides || {};
       const templateQueueRequest = pendingTemplateQueueStart;
       setPreRunDisclosureOpened(false);
       setPendingStartOverrides(null);
       setPendingTemplateQueueStart(null);
+      setPreRunSurface(BROWSER_DOM_SURFACE);
 
       if (templateQueueRequest) {
         await startTemplateQueueAfterPreRunChecks(templateQueueRequest);
@@ -703,6 +988,7 @@ export function useAgentRunController({
   }, [
     pendingStartOverrides,
     pendingTemplateQueueStart,
+    preRunSurface,
     setBusyAction,
     setError,
     setStatus,
@@ -711,7 +997,7 @@ export function useAgentRunController({
   ]);
 
   const handleStop = useCallback(async () => {
-    const { tabId } = await resolveSessionTarget();
+    const tabId = attachedTabId ?? activeTabId ?? (await getActiveTabId());
 
     const response = await stopAgentRun(tabId);
 
@@ -719,11 +1005,15 @@ export function useAgentRunController({
 
     setSession((prev) => ({
       ...(prev || {}),
-      stopRequested: true,
+      attachedTabId: tabId,
+      running: false,
+      awaitingNavigation: false,
+      pausedReason: "forced_stop",
+      stopRequested: false,
     }));
 
     return response;
-  }, [resolveSessionTarget, stopAgentRun]);
+  }, [activeTabId, attachedTabId, stopAgentRun]);
 
   const handleRefresh = useCallback(async () => {
     try {
@@ -834,7 +1124,7 @@ export function useAgentRunController({
   }, [hint, rejectAgentSuccess, resolveSessionTarget]);
 
   const handleReset = useCallback(async () => {
-    const { tabId } = await resolveSessionTarget();
+    const tabId = attachedTabId ?? activeTabId ?? (await getActiveTabId());
 
     const response = await resetAgentSession(tabId);
 
@@ -844,7 +1134,7 @@ export function useAgentRunController({
     setAttachedTabId(null);
 
     return response;
-  }, [resetAgentSession, resolveSessionTarget]);
+  }, [activeTabId, attachedTabId, resetAgentSession]);
 
   const applyLaunchRequest = useCallback(
     (request: RunLaunchRequest) => {
@@ -887,26 +1177,48 @@ export function useAgentRunController({
     (lastEvent?.kind === "paused" &&
       lastEvent?.reason === "awaiting_success_confirmation");
 
+  const awaitingHumanHint =
+    pausedReason === "awaiting_human_hint" ||
+    (lastEvent?.kind === "paused" &&
+      lastEvent?.reason === "awaiting_human_hint");
+
   const hasGoal = Boolean(goal.trim());
 
   const canStart =
-    hasGoal && !isRunning && !isAwaitingNavigation && busyAction !== "start";
+    hasGoal &&
+    !isRunning &&
+    !isAwaitingNavigation &&
+    !awaitingHumanHint &&
+    !foreignSessionBlocksStart(foreignSession) &&
+    busyAction !== "start";
 
-  const canStop = !session?.stopRequested && busyAction !== "stop";
+  const runHasStarted = isRunning || isAwaitingNavigation || busyAction === "start";
+
+  const canStop =
+    runHasStarted && !session?.stopRequested && busyAction !== "stop";
 
   const canRefresh = busyAction !== "refresh";
 
   const canAttach =
     !isRunning && !isAwaitingNavigation && busyAction !== "attach";
 
+  const hasSessionToReset = Boolean(session || eventLog.length > 0);
+
   const canReset =
-    !isRunning && !isAwaitingNavigation && busyAction !== "reset";
+    hasSessionToReset &&
+    !isRunning &&
+    !isAwaitingNavigation &&
+    !awaitingConfirmation &&
+    busyAction !== "reset" &&
+    busyAction !== "start" &&
+    busyAction !== "stop";
 
   return {
     goal,
     setGoal,
     artifactFileName,
     preRunDisclosureOpened,
+    preRunSurface,
 
     activeTabId,
     attachedTabId,
@@ -924,6 +1236,7 @@ export function useAgentRunController({
     isAwaitingNavigation,
     pausedReason,
     awaitingConfirmation,
+    awaitingHumanHint,
 
     canStart,
     canStop,

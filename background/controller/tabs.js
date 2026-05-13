@@ -123,6 +123,7 @@ export function createRegisterTabHandlers({ continueRun, pauseForForcedStop, run
       try {
         await continueRun(tabId, {
           type: "navigation_completed",
+          surface: latestSession.surface || "browser_dom",
           runId: latestSession.runId,
           step: Number(latestSession.step || 0) + 1,
           reason: "navigation_completed",

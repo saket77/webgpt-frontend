@@ -7,6 +7,7 @@ import {
   saveSession,
 } from "../../state/sessionStore.js";
 import { clone } from "../../utils/common.js";
+import { BROWSER_DOM_SURFACE, normalizeSurface } from "../../runtime/surfaces.js";
 
 function applyTemplateQueueRunToSession(session, itemResult, plannerAdapter) {
   session.goal = itemResult.item?.goal || session.goal || "";
@@ -25,6 +26,7 @@ function applyTemplateQueueRunToSession(session, itemResult, plannerAdapter) {
   session.awaitingNavigation = false;
   session.stopRequested = false;
   session.step = Number(itemResult.run?.step || 0);
+  session.surface = itemResult.run?.surface || session.surface || BROWSER_DOM_SURFACE;
 
   return plannerAdapter.syncSessionWithRun(session, itemResult.run);
 }
@@ -101,8 +103,9 @@ export async function startTemplateQueueFlow(
     inputSchema = [],
     inputValues = {},
     artifactFileName = "",
+    surface = "",
   } = {},
-  { continueRun, plannerAdapter },
+  { continueRun, plannerAdapter, runtime },
 ) {
   if (!goalTemplate || !String(goalTemplate).trim()) {
     throw new Error("Template goal is required.");
@@ -113,6 +116,10 @@ export async function startTemplateQueueFlow(
   session.movedFromTabId = null;
   session.movedToTabId = null;
   session.artifactFileName = String(artifactFileName || "");
+  session.surface =
+    normalizeSurface(surface) ||
+    (await runtime?.detectSurfaceForTab?.(tabId))?.surface ||
+    BROWSER_DOM_SURFACE;
 
   await replaceSession(tabId, session);
 
@@ -121,6 +128,7 @@ export async function startTemplateQueueFlow(
     inputSchema,
     inputValues,
     artifactFileName: session.artifactFileName,
+    surface: session.surface,
   });
 
   session = await getSession(tabId);

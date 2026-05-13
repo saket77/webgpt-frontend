@@ -1,5 +1,5 @@
 import { webgptPlannerAdapter } from "../adapters/webgpt/plannerAdapter.js";
-import { browserRuntime } from "../runtime/browser.js";
+import { appRuntime } from "../runtime/index.js";
 import {
   provideHintAndResumeFlow,
 } from "./flows/pauseFlow.js";
@@ -16,7 +16,7 @@ import { createRegisterTabHandlers } from "./tabs.js";
 
 export function createController({
   plannerAdapter = webgptPlannerAdapter,
-  runtime = browserRuntime,
+  runtime = appRuntime,
 } = {}) {
   const lifecycle = createSessionLifecycleHandlers({ plannerAdapter });
   const attachSessionToTab = createAttachSessionToTab({ runtime });
@@ -37,17 +37,27 @@ export function createController({
     inputValues = {},
     isTemplate,
     artifactFileName = "",
+    surface = "",
   ) =>
-    startAgentFlow(tabId, goal, inputValues, isTemplate, artifactFileName, {
-      continueRun,
-      plannerAdapter,
-      runtime,
-    });
+    startAgentFlow(
+      tabId,
+      goal,
+      inputValues,
+      isTemplate,
+      artifactFileName,
+      surface,
+      {
+        continueRun,
+        plannerAdapter,
+        runtime,
+      },
+    );
 
   const startTemplateQueue = (tabId, args = {}) =>
     startTemplateQueueFlow(tabId, args, {
       continueRun,
       plannerAdapter,
+      runtime,
     });
 
   const provideHintAndResume = (tabId, hint) =>
@@ -78,7 +88,12 @@ export function createController({
   return {
     attachSessionToTab,
     confirmSuccess,
+    connectGoogleSheets: runtime.connectGoogleSheets,
+    connectMicrosoftExcel: runtime.connectMicrosoftExcel,
     continueRun,
+    detectSurfaceForTab: runtime.detectSurfaceForTab,
+    getGoogleSheetsAuthStatus: runtime.getGoogleSheetsAuthStatus,
+    getMicrosoftExcelAuthStatus: runtime.getMicrosoftExcelAuthStatus,
     getSessionState: lifecycle.getSessionState,
     listArtifacts,
     pauseForForcedStop: lifecycle.pauseForForcedStop,
@@ -96,7 +111,14 @@ const defaultController = createController();
 
 export const attachSessionToTab = defaultController.attachSessionToTab;
 export const confirmSuccess = defaultController.confirmSuccess;
+export const connectGoogleSheets = defaultController.connectGoogleSheets;
+export const connectMicrosoftExcel = defaultController.connectMicrosoftExcel;
 export const continueRun = defaultController.continueRun;
+export const detectSurfaceForTab = defaultController.detectSurfaceForTab;
+export const getGoogleSheetsAuthStatus =
+  defaultController.getGoogleSheetsAuthStatus;
+export const getMicrosoftExcelAuthStatus =
+  defaultController.getMicrosoftExcelAuthStatus;
 export const getSessionState = defaultController.getSessionState;
 export const listArtifacts = defaultController.listArtifacts;
 export const pauseForForcedStop = defaultController.pauseForForcedStop;
