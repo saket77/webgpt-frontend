@@ -2,17 +2,13 @@
 
 ![WebGPT icon](./icons/icon-128.png)
 
-WebGPT is a Chrome extension frontend for AI-powered browser automation. It observes the active tab, extracts structured page state, sends that state to a compatible planner backend, and safely executes the browser commands returned by that backend.
+WebGPT is a Chrome extension frontend for AI-powered browser automation. It observes the active tab, extracts structured page or runtime state, sends that state to a compatible planner backend, and safely executes the commands returned by that backend.
 
-Think of this repo as the browser-side runtime: sidepanel UI, tab/session orchestration, DOM extraction, action execution, replay support, and the HTTP adapter contract that lets planner backends plug in cleanly.
+Think of this repo as the browser-side runtime: sidepanel UI, tab/session orchestration, DOM extraction, runtime surfaces, action execution, replay support, and the HTTP adapter contract that lets planner backends plug in cleanly.
 
 ## Demo Video
 
-Add the recorded demo here before publishing the repo:
-
 [![Watch the WebGPT demo](https://i9.ytimg.com/vi_webp/J1yGDs0M-gA/mq1.webp?sqp=CJjp2M8G-oaymwEmCMACELQB8quKqQMa8AEB-AH-CIAC0AWKAgwIABABGBUgRih_MA8=&rs=AOn4CLCyBim_PHlqGOERym-W9Y5fh5O9YQ)](https://youtu.be/J1yGDs0M-gA)
-
-
 
 ## Why WebGPT?
 
@@ -20,7 +16,8 @@ Web automation agents are easiest to iterate on when the browser runtime and pla
 
 - **Browser-native execution**: runs as a Chrome extension, using content scripts to inspect and operate on the current page.
 - **Backend-agnostic planning**: use the hosted WebGPT planner or point the extension at any backend that speaks the documented command contract.
-- **Structured page state**: extracts frames, controls, labels, scroll containers, URLs, titles, and site-adapter hints for planner use.
+- **Structured state**: extracts frames, controls, labels, scroll containers, URLs, titles, site-adapter hints, and runtime-specific state for planner use.
+- **Runtime surfaces**: can route non-DOM products such as Google Sheets and Microsoft Excel through dedicated runtime clients while preserving the same planner loop.
 - **Human-in-the-loop recovery**: supports planner pauses, human hints, success confirmation, and rejected-success resume flows.
 - **Navigation-aware loops**: detects likely navigation, waits for the new document, and resumes with fresh state.
 - **OpenAPI contract**: the default HTTP planner API is documented in `docs/planner-http-api.openapi.yaml`.
@@ -31,24 +28,26 @@ Web automation agents are easiest to iterate on when the browser runtime and pla
 User goal
   -> sidepanel UI
   -> background controller
-  -> content-script state extraction
+  -> runtime state extraction
   -> planner backend
-  -> browser command
-  -> content-script action runner
+  -> frontend command
+  -> runtime executor
   -> post-action state extraction
   -> next planner turn
 ```
 
-Backends do not need to know how to click DOM nodes directly. They return high-level browser commands such as:
+Backends do not need to know how to click DOM nodes or call browser APIs directly. They return high-level commands such as:
 
 - `extract_state`
 - `run_actions`
+- `run_google_sheets_commands`
+- `run_microsoft_excel_commands`
 - `wait_for_navigation`
 - `ask_human`
 - `done`
 - `run_replay_batch`
 
-The extension owns browser execution and lifecycle details.
+The extension owns browser execution, runtime auth, runtime API calls, and lifecycle details.
 
 ## Quick Start
 
@@ -72,6 +71,12 @@ The built sidepanel files are generated into `sidepanel-app/dist/`.
 ### 3. Choose a Backend
 
 Open the WebGPT sidepanel and use the Backend card to choose a compatible planner backend.
+
+WebGPT defaults to the hosted planner:
+
+```text
+https://webgpt-backend-production.up.railway.app
+```
 
 Common options:
 
@@ -126,6 +131,8 @@ Command-result requests are discriminated by `type`, including:
 
 - `state_extracted`
 - `actions_executed`
+- `google_sheets_commands_executed`
+- `microsoft_excel_commands_executed`
 - `navigation_detected`
 - `navigation_completed`
 - `replay_preflight_requested`
@@ -154,8 +161,8 @@ Command responses use the standard envelope:
 ## Project Layout
 
 ```text
-background/        Extension service worker, controller flows, session state, backend adapters
-content-scripts/  DOM state extraction, action resolution, action execution, site adapters
+background/        Extension service worker, runtime surfaces, controller flows, session state, backend adapters
+content-scripts/  DOM state extraction, action resolution, DOM action execution, site adapters
 sidepanel-app/    React sidepanel UI
 docs/             Planner contracts, OpenAPI spec, adapter docs
 examples/         Minimal compatible backend examples
@@ -177,6 +184,27 @@ The Canvas quiz adapter is an example:
 ```text
 content-scripts/adapters/canvasQuiz.js
 ```
+
+## Runtime Surfaces
+
+Runtime surfaces are a sibling extension point to site adapters. Use them when a product is better controlled through a durable API or browser capability than through generic DOM clicks.
+
+The first non-DOM runtimes are Google Sheets and Microsoft Excel:
+
+```text
+background/runtime/googleSheets.js
+background/runtime/microsoftExcel.js
+```
+
+Google Sheets detects Sheets tabs, requests Sheets access through Chrome identity, extracts spreadsheet state, executes curated Sheets API commands, and routes Sheets replay steps through the same controller loop.
+
+Microsoft Excel detects Excel workbooks opened in Microsoft 365 / SharePoint, requests Microsoft Graph access through Chrome identity and PKCE, resolves the workbook to a Graph drive item, extracts workbook state, executes curated Excel commands, and routes Excel replay steps through the same controller loop.
+
+Start here:
+
+- [Runtime authoring guide](./docs/runtime-authoring.md)
+- [Google Sheets surface v0](./docs/surfaces/google-sheets-v0.md)
+- [Microsoft Excel surface v0](./docs/surfaces/microsoft-excel-v0.md)
 
 ## Development Commands
 
@@ -206,8 +234,8 @@ ruby -e 'require "yaml"; YAML.load_file("docs/planner-http-api.openapi.yaml"); p
 
 - Keep the browser controller backend-agnostic.
 - Keep planner-specific routes and compatibility inside adapters.
-- Prefer structured page state over screenshots or raw HTML dumps.
-- Keep content scripts responsible for browser execution, not planning.
+- Prefer structured page/runtime state over screenshots or raw HTML dumps.
+- Keep content scripts and runtimes responsible for execution, not planning.
 - Use the OpenAPI contract as the source of truth for compatible HTTP backends.
 - Make human intervention explicit: hints, pauses, confirmations, and resume flows should be visible in the session history.
 

@@ -38,8 +38,6 @@ paths:
                 $ref: "#/components/schemas/StartCommandRunResponse"
         default:
           $ref: "#/components/responses/ErrorJson"
-        default:
-          $ref: "#/components/responses/ErrorJson"
 
   /template-runs/start-command:
     post:
@@ -59,8 +57,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TemplateQueueCommandResponse"
-        default:
-          $ref: "#/components/responses/ErrorJson"
         default:
           $ref: "#/components/responses/ErrorJson"
 
@@ -84,8 +80,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CompleteTemplateQueueItemResponse"
-        default:
-          $ref: "#/components/responses/ErrorJson"
         default:
           $ref: "#/components/responses/ErrorJson"
 
@@ -112,8 +106,6 @@ paths:
                     $ref: "#/components/schemas/RunSnapshot"
         default:
           $ref: "#/components/responses/ErrorJson"
-        default:
-          $ref: "#/components/responses/ErrorJson"
 
   /runs/{runId}/command-result:
     post:
@@ -135,8 +127,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CommandResponse"
-        default:
-          $ref: "#/components/responses/ErrorJson"
         default:
           $ref: "#/components/responses/ErrorJson"
 
@@ -162,8 +152,6 @@ paths:
                 $ref: "#/components/schemas/RunMutationResponse"
         default:
           $ref: "#/components/responses/ErrorJson"
-        default:
-          $ref: "#/components/responses/ErrorJson"
 
   /runs/{runId}/confirm-success:
     post:
@@ -185,8 +173,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RunMutationResponse"
-        default:
-          $ref: "#/components/responses/ErrorJson"
         default:
           $ref: "#/components/responses/ErrorJson"
 
@@ -216,9 +202,6 @@ paths:
                 $ref: "#/components/schemas/RejectSuccessResponse"
         default:
           $ref: "#/components/responses/ErrorJson"
-                $ref: "#/components/schemas/RejectSuccessResponse"
-        default:
-          $ref: "#/components/responses/ErrorJson"
 
   /runs/{runId}/stop:
     post:
@@ -240,8 +223,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OkResponse"
-        default:
-          $ref: "#/components/responses/ErrorJson"
         default:
           $ref: "#/components/responses/ErrorJson"
 
@@ -268,8 +249,6 @@ paths:
                       $ref: "#/components/schemas/SavedArtifactSummary"
         default:
           $ref: "#/components/responses/ErrorJson"
-        default:
-          $ref: "#/components/responses/ErrorJson"
 
   /save-successful-run:
     post:
@@ -281,8 +260,6 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/GenericJsonSuccess"
-        default:
-          $ref: "#/components/responses/ErrorJson"
         default:
           $ref: "#/components/responses/ErrorJson"
 
@@ -298,8 +275,6 @@ paths:
           $ref: "#/components/responses/GenericJsonSuccess"
         default:
           $ref: "#/components/responses/ErrorJson"
-        default:
-          $ref: "#/components/responses/ErrorJson"
 
   /save-successful-replay-artifacts:
     post:
@@ -311,8 +286,6 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/GenericJsonSuccess"
-        default:
-          $ref: "#/components/responses/ErrorJson"
         default:
           $ref: "#/components/responses/ErrorJson"
 
@@ -357,14 +330,6 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/ErrorResponse"
-            $ref: "#/components/schemas/SaveSuccessfulArtifactResponse"
-
-    ErrorJson:
-      description: Error response.
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ErrorResponse"
 
   schemas:
     OkResponse:
@@ -374,23 +339,6 @@ components:
         ok:
           type: boolean
           const: true
-
-    ErrorResponse:
-      type: object
-      required: [ok, error]
-      additionalProperties: true
-      properties:
-        ok:
-          type: boolean
-          const: false
-        error:
-          type: string
-          description: Human-readable error message consumed by the frontend.
-        code:
-          type: string
-          description: Optional stable machine-readable error code.
-        details:
-          $ref: "#/components/schemas/NullableObject"
 
     ErrorResponse:
       type: object
@@ -476,17 +424,8 @@ components:
         - $ref: "#/components/schemas/StateExtractedResult"
         - $ref: "#/components/schemas/NavigationCompletedResult"
         - $ref: "#/components/schemas/ActionsExecutedResult"
-        - $ref: "#/components/schemas/NavigationDetectedResult"
-        - $ref: "#/components/schemas/ReplayBatchExecutedResult"
-      discriminator:
-        propertyName: type
-
-    BaseCommandResultRequest:
-      oneOf:
-        - $ref: "#/components/schemas/ReplayPreflightRequestedResult"
-        - $ref: "#/components/schemas/StateExtractedResult"
-        - $ref: "#/components/schemas/NavigationCompletedResult"
-        - $ref: "#/components/schemas/ActionsExecutedResult"
+        - $ref: "#/components/schemas/GoogleSheetsCommandsExecutedResult"
+        - $ref: "#/components/schemas/MicrosoftExcelCommandsExecutedResult"
         - $ref: "#/components/schemas/NavigationDetectedResult"
         - $ref: "#/components/schemas/ReplayBatchExecutedResult"
       discriminator:
@@ -496,10 +435,12 @@ components:
       type: object
       required: [type]
       additionalProperties: false
-      additionalProperties: false
       properties:
         type:
           $ref: "#/components/schemas/CommandResultType"
+        surface:
+          type: string
+          examples: [browser_dom, google_sheets, microsoft_excel]
         step:
           type:
             - integer
@@ -654,204 +595,98 @@ components:
             tabId: 123
             observedUrl: https://example.com
 
-    NavigationDetectedResult:
-      allOf:
-        - $ref: "#/components/schemas/BaseCommandResultRequest"
-        - type: object
-          required: [type, command, navigationInfo]
-          properties:
-            type:
-              const: navigation_detected
-            command:
-              $ref: "#/components/schemas/NavigationSourceCommand"
-            execution:
-              oneOf:
-                - $ref: "#/components/schemas/ExecutionResult"
-                - type: "null"
-            browserContext:
-              $ref: "#/components/schemas/BrowserContext"
-            navigationInfo:
-              $ref: "#/components/schemas/NavigationInfo"
-      examples:
-        - type: navigation_detected
-          command:
-            type: run_actions
-            step: 2
-          execution:
-            ok: true
-            summary: Navigation triggered by click.
-            synthetic: true
-            results: []
-          browserContext:
-            tabId: 123
-            observedUrl: https://example.com/results
-          navigationInfo:
-            observedUrl: https://example.com/results
-            loading: true
-            interruptedAfterExecution: true
-            handoffToTabId: null
-            source: click
-
-    ReplayBatchExecutedResult:
-      allOf:
-        - $ref: "#/components/schemas/BaseCommandResultRequest"
-        - type: object
-          required: [type, command, batchResult, navigationInterrupted, navigationInfo]
-          properties:
-            type:
-              const: replay_batch_executed
-            command:
-              $ref: "#/components/schemas/RunReplayBatchCommand"
-            batchResult:
-              $ref: "#/components/schemas/ReplayBatchResult"
-            navigationInterrupted:
-              type: boolean
-            navigationInfo:
-              $ref: "#/components/schemas/NavigationInfo"
-      examples:
-        - type: replay_batch_executed
-          command:
-            type: run_replay_batch
-            runId: run_123
-            step: 1
-            batch:
-              steps: []
-            batchIndex: 0
-            totalBatchCount: 1
-            isFirstBatch: true
-            mayCauseNavigation: false
-            fileName: replay.json
-          batchResult:
-            ok: true
-            results: []
-          navigationInterrupted: false
-          navigationInfo:
-            observedUrl: https://example.com
-            loading: false
-            interruptedAfterExecution: false
-
-    ProvideHumanHintRequest:
-      type: object
-      description: Records human guidance and clears the backend pause state. The resumed planner turn re-extracts page state through the normal command-result loop.
-      properties:
-        hint:
-          type: string
-          default: ""
-    ReplayPreflightRequestedResult:
-      allOf:
-        - $ref: "#/components/schemas/BaseCommandResultRequest"
-        - type: object
-          required: [type]
-          properties:
-            type:
-              const: replay_preflight_requested
-            artifactFileName:
-              type: string
-              default: ""
-      examples:
-        - type: replay_preflight_requested
-          artifactFileName: saved-run.json
-
-    StateExtractedResult:
-      allOf:
-        - $ref: "#/components/schemas/BaseCommandResultRequest"
-        - type: object
-          required: [type, state]
-          properties:
-            type:
-              const: state_extracted
-            state:
-              $ref: "#/components/schemas/ExtractedState"
-            userHint:
-              type: string
-              default: ""
-            browserContext:
-              $ref: "#/components/schemas/BrowserContext"
-            artifactFileName:
-              type: string
-              default: ""
-      examples:
-        - type: state_extracted
-          state:
-            url: https://example.com
-            title: Example
-            frames: []
-          userHint: ""
-          browserContext:
-            tabId: 123
-            observedUrl: https://example.com
-          artifactFileName: ""
-
-    NavigationCompletedResult:
-      allOf:
-        - $ref: "#/components/schemas/BaseCommandResultRequest"
-        - type: object
-          required: [type, state]
-          properties:
-            type:
-              const: navigation_completed
-            state:
-              $ref: "#/components/schemas/ExtractedState"
-            userHint:
-              type: string
-              default: ""
-            browserContext:
-              $ref: "#/components/schemas/BrowserContext"
-            artifactFileName:
-              type: string
-              default: ""
-      examples:
-        - type: navigation_completed
-          state:
-            url: https://example.com/results
-            title: Results
-            frames: []
-          userHint: ""
-          browserContext:
-            tabId: 123
-            observedUrl: https://example.com/results
-          artifactFileName: ""
-
-    ActionsExecutedResult:
+    GoogleSheetsCommandsExecutedResult:
       allOf:
         - $ref: "#/components/schemas/BaseCommandResultRequest"
         - type: object
           required: [type, command, execution, postState]
           properties:
             type:
-              const: actions_executed
+              const: google_sheets_commands_executed
+            surface:
+              const: google_sheets
             command:
-              $ref: "#/components/schemas/RunActionsCommand"
+              $ref: "#/components/schemas/RunGoogleSheetsCommandsCommand"
             execution:
               $ref: "#/components/schemas/ExecutionResult"
             postState:
               $ref: "#/components/schemas/ExtractedState"
             browserContext:
               $ref: "#/components/schemas/BrowserContext"
-            navigationInfo:
-              $ref: "#/components/schemas/NavigationInfo"
       examples:
-        - type: actions_executed
+        - type: google_sheets_commands_executed
+          surface: google_sheets
           command:
-            type: run_actions
+            type: run_google_sheets_commands
+            surface: google_sheets
             runId: run_123
             step: 2
-            actions:
-              - type: fill
-                targetId: el_12
-                frameId: 0
-                value: 423 N Holly St
+            commands:
+              - name: update_values
+                range: Sheet1!A1:B2
+                values:
+                  - [Name, Status]
+                  - [Ada, Done]
           execution:
             ok: true
-            summary: All actions executed.
+            summary: Google Sheets commands executed.
             results: []
           postState:
-            url: https://example.com
-            title: Example
-            frames: []
+            surface: google_sheets
+            spreadsheetTitle: CRM
+            visibleGrid:
+              range: Sheet1!A1:B20
+              values: []
           browserContext:
             tabId: 123
-            observedUrl: https://example.com
+            surface: google_sheets
+            observedUrl: https://docs.google.com/spreadsheets/d/sheet-id/edit
+
+    MicrosoftExcelCommandsExecutedResult:
+      allOf:
+        - $ref: "#/components/schemas/BaseCommandResultRequest"
+        - type: object
+          required: [type, command, execution, postState]
+          properties:
+            type:
+              const: microsoft_excel_commands_executed
+            surface:
+              const: microsoft_excel
+            command:
+              $ref: "#/components/schemas/RunMicrosoftExcelCommandsCommand"
+            execution:
+              $ref: "#/components/schemas/ExecutionResult"
+            postState:
+              $ref: "#/components/schemas/ExtractedState"
+            browserContext:
+              $ref: "#/components/schemas/BrowserContext"
+      examples:
+        - type: microsoft_excel_commands_executed
+          surface: microsoft_excel
+          command:
+            type: run_microsoft_excel_commands
+            surface: microsoft_excel
+            runId: run_123
+            step: 2
+            commands:
+              - name: update_range
+                worksheet: Sheet1
+                range: A1:B2
+                values:
+                  - [Name, Status]
+                  - [Ada, Done]
+          execution:
+            ok: true
+            summary: Microsoft Excel commands executed.
+            results: []
+          postState:
+            surface: microsoft_excel
+            workbookName: Forecast.xlsx
+            worksheets: []
+          browserContext:
+            tabId: 123
+            surface: microsoft_excel
+            observedUrl: https://contoso.sharepoint.com/:x:/r/sites/team/Forecast.xlsx
 
     NavigationDetectedResult:
       allOf:
@@ -957,9 +792,6 @@ components:
       description: Standard envelope for routes that return the next browser command.
       required: [ok, runId, run, command]
       additionalProperties: true
-      description: Standard envelope for routes that return the next browser command.
-      required: [ok, runId, run, command]
-      additionalProperties: true
       properties:
         ok:
           type: boolean
@@ -1001,43 +833,14 @@ components:
               summary: Search for the address.
               actions: []
           extractedData: null
-      examples:
-        - ok: true
-          runId: run_123
-          run:
-            runId: run_123
-            step: 2
-            finalResult: null
-          command:
-            type: run_actions
-            runId: run_123
-            step: 2
-            summary: Fill the search box and press Enter.
-            actions:
-              - type: fill
-                targetId: el_12
-                frameId: 0
-                value: 423 N Holly St
-              - type: press
-                targetId: el_12
-                frameId: 0
-                key: Enter
-            plan:
-              status: act
-              reasoning: The search input is visible.
-              summary: Search for the address.
-              actions: []
-          extractedData: null
 
     StartCommandRunResponse:
-      $ref: "#/components/schemas/CommandResponse"
       $ref: "#/components/schemas/CommandResponse"
 
     TemplateQueueCommandResponse:
       allOf:
         - $ref: "#/components/schemas/CommandResponse"
         - type: object
-          required: [templateRunId, queue, item]
           required: [templateRunId, queue, item]
           properties:
             templateRunId:
@@ -1073,9 +876,6 @@ components:
         item:
           $ref: "#/components/schemas/NullableObject"
         runId:
-          type:
-            - string
-            - "null"
           type:
             - string
             - "null"
@@ -1120,28 +920,6 @@ components:
           type: boolean
           description: True when the backend intentionally treats artifact persistence as a no-op.
 
-    RejectSuccessResponse:
-      allOf:
-        - $ref: "#/components/schemas/RunMutationResponse"
-        - type: object
-          properties:
-            command:
-              oneOf:
-                - $ref: "#/components/schemas/Command"
-                - type: "null"
-
-    SaveSuccessfulArtifactResponse:
-      type: object
-      required: [ok]
-      additionalProperties: true
-      properties:
-        ok:
-          type: boolean
-          const: true
-        skipped:
-          type: boolean
-          description: True when the backend intentionally treats artifact persistence as a no-op.
-
     RunSnapshot:
       type: object
       description: Backend run data. The frontend currently reads step and finalResult.
@@ -1163,9 +941,14 @@ components:
           type: integer
         attachedTabId:
           type: integer
+        surface:
+          type: string
+          examples: [browser_dom, google_sheets, microsoft_excel]
         lastKnownUrl:
           type: string
         observedUrl:
+          type: string
+        url:
           type: string
         goal:
           type: string
@@ -1174,12 +957,21 @@ components:
 
     ExtractedState:
       type: object
-      description: Structured browser state produced by the extension content scripts.
+      description: Structured browser or runtime state produced by the extension.
       additionalProperties: true
       properties:
+        surface:
+          type: string
+          examples: [browser_dom, google_sheets, microsoft_excel]
         url:
           type: string
         title:
+          type: string
+        goal:
+          type: string
+        step:
+          type: integer
+        timestamp:
           type: string
         frames:
           type: array
@@ -1267,6 +1059,8 @@ components:
         - state_extracted
         - navigation_completed
         - actions_executed
+        - google_sheets_commands_executed
+        - microsoft_excel_commands_executed
         - navigation_detected
         - replay_batch_executed
 
@@ -1275,6 +1069,8 @@ components:
         - $ref: "#/components/schemas/ExtractStateCommand"
         - $ref: "#/components/schemas/NavigationCompletedCommand"
         - $ref: "#/components/schemas/RunActionsCommand"
+        - $ref: "#/components/schemas/RunGoogleSheetsCommandsCommand"
+        - $ref: "#/components/schemas/RunMicrosoftExcelCommandsCommand"
         - $ref: "#/components/schemas/RunReplayBatchCommand"
         - $ref: "#/components/schemas/WaitForNavigationCommand"
         - $ref: "#/components/schemas/AskHumanCommand"
@@ -1308,18 +1104,6 @@ components:
         runId:
           type: string
 
-    NavigationSourceCommand:
-      type: object
-      required: [type]
-      additionalProperties: true
-      properties:
-        type:
-          const: run_actions
-        step:
-          type: integer
-        runId:
-          type: string
-
     ExtractStateCommand:
       allOf:
         - $ref: "#/components/schemas/BaseCommand"
@@ -1340,12 +1124,6 @@ components:
           step: 1
           reason: run_started
           meta: {}
-      examples:
-        - type: extract_state
-          runId: run_123
-          step: 1
-          reason: run_started
-          meta: {}
 
     NavigationCompletedCommand:
       allOf:
@@ -1359,13 +1137,6 @@ components:
               type: string
             meta:
               $ref: "#/components/schemas/AnyObject"
-      examples:
-        - type: navigation_completed
-          runId: run_123
-          step: 3
-          reason: navigation_completed
-          meta:
-            afterNavigation: true
       examples:
         - type: navigation_completed
           runId: run_123
@@ -1409,25 +1180,77 @@ components:
             reasoning: The search input is visible.
             summary: Search for the address.
             actions: []
+
+    RunGoogleSheetsCommandsCommand:
+      allOf:
+        - $ref: "#/components/schemas/BaseCommand"
+        - type: object
+          required: [type, commands]
+          properties:
+            type:
+              const: run_google_sheets_commands
+            surface:
+              const: google_sheets
+            commands:
+              type: array
+              items:
+                $ref: "#/components/schemas/RuntimeCommand"
+            summary:
+              type: string
+            plannerSummary:
+              type: string
       examples:
-        - type: run_actions
+        - type: run_google_sheets_commands
+          surface: google_sheets
           runId: run_123
           step: 2
-          summary: Fill the search box and press Enter.
-          actions:
-            - type: fill
-              targetId: el_12
-              frameId: 0
-              value: 423 N Holly St
-            - type: press
-              targetId: el_12
-              frameId: 0
-              key: Enter
-          plan:
-            status: act
-            reasoning: The search input is visible.
-            summary: Search for the address.
-            actions: []
+          summary: Update the selected sheet.
+          commands:
+            - name: update_values
+              range: Sheet1!A1:B2
+              values:
+                - [Name, Status]
+                - [Ada, Done]
+
+    RunMicrosoftExcelCommandsCommand:
+      allOf:
+        - $ref: "#/components/schemas/BaseCommand"
+        - type: object
+          required: [type, commands]
+          properties:
+            type:
+              const: run_microsoft_excel_commands
+            surface:
+              const: microsoft_excel
+            commands:
+              type: array
+              items:
+                $ref: "#/components/schemas/RuntimeCommand"
+            summary:
+              type: string
+            plannerSummary:
+              type: string
+      examples:
+        - type: run_microsoft_excel_commands
+          surface: microsoft_excel
+          runId: run_123
+          step: 2
+          summary: Update the workbook.
+          commands:
+            - name: update_range
+              worksheet: Sheet1
+              range: A1:B2
+              values:
+                - [Name, Status]
+                - [Ada, Done]
+
+    RuntimeCommand:
+      type: object
+      required: [name]
+      additionalProperties: true
+      properties:
+        name:
+          type: string
 
     RunReplayBatchCommand:
       allOf:
@@ -1466,17 +1289,6 @@ components:
           isFirstBatch: true
           mayCauseNavigation: false
           fileName: replay.json
-      examples:
-        - type: run_replay_batch
-          runId: run_123
-          step: 1
-          batch:
-            steps: []
-          batchIndex: 0
-          totalBatchCount: 1
-          isFirstBatch: true
-          mayCauseNavigation: false
-          fileName: replay.json
 
     WaitForNavigationCommand:
       allOf:
@@ -1492,12 +1304,6 @@ components:
               type: string
             source:
               type: string
-      examples:
-        - type: wait_for_navigation
-          runId: run_123
-          step: 2
-          observedUrl: https://example.com/results
-          source: click
       examples:
         - type: wait_for_navigation
           runId: run_123
@@ -1520,11 +1326,6 @@ components:
           runId: run_123
           step: 4
           message: Please choose the correct account before continuing.
-      examples:
-        - type: ask_human
-          runId: run_123
-          step: 4
-          message: Please choose the correct account before continuing.
 
     DoneCommand:
       allOf:
@@ -1540,14 +1341,6 @@ components:
               type: string
             finalResult:
               description: Planner-defined final result shown in the UI.
-      examples:
-        - type: done
-          runId: run_123
-          step: 5
-          summary: Found the property zoning and dimensions.
-          plannerSummary: Task completed successfully.
-          finalResult:
-            summary: Found the property zoning and dimensions.
       examples:
         - type: done
           runId: run_123
