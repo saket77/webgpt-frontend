@@ -5,6 +5,11 @@ import {
   setStoredBackendBaseUrl,
 } from "./settings/backendConfig.js";
 import {
+  getMicrosoftExcelConfiguration,
+  resetStoredMicrosoftExcelConfig,
+  setStoredMicrosoftExcelConfig,
+} from "./settings/microsoftExcelConfig.js";
+import {
   resetSession,
   requestStop,
   startAgent,
@@ -126,6 +131,28 @@ export function registerMessageHandlers() {
 
       if (message?.type === "WEBGPT_RESET_BACKEND_CONFIG") {
         const config = await resetStoredBackendBaseUrl();
+        sendResponse({ ok: true, config });
+        return;
+      }
+
+      if (message?.type === "WEBGPT_GET_MICROSOFT_EXCEL_CONFIG") {
+        const config = await getMicrosoftExcelConfiguration();
+        sendResponse({ ok: true, config });
+        return;
+      }
+
+      if (message?.type === "WEBGPT_SET_MICROSOFT_EXCEL_CONFIG") {
+        const config = await setStoredMicrosoftExcelConfig({
+          tenantId: message.tenantId || "",
+          clientId: message.clientId || "",
+          scopes: message.scopes || "",
+        });
+        sendResponse({ ok: true, config });
+        return;
+      }
+
+      if (message?.type === "WEBGPT_RESET_MICROSOFT_EXCEL_CONFIG") {
+        const config = await resetStoredMicrosoftExcelConfig();
         sendResponse({ ok: true, config });
         return;
       }

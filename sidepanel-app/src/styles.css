@@ -38,12 +38,22 @@ body {
 .nav-action {
   width: 34px;
   height: 34px;
+  min-width: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: rgba(255, 255, 255, 0.96);
   border: 0;
   background: transparent;
-  font-weight: 900;
-  font-size: 18px;
   box-shadow: none;
+}
+
+.nav-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+  stroke-width: 2.15;
+  flex: 0 0 auto;
 }
 
 .nav-action:hover {
@@ -53,10 +63,6 @@ body {
 
 .nav-action[data-active="true"] {
   color: #ffe66d;
-}
-
-.nav-action-settings {
-  font-size: 20px;
 }
 
 .app-main {
@@ -261,6 +267,11 @@ body {
   border-color: var(--wg-line);
   background: white;
   color: #19171d;
+}
+
+.settings-code-break {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .disclosure-modal .mantine-Modal-content,

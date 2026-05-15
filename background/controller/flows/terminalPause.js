@@ -28,6 +28,7 @@ async function pauseForHuman(
     plannerStatus: plan?.status || "",
     reasoning: plan?.reasoning || "",
     summary: plan?.summary || "",
+    finalResult: finalResult || null,
   });
 
   return {

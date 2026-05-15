@@ -10,6 +10,65 @@ import { AgentUXProvider } from "./providers";
 
 type Page = "home" | "saved" | "template" | "settings";
 
+function HomeIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="nav-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m3.5 11 8.5-7 8.5 7" />
+      <path d="M5.5 10v10h13V10" />
+      <path d="M9.5 20v-6h5v6" />
+    </svg>
+  );
+}
+
+function RoutinesIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="nav-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3.25 2" />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="nav-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 2.75v2" />
+      <path d="M12 19.25v2" />
+      <path d="m5.45 5.45 1.42 1.42" />
+      <path d="m17.13 17.13 1.42 1.42" />
+      <path d="M2.75 12h2" />
+      <path d="M19.25 12h2" />
+      <path d="m5.45 18.55 1.42-1.42" />
+      <path d="m17.13 6.87 1.42-1.42" />
+      <circle cx="12" cy="12" r="4" />
+    </svg>
+  );
+}
+
 export default function App() {
   const [page, setPage] = useState<Page>("home");
   const [launchRequest, setLaunchRequest] = useState<RunLaunchRequest | null>(
@@ -54,7 +113,7 @@ export default function App() {
                 onClick={handleOpenRunPage}
                 aria-label="Home"
               >
-                H
+                <HomeIcon />
               </ActionIcon>
             </Tooltip>
             <Tooltip label="Routines">
@@ -68,19 +127,19 @@ export default function App() {
                 onClick={handleOpenSavedPage}
                 aria-label="Routines"
               >
-                R
+                <RoutinesIcon />
               </ActionIcon>
             </Tooltip>
             <Tooltip label="Settings">
               <ActionIcon
-                className="nav-action nav-action-settings"
+                className="nav-action"
                 radius="md"
                 variant="transparent"
                 data-active={page === "settings" ? "true" : undefined}
                 onClick={() => setPage("settings")}
                 aria-label="Settings"
               >
-                ⚙
+                <SettingsIcon />
               </ActionIcon>
             </Tooltip>
           </Group>

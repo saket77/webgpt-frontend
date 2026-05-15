@@ -1,5 +1,5 @@
 import { Button, Group, Stack, Text } from "@mantine/core";
-import { BackendConfigCard } from "../components/agent";
+import { BackendConfigCard, MicrosoftExcelConfigCard } from "../components/agent";
 
 type SettingsPageProps = {
   onBack: () => void;
@@ -14,7 +14,7 @@ export default function SettingsPage({ onBack }: SettingsPageProps) {
             Settings
           </Text>
           <Text size="sm" c="dimmed">
-            Backend and local development configuration.
+            Backend and connected workspace configuration.
           </Text>
         </div>
         <Button variant="default" radius="xl" onClick={onBack}>
@@ -23,6 +23,7 @@ export default function SettingsPage({ onBack }: SettingsPageProps) {
       </Group>
 
       <BackendConfigCard />
+      <MicrosoftExcelConfigCard />
     </Stack>
   );
 }

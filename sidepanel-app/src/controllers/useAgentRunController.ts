@@ -827,18 +827,18 @@ export function useAgentRunController({
           };
         }
 
-        if (!authStatus.authenticated) {
-          setPendingStartOverrides({ ...overrides, surface });
-          setPreRunSurface(surface);
-          setPreRunDisclosureOpened(true);
-          setStatus(`Connect ${surfaceLabel} before starting.`);
-          return {
-            ok: false,
-            requiresSurfaceAuth: true,
-          };
-        }
-
-        return startAgentAfterPreRunChecks({ ...overrides, surface });
+        setPendingStartOverrides({ ...overrides, surface });
+        setPreRunSurface(surface);
+        setPreRunDisclosureOpened(true);
+        setStatus(
+          authStatus.authenticated
+            ? `Review ${surfaceLabel} access before starting.`
+            : `Connect ${surfaceLabel} before starting.`,
+        );
+        return {
+          ok: false,
+          requiresSurfaceAuth: true,
+        };
       }
 
       const disclosureAccepted = await hasAcceptedPreRunDisclosure();
@@ -890,19 +890,19 @@ export function useAgentRunController({
           };
         }
 
-        if (!authStatus.authenticated) {
-          setPendingTemplateQueueStart({ ...request, surface });
-          setPendingStartOverrides(null);
-          setPreRunSurface(surface);
-          setPreRunDisclosureOpened(true);
-          setStatus(`Connect ${surfaceLabel} before starting.`);
-          return {
-            ok: false,
-            requiresSurfaceAuth: true,
-          };
-        }
-
-        return startTemplateQueueAfterPreRunChecks({ ...request, surface });
+        setPendingTemplateQueueStart({ ...request, surface });
+        setPendingStartOverrides(null);
+        setPreRunSurface(surface);
+        setPreRunDisclosureOpened(true);
+        setStatus(
+          authStatus.authenticated
+            ? `Review ${surfaceLabel} access before starting.`
+            : `Connect ${surfaceLabel} before starting.`,
+        );
+        return {
+          ok: false,
+          requiresSurfaceAuth: true,
+        };
       }
 
       const disclosureAccepted = await hasAcceptedPreRunDisclosure();

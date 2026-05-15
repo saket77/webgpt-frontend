@@ -5,4 +5,5 @@ export { RunAgentHumanHintCard } from "./RunAgentHumanHintCard";
 export { CurrentStepCard } from "./CurrentStepCard";
 export { RunAgentControlPanel } from "./RunAgentControlPanel";
 export { BackendConfigCard } from "./BackendConfigCard";
+export { MicrosoftExcelConfigCard } from "./MicrosoftExcelConfigCard";
 export { AgentChatPanel } from "./AgentChatPanel";

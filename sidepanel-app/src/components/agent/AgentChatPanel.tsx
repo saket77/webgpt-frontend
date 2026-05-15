@@ -250,6 +250,26 @@ function groupEvents(events: AgentEvent[]) {
   return groups;
 }
 
+function getLatestConfirmationSummary(events: AgentEvent[]) {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+
+    if (
+      event?.kind === "paused" &&
+      event.reason === "awaiting_success_confirmation"
+    ) {
+      return (
+        event.finalResult?.summary ||
+        event.summary ||
+        event.message ||
+        "Review the result and choose whether WebGPT should save it."
+      );
+    }
+  }
+
+  return "Review the result and choose whether WebGPT should save it.";
+}
+
 function StepActivity({
   group,
   active,
@@ -363,7 +383,11 @@ export function AgentChatPanel({
   const composerLocked =
     !awaitingUserInput && (agentBusy || !allowFreeformStart);
   const activityIsLive =
-    isRunning || isAwaitingNavigation || awaitingHumanHint;
+    isRunning || isAwaitingNavigation || awaitingHumanHint || awaitingConfirmation;
+  const confirmationSummary = useMemo(
+    () => getLatestConfirmationSummary(eventLog),
+    [eventLog],
+  );
   const runControlsVisible = isRunning || isAwaitingNavigation || busyAction === "start";
   const visibleGoal =
     submittedGoal ||
@@ -535,10 +559,10 @@ export function AgentChatPanel({
             {awaitingConfirmation ? (
               <Paper className="confirmation-panel" withBorder>
                 <Stack gap="sm">
-                  <Text fw={800}>WebGPT thinks it succeeded</Text>
+                  <Text fw={800}>{confirmationSummary}</Text>
                   <Text size="sm" c="dimmed">
-                    Save the artifacts if the result is correct, or reject it
-                    with a hint in the composer.
+                    Accept if this is correct, or reject it with a hint in the
+                    composer.
                   </Text>
                   <Group grow>
                     <Button
@@ -547,7 +571,7 @@ export function AgentChatPanel({
                       onClick={onAcceptSuccess}
                       loading={busyAction === "acceptSuccess"}
                     >
-                      Save artifacts
+                      Accept
                     </Button>
                     <Button
                       color="red"

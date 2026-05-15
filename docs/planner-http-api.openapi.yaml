@@ -1,12 +1,13 @@
 openapi: 3.1.0
 info:
   title: WebGPT Planner HTTP API
-  version: 0.1.0
+  version: 0.2.0
   description: |
     HTTP contract implemented by the default WebGPT planner adapter.
     The browser extension controller consumes a JavaScript plannerAdapter
     interface; this OpenAPI document describes the HTTP routes used by the
-    default adapter implementation.
+    default adapter implementation, including browser DOM, Google Sheets,
+    and Microsoft Excel runtime surfaces.
 servers:
   - url: https://webgpt-backend-production.up.railway.app
     description: Hosted WebGPT planner
@@ -22,7 +23,7 @@ paths:
     post:
       tags: [Runs]
       operationId: startCommandRun
-      summary: Start an agent run and return the first browser command.
+      summary: Start an agent run and return the first runtime command.
       requestBody:
         required: true
         content:
@@ -57,6 +58,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TemplateQueueCommandResponse"
+        default:
+          $ref: "#/components/responses/ErrorJson"
+
+  /template-runs/{templateRunId}:
+    get:
+      tags: [Template Runs]
+      operationId: getTemplateRun
+      summary: Get the latest template queue snapshot.
+      parameters:
+        - $ref: "#/components/parameters/TemplateRunId"
+      responses:
+        "200":
+          description: Template queue snapshot.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, queue]
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  queue:
+                    $ref: "#/components/schemas/TemplateQueueSnapshot"
         default:
           $ref: "#/components/responses/ErrorJson"
 
@@ -111,7 +136,7 @@ paths:
     post:
       tags: [Runs]
       operationId: postCommandResult
-      summary: Submit browser-side progress and receive the next browser command.
+      summary: Submit extension-side progress and receive the next runtime command.
       parameters:
         - $ref: "#/components/parameters/RunId"
       requestBody:
@@ -122,7 +147,7 @@ paths:
               $ref: "#/components/schemas/CommandResultRequest"
       responses:
         "200":
-          description: Next browser command.
+          description: Next runtime command.
           content:
             application/json:
               schema:
@@ -250,6 +275,23 @@ paths:
         default:
           $ref: "#/components/responses/ErrorJson"
 
+  /artifacts/{fileName}:
+    get:
+      tags: [Artifacts]
+      operationId: fetchArtifact
+      summary: Fetch a saved successful run, execution trace, or replay artifact by file name.
+      parameters:
+        - $ref: "#/components/parameters/FileName"
+      responses:
+        "200":
+          description: Saved artifact payload.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArtifactByFileNameResponse"
+        default:
+          $ref: "#/components/responses/ErrorJson"
+
   /save-successful-run:
     post:
       tags: [Artifacts]
@@ -289,6 +331,30 @@ paths:
         default:
           $ref: "#/components/responses/ErrorJson"
 
+  /find-replay-artifact:
+    post:
+      tags: [Artifacts]
+      operationId: findReplayArtifact
+      summary: Find the closest saved replay artifact for a goal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                goal:
+                  type: string
+      responses:
+        "200":
+          description: Replay artifact match, if any.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FindReplayArtifactResponse"
+        default:
+          $ref: "#/components/responses/ErrorJson"
+
 components:
   parameters:
     RunId:
@@ -299,6 +365,12 @@ components:
         type: string
     TemplateRunId:
       name: templateRunId
+      in: path
+      required: true
+      schema:
+        type: string
+    FileName:
+      name: fileName
       in: path
       required: true
       schema:
@@ -389,6 +461,10 @@ components:
         artifactFileName:
           type: string
           default: ""
+        surface:
+          type: string
+          default: ""
+          examples: [browser_dom, google_sheets, microsoft_excel]
 
     StartTemplateQueueRequest:
       type: object
@@ -405,6 +481,10 @@ components:
         artifactFileName:
           type: string
           default: ""
+        surface:
+          type: string
+          default: ""
+          examples: [browser_dom, google_sheets, microsoft_excel]
 
     CompleteTemplateQueueItemRequest:
       type: object
@@ -417,6 +497,9 @@ components:
           default: ""
         finalResult:
           description: Planner-defined final result for the completed item.
+          oneOf:
+            - $ref: "#/components/schemas/AnyObject"
+            - type: "null"
 
     CommandResultRequest:
       oneOf:
@@ -622,7 +705,8 @@ components:
             runId: run_123
             step: 2
             commands:
-              - name: update_values
+              - name: write_values
+                sheetName: Sheet1
                 range: Sheet1!A1:B2
                 values:
                   - [Name, Status]
@@ -669,8 +753,8 @@ components:
             runId: run_123
             step: 2
             commands:
-              - name: update_range
-                worksheet: Sheet1
+              - name: write_range
+                worksheetName: Sheet1
                 range: A1:B2
                 values:
                   - [Name, Status]
@@ -681,7 +765,11 @@ components:
             results: []
           postState:
             surface: microsoft_excel
-            workbookName: Forecast.xlsx
+            workbookTitle: Forecast.xlsx
+            activeWorksheetName: Sheet1
+            visibleGrid:
+              range: A1:B20
+              values: []
             worksheets: []
           browserContext:
             tabId: 123
@@ -789,7 +877,7 @@ components:
 
     CommandResponse:
       type: object
-      description: Standard envelope for routes that return the next browser command.
+      description: Standard envelope for routes that return the next runtime command.
       required: [ok, runId, run, command]
       additionalProperties: true
       properties:
@@ -846,9 +934,13 @@ components:
             templateRunId:
               type: string
             queue:
-              $ref: "#/components/schemas/NullableObject"
+              oneOf:
+                - $ref: "#/components/schemas/TemplateQueueSnapshot"
+                - type: "null"
             item:
-              $ref: "#/components/schemas/NullableObject"
+              oneOf:
+                - $ref: "#/components/schemas/TemplateQueueItem"
+                - type: "null"
 
     CompleteTemplateQueueItemResponse:
       type: object
@@ -865,16 +957,22 @@ components:
         templateRunId:
           type: string
         queue:
-          $ref: "#/components/schemas/NullableObject"
+          oneOf:
+            - $ref: "#/components/schemas/TemplateQueueSnapshot"
+            - type: "null"
         completedItem:
-          $ref: "#/components/schemas/NullableObject"
+          oneOf:
+            - $ref: "#/components/schemas/CompletedTemplateQueueItem"
+            - type: "null"
         results:
           type: array
           items:
             type: object
             additionalProperties: true
         item:
-          $ref: "#/components/schemas/NullableObject"
+          oneOf:
+            - $ref: "#/components/schemas/TemplateQueueItem"
+            - type: "null"
         runId:
           type:
             - string
@@ -922,16 +1020,39 @@ components:
 
     RunSnapshot:
       type: object
-      description: Backend run data. The frontend currently reads step and finalResult.
+      description: Compact backend run data returned to the extension.
       additionalProperties: true
       properties:
         runId:
           type: string
+        goal:
+          type: string
+        surface:
+          type: string
+          examples: [browser_dom, google_sheets, microsoft_excel]
+        status:
+          type: string
+          examples: [running, awaiting_success_confirmation, completed, stopped]
         step:
           type: integer
           minimum: 0
+        isTemplateRun:
+          type: boolean
+        pausedReason:
+          type: string
+        lastOutcome:
+          oneOf:
+            - $ref: "#/components/schemas/AnyObject"
+            - type: "null"
         finalResult:
           description: Planner-defined final result shown during success confirmation.
+          oneOf:
+            - $ref: "#/components/schemas/AnyObject"
+            - type: "null"
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
 
     BrowserContext:
       type: object
@@ -977,6 +1098,40 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ExtractedFrame"
+        authStatus:
+          type: string
+          examples: [authenticated, unauthenticated, unconfigured]
+        spreadsheetId:
+          type: string
+        spreadsheetTitle:
+          type: string
+        activeSheetName:
+          type: string
+        sheetTabs:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        workbookDriveId:
+          type: string
+        workbookItemId:
+          type: string
+        workbookTitle:
+          type: string
+        workbookWebUrl:
+          type: string
+        activeWorksheetName:
+          type: string
+        worksheets:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        activeRange:
+          type: string
+        visibleGrid:
+          type: object
+          additionalProperties: true
 
     ExtractedFrame:
       type: object
@@ -1206,7 +1361,8 @@ components:
           step: 2
           summary: Update the selected sheet.
           commands:
-            - name: update_values
+            - name: write_values
+              sheetName: Sheet1
               range: Sheet1!A1:B2
               values:
                 - [Name, Status]
@@ -1237,8 +1393,8 @@ components:
           step: 2
           summary: Update the workbook.
           commands:
-            - name: update_range
-              worksheet: Sheet1
+            - name: write_range
+              worksheetName: Sheet1
               range: A1:B2
               values:
                 - [Name, Status]
@@ -1250,6 +1406,52 @@ components:
       additionalProperties: true
       properties:
         name:
+          type: string
+          enum:
+            - read_values
+            - write_values
+            - append_values
+            - find_rows
+            - format_range
+            - set_active_range
+            - read_range
+            - write_range
+            - append_rows
+            - list_worksheets
+        sheetName:
+          type: string
+        worksheetName:
+          type: string
+        range:
+          type: string
+        values:
+          type: array
+          items:
+            type: array
+            items: {}
+        query:
+          type: string
+        columns:
+          type: array
+          items:
+            type: string
+        matchMode:
+          type: string
+          enum: [exact, contains]
+        caseSensitive:
+          type: boolean
+        limit:
+          type: integer
+        format:
+          type: object
+          additionalProperties: true
+        majorDimension:
+          type: string
+        inputOption:
+          type: string
+        insertDataOption:
+          type: string
+        startColumn:
           type: string
 
     RunReplayBatchCommand:
@@ -1466,3 +1668,104 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/InputSchemaItem"
+
+    TemplateQueueSnapshot:
+      type: object
+      additionalProperties: true
+      properties:
+        templateRunId:
+          type: string
+        status:
+          type: string
+          examples: [running, completed]
+        currentIndex:
+          type: integer
+        totalRuns:
+          type: integer
+        activeRunId:
+          type:
+            - string
+            - "null"
+        artifactFileName:
+          type: string
+        surface:
+          type: string
+          examples: [browser_dom, google_sheets, microsoft_excel]
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/CompletedTemplateQueueItem"
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    TemplateQueueItem:
+      type: object
+      additionalProperties: true
+      properties:
+        index:
+          type: integer
+        totalRuns:
+          type: integer
+        goal:
+          type: string
+        inputValues:
+          $ref: "#/components/schemas/AnyObject"
+        inputLabel:
+          type: string
+        inputValue:
+          type: string
+
+    CompletedTemplateQueueItem:
+      allOf:
+        - $ref: "#/components/schemas/TemplateQueueItem"
+        - type: object
+          additionalProperties: true
+          properties:
+            runId:
+              type: string
+            summary:
+              type: string
+            finalResult:
+              oneOf:
+                - $ref: "#/components/schemas/AnyObject"
+                - type: "null"
+
+    ArtifactByFileNameResponse:
+      type: object
+      required: [ok, fileName, artifactType, artifact]
+      additionalProperties: true
+      properties:
+        ok:
+          type: boolean
+          const: true
+        fileName:
+          type: string
+        artifactType:
+          type: string
+          enum:
+            - successfulRun
+            - successfulExecutionTrace
+            - successfulReplayArtifact
+        artifact:
+          oneOf:
+            - $ref: "#/components/schemas/AnyObject"
+            - type: "null"
+
+    FindReplayArtifactResponse:
+      type: object
+      required: [ok, fileName, artifact]
+      additionalProperties: true
+      properties:
+        ok:
+          type: boolean
+          const: true
+        fileName:
+          type:
+            - string
+            - "null"
+        artifact:
+          oneOf:
+            - $ref: "#/components/schemas/AnyObject"
+            - type: "null"
