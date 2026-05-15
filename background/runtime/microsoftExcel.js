@@ -1,64 +1,36 @@
 import { MICROSOFT_EXCEL_SURFACE } from "./surfaces.js";
-import { MICROSOFT_EXCEL_AUTH_CONFIG } from "../config.js";
+import { MICROSOFT_EXCEL_TOKEN_STORAGE_KEY } from "../config.js";
+import { getMicrosoftExcelConfiguration } from "../settings/microsoftExcelConfig.js";
 
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 const DEFAULT_GRID_RANGE = "A1:T50";
-const CONFIG_PLACEHOLDER = "YOUR_MICROSOFT_ENTRA_APP_CLIENT_ID";
-const TENANT_PLACEHOLDER = "YOUR_MICROSOFT_TENANT_ID";
-const TOKEN_STORAGE_KEY = "webgpt_microsoft_excel_auth_v1";
-const DEFAULT_SCOPES = [
-  "openid",
-  "profile",
-  "offline_access",
-  "User.Read",
-  "Files.ReadWrite",
-];
 let interactiveAuthPromise = null;
 
 function normalizeText(value) {
   return String(value ?? "").trim();
 }
 
-function getMicrosoftConfig() {
-  const manifestConfig = chrome.runtime.getManifest()?.webgptMicrosoft || {};
-  const tenantId = normalizeText(
-    manifestConfig.tenant_id ||
-      manifestConfig.tenantId ||
-      MICROSOFT_EXCEL_AUTH_CONFIG.tenantId,
-  );
-  const clientId = normalizeText(
-    manifestConfig.client_id ||
-      manifestConfig.clientId ||
-      MICROSOFT_EXCEL_AUTH_CONFIG.clientId,
-  );
-  const scopes = Array.isArray(manifestConfig.scopes) && manifestConfig.scopes.length
-    ? manifestConfig.scopes.map(normalizeText).filter(Boolean)
-    : Array.isArray(MICROSOFT_EXCEL_AUTH_CONFIG.scopes) &&
-        MICROSOFT_EXCEL_AUTH_CONFIG.scopes.length
-      ? MICROSOFT_EXCEL_AUTH_CONFIG.scopes.map(normalizeText).filter(Boolean)
-    : DEFAULT_SCOPES;
-
+async function getMicrosoftConfig() {
+  const config = await getMicrosoftExcelConfiguration();
   return {
-    tenantId,
-    clientId,
-    scopes,
+    ...config,
+    tenantId: normalizeText(config.tenantId),
+    clientId: normalizeText(config.clientId),
+    scopes: Array.isArray(config.scopes)
+      ? config.scopes.map(normalizeText).filter(Boolean)
+      : [],
   };
 }
 
 function microsoftSetupError() {
   return new Error(
-    "Microsoft Excel OAuth is not configured. Set manifest.json webgptMicrosoft.tenant_id and webgptMicrosoft.client_id from your Entra app registration, then reload the extension.",
+    "Microsoft Excel OAuth is not configured. Open WebGPT Settings, add the tenant ID and application client ID from your Microsoft Entra app registration, then add the displayed redirect URI to that app.",
   );
 }
 
-function isMicrosoftConfigured() {
-  const { tenantId, clientId } = getMicrosoftConfig();
-  return Boolean(
-    tenantId &&
-      clientId &&
-      tenantId !== TENANT_PLACEHOLDER &&
-      clientId !== CONFIG_PLACEHOLDER,
-  );
+async function isMicrosoftConfigured() {
+  const config = await getMicrosoftConfig();
+  return Boolean(config.configured && config.tenantId && config.clientId);
 }
 
 function to2dValues(values) {
@@ -89,31 +61,31 @@ async function sha256Base64Url(value) {
   return base64UrlEncodeBytes(new Uint8Array(digest));
 }
 
-function getTokenEndpoint() {
+function getTokenEndpoint(tenantId) {
   return `https://login.microsoftonline.com/${encodeURIComponent(
-    getMicrosoftConfig().tenantId,
+    tenantId,
   )}/oauth2/v2.0/token`;
 }
 
-function getAuthorizeEndpoint() {
+function getAuthorizeEndpoint(tenantId) {
   return `https://login.microsoftonline.com/${encodeURIComponent(
-    getMicrosoftConfig().tenantId,
+    tenantId,
   )}/oauth2/v2.0/authorize`;
 }
 
 async function readStoredToken() {
-  const stored = await chrome.storage.local.get(TOKEN_STORAGE_KEY);
-  return stored?.[TOKEN_STORAGE_KEY] || null;
+  const stored = await chrome.storage.local.get(MICROSOFT_EXCEL_TOKEN_STORAGE_KEY);
+  return stored?.[MICROSOFT_EXCEL_TOKEN_STORAGE_KEY] || null;
 }
 
 async function saveStoredToken(token) {
   await chrome.storage.local.set({
-    [TOKEN_STORAGE_KEY]: token,
+    [MICROSOFT_EXCEL_TOKEN_STORAGE_KEY]: token,
   });
 }
 
 async function clearStoredToken() {
-  await chrome.storage.local.remove(TOKEN_STORAGE_KEY);
+  await chrome.storage.local.remove(MICROSOFT_EXCEL_TOKEN_STORAGE_KEY);
 }
 
 function isAccessTokenFresh(token) {
@@ -136,7 +108,8 @@ function buildStoredToken(json) {
 }
 
 async function tokenRequest(params) {
-  const response = await fetch(getTokenEndpoint(), {
+  const { tenantId } = await getMicrosoftConfig();
+  const response = await fetch(getTokenEndpoint(tenantId), {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -159,7 +132,7 @@ async function tokenRequest(params) {
 }
 
 async function refreshAccessToken(refreshToken) {
-  const { clientId, scopes } = getMicrosoftConfig();
+  const { clientId, scopes } = await getMicrosoftConfig();
   return tokenRequest({
     client_id: clientId,
     grant_type: "refresh_token",
@@ -200,11 +173,13 @@ async function interactiveAuthorize() {
     throw new Error("Chrome identity launchWebAuthFlow is unavailable.");
   }
 
-  if (!isMicrosoftConfigured()) {
+  const config = await getMicrosoftConfig();
+
+  if (!(await isMicrosoftConfigured())) {
     throw microsoftSetupError();
   }
 
-  const { clientId, scopes } = getMicrosoftConfig();
+  const { clientId, scopes, tenantId } = config;
   const redirectUri = chrome.identity.getRedirectURL("microsoft");
   const state = randomBase64Url(24);
   const codeVerifier = randomBase64Url(64);
@@ -222,7 +197,7 @@ async function interactiveAuthorize() {
   });
 
   const redirectUrl = await chrome.identity.launchWebAuthFlow({
-    url: `${getAuthorizeEndpoint()}?${params.toString()}`,
+    url: `${getAuthorizeEndpoint(tenantId)}?${params.toString()}`,
     interactive: true,
   });
 
@@ -238,7 +213,7 @@ async function interactiveAuthorize() {
 }
 
 async function getAccessToken({ interactive = false } = {}) {
-  if (!isMicrosoftConfigured()) {
+  if (!(await isMicrosoftConfigured())) {
     throw microsoftSetupError();
   }
 
@@ -322,6 +297,36 @@ function parseExcelFileName(url = "") {
   return "";
 }
 
+function isPersonalOneDriveUrl(url = "") {
+  const text = String(url || "");
+
+  if (
+    /\/\/(?:[^/]+\.)?my\.microsoftpersonalcontent\.com\//i.test(text) ||
+    /\/\/onedrive\.live\.com\//i.test(text)
+  ) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(text);
+    const nestedUrls = [
+      parsed.searchParams.get("ru"),
+      parsed.searchParams.get("wopisrc"),
+      parsed.searchParams.get("pmo"),
+    ].filter(Boolean);
+
+    return nestedUrls.some((nestedUrl) => isPersonalOneDriveUrl(nestedUrl));
+  } catch {
+    return false;
+  }
+}
+
+function personalOneDriveUnsupportedError() {
+  return new Error(
+    "This workbook appears to be stored in personal OneDrive. WebGPT's Microsoft Excel runtime currently supports workbooks stored in OneDrive for Business, SharePoint, or Microsoft 365 group drives through Microsoft Graph. Move the workbook to your work or school SharePoint/OneDrive location and open that copy before starting the workflow.",
+  );
+}
+
 function normalizeDriveItem(item = {}, fallbackUrl = "") {
   const driveId = item?.parentReference?.driveId || item?.driveId || "";
   const itemId = item?.id || "";
@@ -339,6 +344,10 @@ function normalizeDriveItem(item = {}, fallbackUrl = "") {
 }
 
 async function resolveWorkbookFromUrl(url = "") {
+  if (isPersonalOneDriveUrl(url)) {
+    throw personalOneDriveUnsupportedError();
+  }
+
   const shareToken = encodeSharingUrl(url);
 
   try {
@@ -932,7 +941,7 @@ async function runReplayActionsInTab(tabId, replaySteps = []) {
 }
 
 async function getMicrosoftExcelAuthStatus() {
-  if (!isMicrosoftConfigured()) {
+  if (!(await isMicrosoftConfigured())) {
     return {
       ok: true,
       surface: MICROSOFT_EXCEL_SURFACE,

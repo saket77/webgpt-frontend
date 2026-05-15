@@ -142,27 +142,9 @@ Returns workbook worksheets. State extraction already includes worksheets, so th
 
 ## Auth
 
-The runtime uses `chrome.identity.launchWebAuthFlow` with Microsoft auth code + PKCE. Tokens stay in extension storage; the backend never receives Microsoft tokens.
+The runtime uses `chrome.identity.launchWebAuthFlow` with Microsoft auth code + PKCE. Tokens stay in extension storage; the backend never receives Microsoft tokens. Users configure Microsoft Excel from the WebGPT side panel settings page with their Microsoft Entra tenant ID, application client ID, and Graph scopes.
 
-Required config can live in `manifest.json` under `webgptMicrosoft` or in `background/config.js` as `MICROSOFT_EXCEL_AUTH_CONFIG`:
-
-```json
-{
-  "webgptMicrosoft": {
-    "tenant_id": "YOUR_MICROSOFT_TENANT_ID",
-    "client_id": "YOUR_MICROSOFT_ENTRA_APP_CLIENT_ID",
-    "scopes": [
-      "openid",
-      "profile",
-      "offline_access",
-      "User.Read",
-      "Files.ReadWrite"
-    ]
-  }
-}
-```
-
-The Entra redirect URI must match:
+The Entra redirect URI must match the URI shown in WebGPT settings:
 
 ```text
 https://<extension-id>.chromiumapp.org/microsoft

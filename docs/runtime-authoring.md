@@ -38,6 +38,7 @@ Runtime commands are dispatched from:
 background/controller/commands/router.js
 background/controller/commands/runActions.js
 background/controller/commands/runGoogleSheetsCommands.js
+background/controller/commands/runMicrosoftExcelCommands.js
 background/controller/commands/replayBatch.js
 ```
 

@@ -111,7 +111,7 @@ Recommended shape:
 The frontend calls `postCommandResult` after each browser-side event. Compatible backends should understand these `type` values:
 
 - `replay_preflight_requested`: asks whether a replay batch should run before normal planning.
-- `state_extracted`: sends structured page state after extraction.
+- `state_extracted`: sends structured page or runtime state after extraction.
 - `navigation_completed`: sends fresh state after a document navigation settles.
 - `actions_executed`: sends action execution results and post-action state.
 - `google_sheets_commands_executed`: sends Google Sheets runtime command results and post-command spreadsheet state.
