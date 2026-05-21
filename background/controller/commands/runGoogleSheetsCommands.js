@@ -3,6 +3,10 @@ import { getSession, saveSession } from "../../state/sessionStore.js";
 import { getLastKnownUrlFromState } from "../../state/stateViews.js";
 import { clone } from "../../utils/common.js";
 import { ensureLiveSession, getCommandStep } from "./context.js";
+import {
+  activateSurfaceFromContext,
+  rememberSurfaceContext,
+} from "./surfaceContext.js";
 import { GOOGLE_SHEETS_SURFACE } from "../../runtime/surfaces.js";
 
 export async function executeRunGoogleSheetsCommandsCommand(
@@ -14,6 +18,14 @@ export async function executeRunGoogleSheetsCommandsCommand(
   const step = getCommandStep(command, session);
   const commands = Array.isArray(command.commands) ? command.commands : [];
   let state = lastState;
+
+  session = await activateSurfaceFromContext(
+    tabId,
+    session,
+    GOOGLE_SHEETS_SURFACE,
+    runtime,
+    command?.surfaceContextId || command?.nextSurfaceContextId,
+  );
 
   if (!state || state.surface !== GOOGLE_SHEETS_SURFACE) {
     state = await runtime.extractStateFromTab(tabId, {
@@ -86,10 +98,20 @@ export async function executeRunGoogleSheetsCommandsCommand(
     getLastKnownUrlFromState(afterState) || session.lastKnownUrl || "";
   session.attachedTabId = tabId;
   await saveSession(tabId, session);
+  session = await rememberSurfaceContext(tabId, session, afterState);
 
   await addEvent(tabId, {
     kind: "execution_result",
     step: session.step || step,
+    surface: GOOGLE_SHEETS_SURFACE,
+    nextCommandType: commandResult.command?.type || "",
+    nextCommandSurface: commandResult.command?.surface || "",
+    nextCommandReason: commandResult.command?.reason || "",
+    nextSurface:
+      commandResult.command?.reason === "surface_handoff"
+        ? commandResult.command?.surface || ""
+        : "",
+    nextSurfaceContextId: commandResult.command?.surfaceContextId || "",
     ok: Boolean(execution?.ok),
     summary: execution?.summary || "",
     error: execution?.error || "",

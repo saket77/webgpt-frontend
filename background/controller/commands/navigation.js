@@ -6,6 +6,7 @@ export async function executeWaitForNavigationCommand(tabId, command) {
   session.running = false;
   session.awaitingNavigation = true;
   session.pendingStep = command.step || session.step;
+  session.surface = command.surface || session.surface;
   session.lastKnownUrl =
     command.observedUrl || session.lastKnownUrl || command.url || "";
   session.attachedTabId = tabId;

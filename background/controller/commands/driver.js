@@ -1,6 +1,7 @@
 import { ensureLiveSession } from "./context.js";
 import { executeCommand } from "./router.js";
 import { MAX_STEPS } from "../../config.js";
+import { getMissingCommandAccess } from "./accessControl.js";
 
 export async function driveCommand(
   tabId,
@@ -33,6 +34,21 @@ export async function driveCommand(
       return {
         terminal: "result",
         result: stopBeforeCommand,
+      };
+    }
+
+    const missingAccess = await getMissingCommandAccess(
+      command,
+      session,
+      runtime,
+    );
+
+    if (missingAccess) {
+      return {
+        terminal: "access_required",
+        tabId: activeTabId,
+        command,
+        ...missingAccess,
       };
     }
 

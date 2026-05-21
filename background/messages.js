@@ -17,6 +17,7 @@ import {
   provideHintAndResume,
   confirmSuccess,
   rejectSuccessAndResume,
+  resumeAfterAccess,
   getSessionState,
   attachSessionToTab,
   listArtifacts,
@@ -108,6 +109,12 @@ export function registerMessageHandlers() {
           message.tabId,
           message.hint || "",
         );
+        sendResponse({ ok: true, result });
+        return;
+      }
+
+      if (message?.type === "WEBGPT_RESUME_AFTER_ACCESS") {
+        const result = await resumeAfterAccess(message.tabId);
         sendResponse({ ok: true, result });
         return;
       }

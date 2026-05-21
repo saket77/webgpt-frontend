@@ -190,6 +190,15 @@ export async function executeRunActionsCommand(
   await addEvent(tabId, {
     kind: "execution_result",
     step: session.step || step,
+    surface: BROWSER_DOM_SURFACE,
+    nextCommandType: commandResult.command?.type || "",
+    nextCommandSurface: commandResult.command?.surface || "",
+    nextCommandReason: commandResult.command?.reason || "",
+    nextSurface:
+      commandResult.command?.reason === "surface_handoff"
+        ? commandResult.command?.surface || ""
+        : "",
+    nextSurfaceContextId: commandResult.command?.surfaceContextId || "",
     ok: Boolean(execution?.ok),
     summary: execution?.summary || "",
     error: execution?.error || "",

@@ -3,7 +3,11 @@ import { appRuntime } from "../runtime/index.js";
 import {
   provideHintAndResumeFlow,
 } from "./flows/pauseFlow.js";
-import { continueRunFlow, startAgentFlow } from "./flows/runFlow.js";
+import {
+  continueRunFlow,
+  resumeAfterAccessFlow,
+  startAgentFlow,
+} from "./flows/runFlow.js";
 import {
   confirmSuccessFlow,
   rejectSuccessAndResumeFlow,
@@ -67,6 +71,11 @@ export function createController({
       runtime,
     });
 
+  const resumeAfterAccess = (tabId) =>
+    resumeAfterAccessFlow(tabId, {
+      continueRun,
+    });
+
   const confirmSuccess = (tabId) =>
     confirmSuccessFlow(tabId, {
       deleteBackendRunAndClearLocal: lifecycle.deleteBackendRunAndClearLocal,
@@ -100,6 +109,7 @@ export function createController({
     provideHintAndResume,
     registerTabHandlers,
     rejectSuccessAndResume,
+    resumeAfterAccess,
     requestStop: lifecycle.requestStop,
     resetSession: lifecycle.resetSession,
     startAgent,
@@ -125,6 +135,7 @@ export const pauseForForcedStop = defaultController.pauseForForcedStop;
 export const provideHintAndResume = defaultController.provideHintAndResume;
 export const registerTabHandlers = defaultController.registerTabHandlers;
 export const rejectSuccessAndResume = defaultController.rejectSuccessAndResume;
+export const resumeAfterAccess = defaultController.resumeAfterAccess;
 export const requestStop = defaultController.requestStop;
 export const resetSession = defaultController.resetSession;
 export const startAgent = defaultController.startAgent;

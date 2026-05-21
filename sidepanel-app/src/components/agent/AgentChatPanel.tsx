@@ -38,6 +38,13 @@ type AgentEvent = {
   primaryFrameId?: number | null;
   frameId?: number | null;
   plannerStatus?: string;
+  surface?: string;
+  commandSurface?: string;
+  nextSurface?: string;
+  nextSurfaceContextId?: string;
+  nextCommandType?: string;
+  nextCommandSurface?: string;
+  nextCommandReason?: string;
   reasoning?: string;
   action?: unknown;
   ok?: boolean;
@@ -139,6 +146,9 @@ function eventTitle(event: AgentEvent) {
     case "state_extracted":
       return "Read page";
     case "planner_output":
+      if (event.nextCommandReason === "surface_handoff" || event.nextSurface) {
+        return "Handoff";
+      }
       return event.plannerStatus === "success" ? "Answer ready" : "Thinking";
     case "action_planned":
       return "Next action";
@@ -178,6 +188,13 @@ function eventTitle(event: AgentEvent) {
 }
 
 function eventBody(event: AgentEvent) {
+  const handoff =
+    event.nextSurface && event.nextSurface !== event.commandSurface
+      ? `\nHandoff: ${event.commandSurface || event.surface || "current"} -> ${
+          event.nextSurface
+        }${event.nextSurfaceContextId ? ` (${event.nextSurfaceContextId})` : ""}`
+      : "";
+
   switch (event.kind) {
     case "loop_started":
     case "loop_resumed":
@@ -195,11 +212,14 @@ function eventBody(event: AgentEvent) {
       return pieces.join(" | ");
     }
     case "planner_output":
-      return event.reasoning || "The agent is deciding what to do next.";
+      if (!event.reasoning && handoff) {
+        return handoff.trim();
+      }
+      return `${event.reasoning || "The agent is deciding what to do next."}${handoff}`;
     case "action_planned":
       return summarizeAction(event.action);
     case "execution_result":
-      return event.error || (event.ok ? "Completed successfully." : "Did not complete.");
+      return `${event.error || (event.ok ? "Completed successfully." : "Did not complete.")}${handoff}`;
     case "awaiting_navigation":
     case "navigation_completed":
       return event.url || "";
