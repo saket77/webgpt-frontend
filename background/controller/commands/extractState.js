@@ -50,6 +50,27 @@ export async function executeExtractStateCommand(
     });
   }
 
+  if (command?.reason === "surface_handoff") {
+    const fromSurface =
+      normalizeSurface(command?.plan?.commandSurface) ||
+      normalizeSurface(command?.plan?.surface) ||
+      sessionSurface ||
+      "current";
+
+    await addEvent(tabId, {
+      kind: "surface_handoff",
+      step,
+      surface: fromSurface,
+      commandSurface: fromSurface,
+      nextSurface: surface,
+      nextSurfaceContextId:
+        command?.surfaceContextId || command?.nextSurfaceContextId || "",
+      nextCommandType: command?.type || "",
+      nextCommandReason: command?.reason || "",
+      message: `Handoff: ${fromSurface} -> ${surface}`,
+    });
+  }
+
   await addEvent(tabId, {
     kind: "step_started",
     step,

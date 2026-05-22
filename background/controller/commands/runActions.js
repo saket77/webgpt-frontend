@@ -90,26 +90,35 @@ export async function executeRunActionsCommand(
 
   let execution = null;
 
-  try {
-    execution = await runtime.runActionsInTab(tabId, state, actions);
-  } catch (error) {
-    const navigation = await maybeMarkNavigation({
-      tabId,
-      command,
-      actions,
-      execution: null,
-      plannerAdapter,
-      runtime,
-    });
-
-    if (navigation) return navigation;
-
+  if (actions.length === 0) {
     execution = {
-      ok: false,
-      summary: "Action execution failed.",
-      error: error?.message || String(error),
+      ok: true,
+      summary: "No browser actions were provided; nothing was executed.",
       results: [],
+      noActions: true,
     };
+  } else {
+    try {
+      execution = await runtime.runActionsInTab(tabId, state, actions);
+    } catch (error) {
+      const navigation = await maybeMarkNavigation({
+        tabId,
+        command,
+        actions,
+        execution: null,
+        plannerAdapter,
+        runtime,
+      });
+
+      if (navigation) return navigation;
+
+      execution = {
+        ok: false,
+        summary: "Action execution failed.",
+        error: error?.message || String(error),
+        results: [],
+      };
+    }
   }
 
   session = await getSession(tabId);
@@ -202,6 +211,11 @@ export async function executeRunActionsCommand(
     ok: Boolean(execution?.ok),
     summary: execution?.summary || "",
     error: execution?.error || "",
+    actionCount: actions.length,
+    executedActionCount: Array.isArray(execution?.results)
+      ? execution.results.length
+      : 0,
+    noActions: Boolean(execution?.noActions || actions.length === 0),
     results: clone(execution?.results || []),
   });
 

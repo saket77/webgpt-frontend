@@ -51,6 +51,9 @@ type AgentEvent = {
   error?: string;
   reason?: string;
   hint?: string;
+  actionCount?: number;
+  executedActionCount?: number;
+  noActions?: boolean;
 };
 
 type AgentSession = {
@@ -153,7 +156,10 @@ function eventTitle(event: AgentEvent) {
     case "action_planned":
       return "Next action";
     case "execution_result":
+      if (event.noActions) return "No actions";
       return event.ok ? "Action worked" : "Action failed";
+    case "surface_handoff":
+      return "Transition";
     case "awaiting_navigation":
       return "Waiting for page";
     case "navigation_completed":
@@ -219,7 +225,23 @@ function eventBody(event: AgentEvent) {
     case "action_planned":
       return summarizeAction(event.action);
     case "execution_result":
-      return `${event.error || (event.ok ? "Completed successfully." : "Did not complete.")}${handoff}`;
+      if (event.noActions) {
+        return event.summary || "No actions were executed.";
+      }
+      return (
+        event.error ||
+        event.summary ||
+        (event.ok ? "Completed successfully." : "Did not complete.")
+      );
+    case "surface_handoff":
+      return (
+        event.message ||
+        `Handoff: ${event.commandSurface || event.surface || "current"} -> ${
+          event.nextSurface || event.nextCommandSurface || "next"
+        }${
+          event.nextSurfaceContextId ? ` (${event.nextSurfaceContextId})` : ""
+        }`
+      );
     case "awaiting_navigation":
     case "navigation_completed":
       return event.url || "";
