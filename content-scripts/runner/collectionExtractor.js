@@ -166,6 +166,10 @@
     const items = dedupeItems(
       (targets || []).map((target) => buildExtractedItem(target.el)),
     );
+    const context =
+      action?.context && typeof action.context === "object"
+        ? { ...action.context }
+        : null;
 
     const firstScrollableTarget =
       (targets || []).find((target) => target.scrollableContainerSnapshot) ||
@@ -174,6 +178,7 @@
     return {
       frameId: Number.isInteger(action?.frameId) ? action.frameId : 0,
       targetId: action?.targetId || "",
+      context,
       extractedCount: items.length,
       items,
       strategyUsed: targets?.[0]?.strategyUsed || "extract-targets",
