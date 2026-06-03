@@ -13,6 +13,7 @@ import {
   Tooltip,
 } from "@mantine/core";
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -102,6 +103,15 @@ type StepGroup = {
   events: AgentEvent[];
 };
 
+type ExtractedItemView = {
+  key?: string;
+  text?: string;
+  label?: string;
+  nearbyText?: string;
+  heading?: string;
+  href?: string;
+};
+
 function formatTimestamp(timestamp?: number) {
   if (!timestamp) return "";
 
@@ -121,11 +131,44 @@ function summarizeAction(action: unknown) {
   if (typeof action === "string") return action;
 
   try {
-    const text = JSON.stringify(action);
-    return text.length > 160 ? `${text.slice(0, 157)}...` : text;
+    return JSON.stringify(action, null, 2);
   } catch {
     return "Prepared the next browser action.";
   }
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function textValue(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function getExtractedItems(finalResult: AgentEvent["finalResult"]) {
+  const structuredData = finalResult?.structuredData;
+
+  if (!isObjectRecord(structuredData) || !Array.isArray(structuredData.items)) {
+    return [];
+  }
+
+  return structuredData.items.map((item, index): ExtractedItemView => {
+    if (isObjectRecord(item)) {
+      return {
+        key: textValue(item.key) || `item-${index + 1}`,
+        text: textValue(item.text) || JSON.stringify(item, null, 2),
+        label: textValue(item.label),
+        nearbyText: textValue(item.nearbyText),
+        heading: textValue(item.heading),
+        href: textValue(item.href),
+      };
+    }
+
+    return {
+      key: `item-${index + 1}`,
+      text: String(item ?? ""),
+    };
+  });
 }
 
 function eventTone(event: AgentEvent) {
@@ -312,6 +355,71 @@ function getLatestConfirmationSummary(events: AgentEvent[]) {
   return "Review the result and choose whether WebGPT should save it.";
 }
 
+function getLatestConfirmationResult(events: AgentEvent[]) {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+
+    if (
+      event?.kind === "paused" &&
+      event.reason === "awaiting_success_confirmation"
+    ) {
+      return event.finalResult || null;
+    }
+  }
+
+  return null;
+}
+
+function ExtractedItemsDisclosure({ items }: { items: ExtractedItemView[] }) {
+  if (!items.length) return null;
+
+  return (
+    <details className="extracted-items-disclosure">
+      <summary className="extracted-items-summary">
+        Extracted items ({items.length})
+      </summary>
+      <Stack gap={10} mt="xs">
+        {items.map((item, index) => {
+          const title =
+            item.heading || item.label || item.nearbyText || `Item ${index + 1}`;
+          const meta = [item.href, item.nearbyText]
+            .filter(
+              (value, itemIndex, values) =>
+                value && values.indexOf(value) === itemIndex,
+            )
+            .join(" | ");
+
+          return (
+            <Box className="extracted-item" key={item.key || `${title}-${index}`}>
+              <Text size="sm" fw={700} className="extracted-item-title">
+                {title}
+              </Text>
+              {item.text ? (
+                <Text size="sm" className="extracted-item-text">
+                  {item.text}
+                </Text>
+              ) : null}
+              {meta ? (
+                <Text size="xs" c="dimmed" className="extracted-item-meta">
+                  {meta}
+                </Text>
+              ) : null}
+            </Box>
+          );
+        })}
+      </Stack>
+    </details>
+  );
+}
+
+function isNearScrollBottom(viewport: HTMLDivElement | null) {
+  if (!viewport) return true;
+
+  const distanceFromBottom =
+    viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+  return distanceFromBottom <= 96;
+}
+
 function StepActivity({
   group,
   active,
@@ -416,7 +524,9 @@ export function AgentChatPanel({
 }: AgentChatPanelProps) {
   const { eventLog, hint, setHint, status, busyAction } = useAgentUX();
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
+  const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const autoScrollInitializedRef = useRef(false);
+  const autoFollowRef = useRef(true);
   const [submittedGoal, setSubmittedGoal] = useState("");
   const [draft, setDraft] = useState("");
   const groupedEvents = useMemo(() => groupEvents(eventLog), [eventLog]);
@@ -428,6 +538,10 @@ export function AgentChatPanel({
     isRunning || isAwaitingNavigation || awaitingHumanHint || awaitingConfirmation;
   const confirmationSummary = useMemo(
     () => getLatestConfirmationSummary(eventLog),
+    [eventLog],
+  );
+  const confirmationExtractedItems = useMemo(
+    () => getExtractedItems(getLatestConfirmationResult(eventLog)),
     [eventLog],
   );
   const runControlsVisible = isRunning || isAwaitingNavigation || busyAction === "start";
@@ -455,6 +569,17 @@ export function AgentChatPanel({
     attachedTabId ?? session?.attachedTabId ?? "none"
   }`;
   const previousTabContextRef = useRef<string | null>(null);
+  const handleScrollPositionChange = useCallback(() => {
+    autoFollowRef.current = isNearScrollBottom(scrollViewportRef.current);
+  }, []);
+
+  const scrollToLatest = useCallback((behavior: ScrollBehavior = "smooth") => {
+    autoFollowRef.current = true;
+    scrollAnchorRef.current?.scrollIntoView({
+      block: "end",
+      behavior,
+    });
+  }, []);
 
   const handlePrimaryAction = () => {
     if (composerLocked) return;
@@ -517,11 +642,10 @@ export function AgentChatPanel({
       if (!autoScrollOnMount) return;
     }
 
+    if (!autoFollowRef.current) return;
+
     const animationFrame = window.requestAnimationFrame(() => {
-      scrollAnchorRef.current?.scrollIntoView({
-        block: "end",
-        behavior: "smooth",
-      });
+      scrollToLatest();
     });
 
     return () => window.cancelAnimationFrame(animationFrame);
@@ -533,6 +657,7 @@ export function AgentChatPanel({
     isAwaitingNavigation,
     autoScrollOnMount,
     visibleGoal,
+    scrollToLatest,
   ]);
 
   return (
@@ -546,7 +671,12 @@ export function AgentChatPanel({
           </Box>
         </Group>
 
-        <ScrollArea className="chat-scroll" offsetScrollbars>
+        <ScrollArea
+          className="chat-scroll"
+          offsetScrollbars
+          viewportRef={scrollViewportRef}
+          onScrollPositionChange={handleScrollPositionChange}
+        >
           <Stack gap="md" p="md">
             {preActivity}
 
@@ -602,6 +732,7 @@ export function AgentChatPanel({
               <Paper className="confirmation-panel" withBorder>
                 <Stack gap="sm">
                   <Text fw={800}>{confirmationSummary}</Text>
+                  <ExtractedItemsDisclosure items={confirmationExtractedItems} />
                   <Text size="sm" c="dimmed">
                     Accept if this is correct, or reject it with a hint in the
                     composer.

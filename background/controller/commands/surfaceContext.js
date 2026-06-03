@@ -72,6 +72,61 @@ function tabMatchesContext(tabUrl = "", context = {}) {
   return Boolean(contextUrl && url === contextUrl);
 }
 
+function isGoogleSheetsUrl(value = "") {
+  return /^https:\/\/docs\.google\.com\/spreadsheets\//i.test(String(value || ""));
+}
+
+function googleSheetsUrlFromContextId(contextId = "") {
+  const id = String(contextId || "").trim();
+  if (!id.startsWith("spreadsheet:")) return "";
+
+  const spreadsheetId = id.slice("spreadsheet:".length).trim();
+  if (!spreadsheetId) return "";
+
+  return `https://docs.google.com/spreadsheets/d/${encodeURIComponent(spreadsheetId)}/edit`;
+}
+
+function contextFromRequestedContextId(surface, contextId = "") {
+  const targetSurface = normalizeSurface(surface);
+  const requestedContextId = String(contextId || "").trim();
+  if (!targetSurface || !requestedContextId) return null;
+
+  if (targetSurface === GOOGLE_SHEETS_SURFACE) {
+    if (isGoogleSheetsUrl(requestedContextId)) {
+      return {
+        id: requestedContextId,
+        surface: targetSurface,
+        url: requestedContextId,
+        title: "",
+      };
+    }
+
+    const url = googleSheetsUrlFromContextId(requestedContextId);
+    if (url) {
+      return {
+        id: requestedContextId,
+        surface: targetSurface,
+        url,
+        title: "",
+      };
+    }
+  }
+
+  if (
+    targetSurface === MICROSOFT_EXCEL_SURFACE &&
+    /^https:\/\//i.test(requestedContextId)
+  ) {
+    return {
+      id: requestedContextId,
+      surface: targetSurface,
+      url: requestedContextId,
+      title: "",
+    };
+  }
+
+  return null;
+}
+
 export async function rememberSurfaceContext(tabId, session, state) {
   const context = surfaceContextFromState(state);
   if (!context) return session;
@@ -110,7 +165,9 @@ export async function activateSurfaceFromContext(
   const bucket = session.surfaceContexts?.[targetSurface];
   const requestedContextId = String(contextId || "").trim();
   const context =
-    bucket?.items?.[requestedContextId] || bucket?.items?.[bucket.activeId];
+    bucket?.items?.[requestedContextId] ||
+    contextFromRequestedContextId(targetSurface, requestedContextId) ||
+    bucket?.items?.[bucket.activeId];
 
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   const detected = await runtime.detectSurfaceForTab?.(tabId).catch(() => null);

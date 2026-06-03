@@ -56,6 +56,7 @@ export async function executeRunActionsCommand(
   let session = await ensureLiveSession(tabId);
   const step = getCommandStep(command, session);
   const actions = Array.isArray(command.actions) ? command.actions : [];
+  let activeTabId = tabId;
   let state = lastState;
 
   if (!state) {
@@ -100,6 +101,9 @@ export async function executeRunActionsCommand(
   } else {
     try {
       execution = await runtime.runActionsInTab(tabId, state, actions);
+      if (Number.isInteger(execution?.tabId)) {
+        activeTabId = execution.tabId;
+      }
     } catch (error) {
       const navigation = await maybeMarkNavigation({
         tabId,
@@ -121,10 +125,10 @@ export async function executeRunActionsCommand(
     }
   }
 
-  session = await getSession(tabId);
+  session = await getSession(activeTabId);
   const pendingNewTab = session.pendingNewTab || null;
 
-  if (Number.isInteger(pendingNewTab?.newTabId)) {
+  if (activeTabId === tabId && Number.isInteger(pendingNewTab?.newTabId)) {
     const navigation = await maybeMarkNavigation({
       tabId,
       command,
@@ -148,7 +152,7 @@ export async function executeRunActionsCommand(
     await sleep(POST_ACTION_STATE_SETTLE_MS);
     await sleep(POST_ACTION_STATE_SETTLE_MS);
 
-    afterState = await runtime.extractStateFromTab(tabId, {
+    afterState = await runtime.extractStateFromTab(activeTabId, {
       goal: session.goal,
       step: command.step || step,
       surface: BROWSER_DOM_SURFACE,
@@ -156,7 +160,7 @@ export async function executeRunActionsCommand(
     });
   } catch (error) {
     const navigation = await maybeMarkNavigation({
-      tabId,
+      tabId: activeTabId,
       command,
       actions,
       execution,
@@ -177,14 +181,14 @@ export async function executeRunActionsCommand(
     postState: afterState,
     surface: BROWSER_DOM_SURFACE,
     browserContext: plannerAdapter.buildBrowserContext(
-      tabId,
+      activeTabId,
       session,
       getLastKnownUrlFromState(afterState),
     ),
     navigationInfo: {},
   });
 
-  session = await getSession(tabId);
+  session = await getSession(activeTabId);
   session = plannerAdapter.syncSessionWithRun(
     session,
     commandResult.run || commandResult.command?.run,
@@ -193,10 +197,10 @@ export async function executeRunActionsCommand(
   session.surface = BROWSER_DOM_SURFACE;
   session.lastKnownUrl =
     getLastKnownUrlFromState(afterState) || session.lastKnownUrl || "";
-  session.attachedTabId = tabId;
-  await saveSession(tabId, session);
+  session.attachedTabId = activeTabId;
+  await saveSession(activeTabId, session);
 
-  await addEvent(tabId, {
+  await addEvent(activeTabId, {
     kind: "execution_result",
     step: session.step || step,
     surface: BROWSER_DOM_SURFACE,
@@ -220,7 +224,7 @@ export async function executeRunActionsCommand(
   });
 
   const stopAfterExecution = await stopIfRequested(
-    tabId,
+    activeTabId,
     "Agent stopped by user after action execution.",
   );
   if (stopAfterExecution) {
@@ -232,6 +236,7 @@ export async function executeRunActionsCommand(
 
   return {
     nextCommand: commandResult.command || {},
+    nextTabId: activeTabId,
     lastState: afterState,
   };
 }
