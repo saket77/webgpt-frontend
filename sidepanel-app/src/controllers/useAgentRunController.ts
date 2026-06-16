@@ -1326,14 +1326,7 @@ export function useAgentRunController({
 
   const hasSessionToReset = Boolean(session || eventLog.length > 0);
 
-  const canReset =
-    hasSessionToReset &&
-    !isRunning &&
-    !isAwaitingNavigation &&
-    !awaitingConfirmation &&
-    busyAction !== "reset" &&
-    busyAction !== "start" &&
-    busyAction !== "stop";
+  const canReset = hasSessionToReset && busyAction !== "reset";
 
   return {
     goal,

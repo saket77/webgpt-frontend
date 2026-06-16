@@ -15,6 +15,7 @@ const CONTENT_SCRIPT_FILES = [
   "content-scripts/adapters/canvasQuiz.js",
   "content-scripts/adapters/yelp.js",
   "content-scripts/adapters/ncmMovieCalendar.js",
+  "content-scripts/adapters/docusign.js",
   "content-scripts/extractState.js",
 
   "content-scripts/runner/domUtils.js",
