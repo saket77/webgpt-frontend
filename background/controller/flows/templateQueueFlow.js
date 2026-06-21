@@ -104,6 +104,7 @@ export async function startTemplateQueueFlow(
     inputValues = {},
     artifactFileName = "",
     surface = "",
+    myInfo = null,
   } = {},
   { continueRun, plannerAdapter, runtime },
 ) {
@@ -129,6 +130,7 @@ export async function startTemplateQueueFlow(
     inputValues,
     artifactFileName: session.artifactFileName,
     surface: session.surface,
+    myInfo,
   });
 
   session = await getSession(tabId);

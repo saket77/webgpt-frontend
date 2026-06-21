@@ -42,6 +42,7 @@ export function createController({
     isTemplate,
     artifactFileName = "",
     surface = "",
+    myInfo = null,
   ) =>
     startAgentFlow(
       tabId,
@@ -50,6 +51,7 @@ export function createController({
       isTemplate,
       artifactFileName,
       surface,
+      myInfo,
       {
         continueRun,
         plannerAdapter,

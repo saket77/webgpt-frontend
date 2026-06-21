@@ -229,6 +229,7 @@ export async function startAgentFlow(
   isTemplate,
   artifactFileName = "",
   surface = "",
+  myInfo = null,
   { continueRun, plannerAdapter, runtime } = {},
 ) {
   const resumeRun =
@@ -269,6 +270,7 @@ export async function startAgentFlow(
     isTemplateRun: Boolean(session.isTemplateRun),
     artifactFileName: session.artifactFileName,
     surface: session.surface,
+    myInfo,
   });
 
   session = await getSession(tabId);

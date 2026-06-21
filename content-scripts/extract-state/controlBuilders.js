@@ -246,6 +246,10 @@
 
     if (alwaysIncludeRoles.includes(role)) return true;
 
+    if (role !== "option" && el.querySelector("[role='option']")) {
+      return false;
+    }
+
     const conditionalTags = [
       "div",
       "li",
@@ -540,6 +544,19 @@
       deduped.push(promoted);
     }
 
+    for (const option of Array.from(
+      document.querySelectorAll('[role="option"]'),
+    )) {
+      if (!(option instanceof Element)) continue;
+      if (!isVisible(option)) continue;
+
+      const key = dedupeKeyFor(option);
+      if (!key || seen.has(key)) continue;
+
+      seen.add(key);
+      deduped.push(option);
+    }
+
     for (const el of deduped) {
       const rect = el.getBoundingClientRect();
       const tag = lower(el.tagName);
@@ -584,6 +601,11 @@
           .split(/\s+/)
           .filter(Boolean)
           .slice(0, 20),
+        ariaAutocomplete: normalizeText(el.getAttribute("aria-autocomplete")),
+        ariaControls: normalizeText(el.getAttribute("aria-controls")),
+        ariaExpanded: normalizeText(el.getAttribute("aria-expanded")),
+        ariaHaspopup: normalizeText(el.getAttribute("aria-haspopup")),
+        ariaOwns: normalizeText(el.getAttribute("aria-owns")),
         ariaPressed: normalizeText(el.getAttribute("aria-pressed")),
         ariaSelected: normalizeText(el.getAttribute("aria-selected")),
         ariaChecked: normalizeText(el.getAttribute("aria-checked")),

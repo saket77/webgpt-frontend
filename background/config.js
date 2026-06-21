@@ -7,6 +7,7 @@ export const MICROSOFT_EXCEL_CONFIG_STORAGE_KEY =
   "webgpt_microsoft_excel_config_v1";
 export const MICROSOFT_EXCEL_TOKEN_STORAGE_KEY =
   "webgpt_microsoft_excel_auth_v1";
+export const MY_INFO_CONFIG_STORAGE_KEY = "webgpt_my_info_v1";
 
 export const MAX_STEPS = 20;
 export const POST_ACTION_STATE_SETTLE_MS = 1000;

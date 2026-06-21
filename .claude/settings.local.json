@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(claude-api)",
+      "Skill(claude-api:*)",
+      "Bash(ls -la /Users/saketmundhada/Desktop/ | head -20)",
+      "Bash(find /Users/saketmundhada -type d -name \"webgpt-frontend\" 2>/dev/null | head -5)"
+    ]
+  }
+}

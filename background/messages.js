@@ -10,6 +10,12 @@ import {
   setStoredMicrosoftExcelConfig,
 } from "./settings/microsoftExcelConfig.js";
 import {
+  getMyInfoConfiguration,
+  getMyInfoRunSnapshot,
+  resetStoredMyInfoConfig,
+  setStoredMyInfoConfig,
+} from "./settings/myInfoConfig.js";
+import {
   resetSession,
   requestStop,
   startAgent,
@@ -65,6 +71,7 @@ export function registerMessageHandlers() {
       }
 
       if (message?.type === "WEBGPT_START_AGENT") {
+        const myInfo = await getMyInfoRunSnapshot();
         const result = await startAgent(
           message.tabId,
           message.goal || "",
@@ -72,18 +79,21 @@ export function registerMessageHandlers() {
           message.isTemplate || false,
           message.artifactFileName || "",
           message.surface || "",
+          myInfo,
         );
         sendResponse({ ok: true, result });
         return;
       }
 
       if (message?.type === "WEBGPT_START_TEMPLATE_QUEUE") {
+        const myInfo = await getMyInfoRunSnapshot();
         const result = await startTemplateQueue(message.tabId, {
           goalTemplate: message.goalTemplate || "",
           inputSchema: message.inputSchema || [],
           inputValues: message.inputValues || {},
           artifactFileName: message.artifactFileName || "",
           surface: message.surface || "",
+          myInfo,
         });
         sendResponse({ ok: true, result });
         return;
@@ -160,6 +170,27 @@ export function registerMessageHandlers() {
 
       if (message?.type === "WEBGPT_RESET_MICROSOFT_EXCEL_CONFIG") {
         const config = await resetStoredMicrosoftExcelConfig();
+        sendResponse({ ok: true, config });
+        return;
+      }
+
+      if (message?.type === "WEBGPT_GET_MY_INFO_CONFIG") {
+        const config = await getMyInfoConfiguration();
+        sendResponse({ ok: true, config });
+        return;
+      }
+
+      if (message?.type === "WEBGPT_SET_MY_INFO_CONFIG") {
+        const config = await setStoredMyInfoConfig({
+          enabledForRuns: message.enabledForRuns,
+          text: message.text || "",
+        });
+        sendResponse({ ok: true, config });
+        return;
+      }
+
+      if (message?.type === "WEBGPT_RESET_MY_INFO_CONFIG") {
+        const config = await resetStoredMyInfoConfig();
         sendResponse({ ok: true, config });
         return;
       }
