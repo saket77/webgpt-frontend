@@ -4,7 +4,17 @@
       "Skill(claude-api)",
       "Skill(claude-api:*)",
       "Bash(ls -la /Users/saketmundhada/Desktop/ | head -20)",
-      "Bash(find /Users/saketmundhada -type d -name \"webgpt-frontend\" 2>/dev/null | head -5)"
+      "Bash(find /Users/saketmundhada -type d -name \"webgpt-frontend\" 2>/dev/null | head -5)",
+      "Bash(xargs -0 cat)",
+      "Bash(xargs -0 sed -n '200,350p')",
+      "Bash(xargs -0 sed -n '430,480p')",
+      "Bash(xargs -0 sed -n '520,600p')",
+      "Bash(xargs -0 sed -n '600,668p')",
+      "Bash(xargs -0 sed -n '180,200p')",
+      "Bash(xargs -0 sed -n '222,350p')",
+      "Bash(xargs -0 sed -n '120,200p')",
+      "Bash(xargs -0 sed -n '325,400p')",
+      "Bash(xargs -0 cat -n)"
     ]
   }
 }

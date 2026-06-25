@@ -6,6 +6,7 @@ import {
 } from "./browserControl.js";
 
 const CONTENT_SCRIPT_FILES = [
+  "content-scripts/connectorTools.js",
   "content-scripts/extract-state/domUtils.js",
   "content-scripts/extract-state/elementMetadata.js",
   "content-scripts/extract-state/controlBuilders.js",

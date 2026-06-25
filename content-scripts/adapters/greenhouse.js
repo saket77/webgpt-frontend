@@ -1,6 +1,13 @@
 (function () {
   const ADAPTER_ID = "greenhouse.application";
   const APPLICATION_TARGET_ID = `site:${ADAPTER_ID}:application`;
+  const EEOC_SECTION_TARGET_ID = `site:${ADAPTER_ID}:section:eeoc`;
+  const EEOC_FIELD_SPECS = [
+    { fieldKey: "gender", label: "Gender" },
+    { fieldKey: "hispanic_ethnicity", label: "Are you Hispanic/Latino?" },
+    { fieldKey: "veteran_status", label: "Veteran Status" },
+    { fieldKey: "disability_status", label: "Disability Status" },
+  ];
   const registry = globalThis.WebGPTContentAdapters;
   const extractModules = globalThis.WebGPTExtractStateModules || {};
   const domUtils = extractModules.domUtils || {};
@@ -731,6 +738,7 @@
 
   function sectionKind(root) {
     if (root.closest(".eeoc__container")) return "eeoc";
+    if (root.closest(".education--container, .education--form")) return "education";
     return "application";
   }
 
@@ -770,6 +778,12 @@
 
     for (const eeoc of getElements(".eeoc__container", form)) {
       for (const root of getElements(".eeoc__question__wrapper, .field-wrapper", eeoc)) {
+        addRoot(root);
+      }
+    }
+
+    for (const education of getElements(".education--form", form)) {
+      for (const root of getElements(".select", education)) {
         addRoot(root);
       }
     }
@@ -837,6 +851,25 @@
     const sensitiveOptional = isSensitiveOptionalField(root, question);
     const profileField = isProfileField(question);
     const uploadBoundary = kind === "file";
+    const connectorTool =
+      !answered &&
+      !sensitiveOptional &&
+      kind === "combobox" &&
+      ["application", "education"].includes(sectionKind(root)) &&
+      fieldWrapperSelectInput(root) === input
+        ? "greenhouse_fill_select"
+        : "";
+    const connectorArgs = connectorTool ? { fieldKey } : null;
+    const batchPlacement = connectorTool
+      ? "can_batch"
+      : kind === "combobox"
+        ? "after_batchable_plain_fields"
+        : !sensitiveOptional && !uploadBoundary
+          ? "can_batch"
+          : "";
+    const verifyAfterAction = connectorTool
+      ? "adapter_group_current_value"
+      : "";
     const safeMyInfoFill = Boolean(
       !answered &&
         profileField &&
@@ -864,6 +897,9 @@
         ? "sensitive optional EEOC field; answer from explicit runContext.myInfo value when available, otherwise leave blank unless explicitly requested"
         : "",
       uploadBoundary ? "upload/file boundary; do not upload unless requested" : "",
+      connectorTool
+        ? `connector action available: ${connectorTool} with fieldKey ${fieldKey}; batch-safe when value is known`
+        : "",
     ];
     const fieldControlIds = unique(
       [
@@ -893,6 +929,10 @@
       profileField,
       safeMyInfoFill,
       uploadBoundary,
+      connectorTool,
+      connectorArgs,
+      batchPlacement,
+      verifyAfterAction,
       autocompleteOpen,
       needsAutocompleteCommit,
       fillTargetId: fillControl?.id || "",
@@ -929,6 +969,14 @@
     });
   }
 
+  function isConnectorFillSelectField(field) {
+    return Boolean(
+      field &&
+        field.connectorTool === "greenhouse_fill_select" &&
+        field.connectorArgs?.fieldKey,
+    );
+  }
+
   function isBatchableTextField(field) {
     return ["email", "number", "tel", "text", "url"].includes(lower(field?.fieldKind));
   }
@@ -963,12 +1011,51 @@
 
       const isCombobox = field.fieldKind === "combobox";
       const isSelect = field.fieldKind === "select";
+      const connectorSelect = isConnectorFillSelectField(field);
       const shouldOpenCombobox =
         isCombobox &&
+        !connectorSelect &&
         !field.answered &&
         !field.autocompleteOpen &&
         !field.needsAutocompleteCommit &&
         !(field.options || []).length;
+
+      if (connectorSelect) {
+        const connectorHint = {
+          semanticRole: "greenhouse_connector_select",
+          preferredAction: field.connectorTool,
+          connectorTool: field.connectorTool,
+          connectorArgs: field.connectorArgs,
+          exactValueMode: "connectorValue",
+          safeFillTarget: !field.sensitiveOptional,
+          observeAfterAction: false,
+          batchPlacement: "can_batch",
+          stableFieldTargetId: field.targetId,
+          machineKey: field.fieldKey,
+          answerText: field.label,
+          optionTexts: [],
+          verifyAfterAction: "adapter_group_current_value",
+          instruction:
+            `Prefer connector tool greenhouse_fill_select with fieldKey="${field.fieldKey}" for this closed Greenhouse React select. It opens, searches when needed, matches the requested value against live options, and commits in one action; batch it with other independent safe fills when the value is known. Use click/open/observe only as a fallback if the connector tool is unavailable or fails.`,
+        };
+
+        if (
+          field.openTargetId &&
+          isActionableControl(controlsById.get(field.openTargetId))
+        ) {
+          addHint(actionHintsByTargetId, field.openTargetId, connectorHint);
+        }
+
+        if (
+          field.fillTargetId &&
+          isActionableControl(controlsById.get(field.fillTargetId))
+        ) {
+          addHint(actionHintsByTargetId, field.fillTargetId, {
+            ...connectorHint,
+            semanticRole: "greenhouse_connector_select_input",
+          });
+        }
+      }
 
       if (
         shouldOpenCombobox &&
@@ -994,6 +1081,7 @@
       if (
         field.fillTargetId &&
         isActionableControl(controlsById.get(field.fillTargetId)) &&
+        !connectorSelect &&
         !shouldOpenCombobox
       ) {
         const instruction = isCombobox
@@ -1109,9 +1197,67 @@
       controlIds: field.controlIds,
       optionTexts: field.optionTexts,
       optionTargets: field.optionTargets,
-      preferredAction: field.uploadBoundary ? "extract" : "",
+      preferredAction: isConnectorFillSelectField(field)
+        ? field.connectorTool
+        : field.uploadBoundary
+          ? "extract"
+          : "",
+      connectorTool: field.connectorTool,
+      connectorArgs: field.connectorArgs,
+      batchPlacement: field.batchPlacement,
+      verifyAfterAction: field.verifyAfterAction,
       bounds: field.bounds,
     }));
+  }
+
+  function eeocSectionGroups(fields) {
+    const eeocFields = fields.filter(
+      (field) =>
+        field.sectionKind === "eeoc" &&
+        EEOC_FIELD_SPECS.some((spec) => spec.fieldKey === field.fieldKey),
+    );
+    if (!eeocFields.length) return [];
+
+    const fieldKeys = eeocFields.map((field) => field.fieldKey);
+    const blankLabels = eeocFields
+      .filter((field) => !field.answered)
+      .map((field) => field.label);
+    const answeredLabels = eeocFields
+      .filter((field) => field.answered)
+      .map((field) => `${field.label}: ${field.currentValue}`);
+
+    return [
+      {
+        id: "greenhouse_eeoc_section",
+        kind: "greenhouse_application_section",
+        adapterId: ADAPTER_ID,
+        targetId: EEOC_SECTION_TARGET_ID,
+        sectionKind: "eeoc",
+        label: "Voluntary Self-Identification / EEOC",
+        text: [
+          "Greenhouse EEOC section detected",
+          `connector action available: greenhouse_fill_eeoc with fieldValues for ${fieldKeys.join(", ")}`,
+          "Use only explicit values from runContext.myInfo or USER_GOAL; omit unknown EEOC fields instead of inventing answers",
+          blankLabels.length
+            ? `blank sensitive EEOC fields: ${blankLabels.join(" | ")}`
+            : "no blank sensitive EEOC fields detected",
+          answeredLabels.length
+            ? `answered sensitive EEOC fields: ${answeredLabels.join(" | ")}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" | "),
+        preferredAction: "greenhouse_fill_eeoc",
+        connectorTool: "greenhouse_fill_eeoc",
+        connectorFieldKeys: fieldKeys,
+        batchPlacement: "can_batch_sensitive_explicit_only",
+        verifyAfterAction: "adapter_group_current_value",
+        currentValue: `${eeocFields.filter((field) => field.answered).length}/${eeocFields.length} answered`,
+        answered: eeocFields.every((field) => field.answered),
+        fieldTargets: eeocFields.map((field) => field.targetId),
+        controlIds: unique(eeocFields.flatMap((field) => field.controlIds || [])),
+      },
+    ];
   }
 
   function optionGroups(fields) {
@@ -1359,8 +1505,10 @@
 
     return [
       "Greenhouse adapter active: use only fields inside form#application-form, especially .application--questions, .field-wrapper, .eeoc__container, and .application--submit.",
-      "Batch all visible non-combobox safeFillTarget Greenhouse profile/contact text fills in the same step before opening another React select. A combobox can take two turns, but it should not block independent plain text fills before the wait/observe.",
-      "For Greenhouse React select/combobox fields, click the closed control opener first, preferably the Toggle flyout button or inner .select__control target, to open the in-field listbox. Then observe and click the matching visible option. Fill search text only if the menu is open and the desired option is not visible. Do not treat typed search text as a committed Greenhouse selection.",
+      "Batch every independent safe Greenhouse fill in the same step when values are known: text/url/tel/email fills plus connector-select fills. Do not let a connector-select field block other safe fills.",
+      "For connector-enabled Greenhouse React select/combobox fields, prefer greenhouse_fill_select(fieldKey, value). The connector opens the menu, searches when the desired option is not immediately visible, matches against live options, and commits; do not pre-open the menu just to inspect finite options. Use click/open/observe only when the connector tool is unavailable or failed.",
+      "For Greenhouse React select/combobox fields without a connector, click the closed control opener first, preferably the Toggle flyout button or inner .select__control target, to open the in-field listbox. Then observe and click the matching visible option. Fill search text only if the menu is open and the desired option is not visible. Do not treat typed search text as a committed Greenhouse selection.",
+      "For the Greenhouse EEOC section, prefer greenhouse_fill_eeoc(fieldValues) when runContext.myInfo or USER_GOAL has explicit values for gender, Hispanic/Latino, veteran status, or disability status. Omit unknown EEOC fields; do not invent answers or choose decline/prefer-not-to-answer unless explicit.",
       "For Greenhouse EEOC fields, explicit values in runContext.myInfo are user-provided answers. Use those values when USER_GOAL asks to use My Info or fill the application. If My Info lacks a matching value, leave that EEOC field blank unless USER_GOAL explicitly asks for a decline/prefer-not-to-answer option.",
       "If a Greenhouse field group says currentValue blank and answered false, treat it as not filled. If it says selected/current value, do not repeat the same action.",
       missingRequired.length
@@ -1475,6 +1623,7 @@
     siteAdapter.plannerHints = buildPlannerHints(fields, siteAdapter);
     siteAdapter.groups = [
       applicationGroup(fields, siteAdapter),
+      ...eeocSectionGroups(fields),
       ...fieldGroups(sortFieldsForPlanner(fields)),
       ...optionGroups(fields),
     ].slice(0, 140);
@@ -1482,9 +1631,728 @@
     return siteAdapter;
   }
 
+  // ---------------------------------------------------------------------------
+  // Connector tool: greenhouse_fill_select
+  // First pass: single-select React-select dropdowns in normal application questions
+  // plus education rows. EEOC uses greenhouse_fill_eeoc.
+  // ---------------------------------------------------------------------------
+
+  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const SELECT_STOP_WORDS = new Set([
+    "a",
+    "an",
+    "and",
+    "are",
+    "am",
+    "be",
+    "do",
+    "does",
+    "had",
+    "has",
+    "have",
+    "i",
+    "in",
+    "of",
+    "or",
+    "past",
+    "the",
+    "to",
+  ]);
+
+  function choiceKey(value) {
+    return canonicalSelectText(value);
+  }
+
+  function canonicalSelectText(value) {
+    return lower(value)
+      .replace(/['’]/g, "")
+      .replace(/&/g, " and ")
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function selectTokens(value) {
+    return canonicalSelectText(value)
+      .split(" ")
+      .map((token) => token.trim())
+      .filter((token) => token && !SELECT_STOP_WORDS.has(token));
+  }
+
+  function fieldValueAliases(fieldKey, value) {
+    const key = canonicalSelectText(value);
+    const aliases = [];
+
+    if (/^school--/.test(fieldKey) && /\bvirginia\b/.test(key) && /\btech\b/.test(key)) {
+      aliases.push(
+        "Virginia Tech",
+        "Virginia Polytechnic Institute and State University",
+        "Virginia",
+      );
+    }
+
+    if (/^degree--/.test(fieldKey) && /\b(bachelor|bachelors|bs|bsc|science)\b/.test(key)) {
+      aliases.push(
+        "Bachelor's Degree",
+        "Bachelors Degree",
+        "Bachelor of Science",
+        "Bachelor",
+      );
+    }
+
+    if (fieldKey === "disability_status") {
+      if (/\bno\b/.test(key) && /\bdisab/.test(key)) {
+        aliases.push(
+          "No, I do not have a disability and have not had one in the past",
+          "No disability",
+          "No",
+        );
+      } else if (/\byes\b/.test(key) && /\bdisab/.test(key)) {
+        aliases.push(
+          "Yes, I have a disability, or have had one in the past",
+          "Yes disability",
+          "Yes",
+        );
+      } else if (/prefer|decline|dont want|do not want/.test(key)) {
+        aliases.push("I do not want to answer");
+      }
+    }
+
+    if (fieldKey === "veteran_status") {
+      if (/not.*protected.*veteran|no.*veteran|not.*veteran/.test(key)) {
+        aliases.push(
+          "I am not a protected veteran",
+          "Not a protected veteran",
+          "No",
+        );
+      } else if (/protected.*veteran/.test(key)) {
+        aliases.push("I identify as one or more of the classifications of protected veteran");
+      } else if (/prefer|decline|dont want|do not want/.test(key)) {
+        aliases.push("I do not wish to answer");
+      }
+    }
+
+    if (fieldKey === "hispanic_ethnicity") {
+      if (/^(no|not hispanic|not latino)|\bno\b/.test(key)) aliases.push("No");
+      if (/^(yes|hispanic|latino)|\byes\b/.test(key)) aliases.push("Yes");
+      if (/prefer|decline|dont want|do not want/.test(key)) {
+        aliases.push("I do not wish to answer", "I do not want to answer");
+      }
+    }
+
+    if (fieldKey === "gender") {
+      if (/\bmale\b/.test(key) && !/\bfemale\b/.test(key)) aliases.push("Male");
+      if (/\bfemale\b/.test(key) || /\bwoman\b/.test(key)) aliases.push("Female");
+      if (/prefer|decline|dont want|do not want/.test(key)) {
+        aliases.push("I do not wish to answer", "I do not want to answer");
+      }
+    }
+
+    return unique(aliases);
+  }
+
+  function searchQueriesFor(fieldKey, value) {
+    const aliases = fieldValueAliases(fieldKey, value);
+    const tokens = selectTokens(value);
+    const queries = [value, ...aliases];
+
+    if (/^degree--/.test(fieldKey)) queries.push("Bachelor");
+    if (/^school--/.test(fieldKey) && tokens.includes("virginia")) queries.push("Virginia");
+    if (fieldKey === "disability_status" && tokens.includes("no")) queries.push("No");
+    if (fieldKey === "veteran_status" && tokens.includes("veteran")) queries.push("veteran");
+
+    return unique(
+      queries
+        .map((query) => normalizeText(query))
+        .filter((query) => query.length > 0)
+        .slice(0, 6),
+    );
+  }
+
+  function scoreComboboxOption(optionText, value, fieldKey) {
+    const optionKey = canonicalSelectText(optionText);
+    const wantedKey = canonicalSelectText(value);
+    if (!optionKey || !wantedKey) return 0;
+    if (optionKey === wantedKey) return 1000;
+    if (fieldKey === "gender" && wantedKey === "male") {
+      return optionKey === "male" ? 1000 : 0;
+    }
+
+    const aliases = fieldValueAliases(fieldKey, value);
+    for (const alias of aliases) {
+      const aliasKey = canonicalSelectText(alias);
+      if (!aliasKey) continue;
+      if (optionKey === aliasKey) return 980;
+      if (optionKey.startsWith(aliasKey)) return 940;
+      if (optionKey.includes(aliasKey)) return 900;
+      if (aliasKey.includes(optionKey) && optionKey.length >= 5) return 850;
+    }
+
+    if (optionKey.startsWith(wantedKey)) return 820;
+    if (wantedKey.length >= 4 && optionKey.includes(wantedKey)) return 780;
+
+    const wantedTokens = selectTokens(value);
+    const optionTokens = new Set(selectTokens(optionText));
+    const overlap = wantedTokens.filter((token) => optionTokens.has(token));
+    let score = overlap.length * 120;
+
+    if (/^degree--/.test(fieldKey) && optionTokens.has("bachelors")) score += 350;
+    if (/^degree--/.test(fieldKey) && optionTokens.has("bachelor")) score += 350;
+    if (/^degree--/.test(fieldKey) && optionTokens.has("degree")) score += 90;
+    if (
+      fieldKey === "disability_status" &&
+      wantedTokens.includes("no") &&
+      wantedTokens.some((token) => token.startsWith("disab")) &&
+      optionTokens.has("no") &&
+      [...optionTokens].some((token) => token.startsWith("disab"))
+    ) {
+      score += 500;
+    }
+    if (
+      fieldKey === "veteran_status" &&
+      wantedTokens.includes("veteran") &&
+      (wantedTokens.includes("no") || wantedTokens.includes("not")) &&
+      optionTokens.has("not") &&
+      optionTokens.has("veteran")
+    ) {
+      score += 500;
+    }
+    if (
+      /^school--/.test(fieldKey) &&
+      wantedTokens.includes("virginia") &&
+      wantedTokens.includes("tech") &&
+      optionTokens.has("virginia") &&
+      (optionTokens.has("tech") || optionTokens.has("polytechnic"))
+    ) {
+      score += 520;
+    }
+
+    return score;
+  }
+
+  function valuesEquivalent(optionText, value, fieldKey) {
+    return scoreComboboxOption(optionText, value, fieldKey) >= 500;
+  }
+
+  function fieldWrapperSelectInput(root) {
+    const input =
+      root.querySelector(".select__control input.select__input") ||
+      root.querySelector(".select-shell input[role='combobox']");
+    if (!input || !isComboboxInput(input)) return null;
+    const fieldKey = normalizeText(input.id);
+    if (!fieldKey || fieldKey === "false") return null;
+    return input;
+  }
+
+  function connectorSelectFields(documentRef) {
+    const fields = [];
+    const seen = new Set();
+
+    for (const root of collectFieldRoots(documentRef || document)) {
+      const input = findPrimaryInput(root);
+      if (!input || fieldWrapperSelectInput(root) !== input) continue;
+      if (sectionKind(root) === "eeoc") continue;
+      if (!["application", "education"].includes(sectionKind(root))) continue;
+      if (isSensitiveOptionalField(root, questionText(root))) continue;
+
+      const fieldKey = normalizeText(input.id);
+      if (!fieldKey || fieldKey === "false" || seen.has(fieldKey)) continue;
+      seen.add(fieldKey);
+      fields.push({
+        fieldKey,
+        label:
+          questionText(root) || directLabelForInput(root, input) || fieldKey,
+      });
+    }
+
+    return fields;
+  }
+
+  function eeocSelectFields(documentRef) {
+    const form = applicationForm(documentRef);
+    const container = form?.querySelector(".eeoc__container");
+    if (!container) return [];
+
+    return EEOC_FIELD_SPECS.map((spec) => {
+      const input = container.querySelector(`#${cssEscape(spec.fieldKey)}`);
+      if (!input || !isComboboxInput(input)) return null;
+      const root =
+        input.closest(".eeoc__question__wrapper") ||
+        input.closest(".field-wrapper") ||
+        input.closest(".select") ||
+        container;
+      return {
+        ...spec,
+        label:
+          questionText(root) ||
+          directLabelForInput(root, input) ||
+          spec.label,
+      };
+    }).filter(Boolean);
+  }
+
+  function provideTools({ document: documentRef }) {
+    const fields = connectorSelectFields(documentRef || document);
+    const eeocFields = eeocSelectFields(documentRef || document);
+    const tools = [];
+
+    if (fields.length) {
+      const mapping = fields
+        .map((field) => `${field.fieldKey} = "${truncate(field.label, 90)}"`)
+        .join("; ");
+
+      tools.push({
+        type: "function",
+        name: "greenhouse_fill_select",
+        description: truncate(
+          "Fill a Greenhouse single-select dropdown in ONE step: opens the menu, matches the value " +
+            "against visible options, searches the dropdown when needed, and commits it. Prefer this over separate click/observe/click " +
+            "turns for these selects. It is safe to call multiple times in one step for independent " +
+            "fields when values are known. fieldKey -> label: " +
+            mapping,
+          900,
+        ),
+        strict: false,
+        parameters: {
+          type: "object",
+          properties: {
+            fieldKey: {
+              type: "string",
+              enum: fields.map((field) => field.fieldKey),
+              description: "Which Greenhouse select to fill (field key).",
+            },
+            value: {
+              type: "string",
+              description:
+                'The user/My Info value to select. It may be semantic rather than exact visible text, e.g. "No disability", "Virginia Tech", or "Bachelors in science". The connector searches and best-fits against live options.',
+            },
+          },
+          required: ["fieldKey", "value"],
+          additionalProperties: false,
+        },
+      });
+    }
+
+    if (eeocFields.length) {
+      const mapping = eeocFields
+        .map((field) => `${field.fieldKey} = "${truncate(field.label, 90)}"`)
+        .join("; ");
+      const fieldValueProperties = {};
+      for (const field of eeocFields) {
+        fieldValueProperties[field.fieldKey] = {
+          type: "string",
+          description: `Explicit answer for ${field.label}. Omit when unknown.`,
+        };
+      }
+
+      tools.push({
+        type: "function",
+        name: "greenhouse_fill_eeoc",
+        description: truncate(
+          "Fill multiple Greenhouse EEOC self-identification selects in ONE step. Use only " +
+            "explicit sensitive values from runContext.myInfo or USER_GOAL. Omit fields that are " +
+            "unknown; do not invent values or choose decline/prefer-not-to-answer unless explicit. " +
+            "The connector opens each menu, matches the requested value against live options, and " +
+            "commits it. fieldKey -> label: " +
+            mapping,
+          1100,
+        ),
+        strict: false,
+        parameters: {
+          type: "object",
+          properties: {
+            fieldValues: {
+              type: "object",
+              properties: fieldValueProperties,
+              additionalProperties: false,
+              description:
+                "Object keyed by Greenhouse EEOC fieldKey. Include only explicit values.",
+            },
+          },
+          required: ["fieldValues"],
+          additionalProperties: false,
+        },
+      });
+    }
+
+    return tools;
+  }
+
+  function locateSelectByFieldKey(fieldKey, options = {}) {
+    const form = applicationForm(document);
+    if (!form) return null;
+    const scope = options.scopeSelector
+      ? form.querySelector(options.scopeSelector)
+      : form;
+    if (!scope) return null;
+
+    let input = document.getElementById(fieldKey);
+    if (
+      !(input instanceof Element) ||
+      !scope.contains(input) ||
+      !isComboboxInput(input)
+    ) {
+      input = null;
+      const rootSelector =
+        options.rootSelector ||
+        (options.scopeSelector
+          ? `${options.scopeSelector} .eeoc__question__wrapper, ${options.scopeSelector} .field-wrapper`
+          : ".application--questions .field-wrapper");
+      for (const root of getElements(rootSelector, form)) {
+        const candidate = fieldWrapperSelectInput(root);
+        if (candidate && normalizeText(candidate.id) === normalizeText(fieldKey)) {
+          input = candidate;
+          break;
+        }
+      }
+    }
+
+    if (!input) return null;
+
+    const container =
+      input.closest(".select") || input.closest(".select-shell") || input.parentElement;
+    const control =
+      container?.querySelector(".select__control") ||
+      input.closest(".select__control");
+
+    return { input, container, control };
+  }
+
+  function readComboboxOptions(input, container) {
+    const listboxId = normalizeText(input?.getAttribute("aria-controls"));
+    let listbox = listboxId ? document.getElementById(listboxId) : null;
+    if (!listbox && input?.id) {
+      listbox = document.getElementById(`react-select-${input.id}-listbox`);
+    }
+    const scope = listbox || container || document;
+    return getVisibleElements("[role='option']", scope)
+      .map((el) => ({ el, text: normalizeText(el.textContent) }))
+      .filter((option) => option.text);
+  }
+
+  function optionsSignature(options) {
+    return (options || []).map((option) => choiceKey(option.text)).join("|");
+  }
+
+  async function waitForComboboxOptions(input, container, previousSignature = "") {
+    let latest = readComboboxOptions(input, container);
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const signature = optionsSignature(latest);
+      if (latest.length && (!previousSignature || signature !== previousSignature)) {
+        return latest;
+      }
+      await delay(100);
+      latest = readComboboxOptions(input, container);
+    }
+    return latest;
+  }
+
+  function nativeSetInputValue(input, value) {
+    const descriptor =
+      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value") ||
+      Object.getOwnPropertyDescriptor(input, "value");
+    if (descriptor?.set) {
+      descriptor.set.call(input, value);
+    } else {
+      input.value = value;
+    }
+  }
+
+  function inputLikeEvent(type, init = {}) {
+    try {
+      return new InputEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        ...init,
+      });
+    } catch {
+      return new Event(type, { bubbles: true, cancelable: true });
+    }
+  }
+
+  function dispatchReactSelectInput(input, value) {
+    input.focus?.();
+    nativeSetInputValue(input, "");
+    input.dispatchEvent(inputLikeEvent("input", { inputType: "deleteContentBackward" }));
+
+    let nextValue = "";
+    for (const char of String(value || "")) {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: char, bubbles: true, cancelable: true }),
+      );
+      input.dispatchEvent(
+        inputLikeEvent("beforeinput", { data: char, inputType: "insertText" }),
+      );
+      nextValue += char;
+      nativeSetInputValue(input, nextValue);
+      input.dispatchEvent(inputLikeEvent("input", { data: char, inputType: "insertText" }));
+      input.dispatchEvent(
+        new KeyboardEvent("keyup", { key: char, bubbles: true, cancelable: true }),
+      );
+    }
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  async function searchComboboxOptions(input, container, fieldKey, value) {
+    const startingSignature = optionsSignature(readComboboxOptions(input, container));
+    let latest = readComboboxOptions(input, container);
+
+    for (const query of searchQueriesFor(fieldKey, value)) {
+      dispatchReactSelectInput(input, query);
+      latest = await waitForComboboxOptions(input, container, startingSignature);
+      if (matchComboboxOption(latest, value, fieldKey)) return latest;
+    }
+
+    return latest;
+  }
+
+  function matchComboboxOption(options, value, fieldKey = "") {
+    let best = null;
+    let secondScore = 0;
+
+    for (const option of options || []) {
+      const score = scoreComboboxOption(option.text, value, fieldKey);
+      if (!best || score > best.score) {
+        secondScore = best?.score || 0;
+        best = { ...option, score };
+      } else if (score > secondScore) {
+        secondScore = score;
+      }
+    }
+
+    if (!best || best.score < 450) return null;
+    if (best.score < 900 && secondScore && best.score - secondScore < 80) return null;
+    return best;
+  }
+
+  function committedSelectValue(container) {
+    if (!container) return "";
+    const visible = normalizeText(
+      container.querySelector(".select__single-value")?.textContent || "",
+    );
+    if (visible) return visible;
+    return normalizeText(
+      Array.from(
+        container.querySelectorAll("input[type='hidden'], input[aria-hidden='true']"),
+      )
+        .map((input) => input.value || input.getAttribute("value"))
+        .filter(Boolean)
+        .join(", "),
+    );
+  }
+
+  async function waitForCommittedSelectValue(container) {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const value = committedSelectValue(container);
+      if (value) return value;
+      await delay(100);
+    }
+    return committedSelectValue(container);
+  }
+
+  function closeCombobox(input) {
+    try {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      );
+      input.dispatchEvent(
+        new KeyboardEvent("keyup", { key: "Escape", bubbles: true, cancelable: true }),
+      );
+      input.blur?.();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function fillSelectByFieldKey(fieldKey, value, ctx, locateOptions = {}) {
+    const click = ctx?.primitives?.clickElement;
+
+    if (!fieldKey || !value) {
+      return { ok: false, detail: "greenhouse_fill_select requires fieldKey and value." };
+    }
+    if (typeof click !== "function") {
+      return { ok: false, detail: "greenhouse_fill_select runner primitives unavailable." };
+    }
+
+    const located = locateSelectByFieldKey(fieldKey, locateOptions);
+    if (!located?.control || !located.input) {
+      return { ok: false, detail: `No Greenhouse select found for fieldKey ${fieldKey}.` };
+    }
+    const { input, container, control } = located;
+
+    const already = committedSelectValue(container);
+    if (already && valuesEquivalent(already, value, fieldKey)) {
+      return {
+        ok: true,
+        committed: true,
+        value: already,
+        detail: `${fieldKey} already set to "${already}".`,
+      };
+    }
+
+    // Open the menu (clicking .select__control opens the React-select listbox).
+    await click(control);
+    input.focus?.();
+    await delay(150);
+
+    let options = await waitForComboboxOptions(input, container);
+    if (!options.length) {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+      );
+      await delay(150);
+      options = await waitForComboboxOptions(input, container);
+    }
+    if (!options.length) {
+      const toggle = container?.querySelector(
+        ".select__indicators button[aria-label='Toggle flyout']",
+      );
+      if (toggle) {
+        await click(toggle);
+        input.focus?.();
+        await delay(150);
+        options = await waitForComboboxOptions(input, container);
+      }
+    }
+    if (!options.length) {
+      options = await searchComboboxOptions(input, container, fieldKey, value);
+      if (!options.length) {
+        closeCombobox(input);
+        return {
+          ok: false,
+          recoverable: true,
+          continueBatch: true,
+          detail: `Opened ${fieldKey} but no options were visible after searching.`,
+          options: [],
+        };
+      }
+    }
+
+    let match = matchComboboxOption(options, value, fieldKey);
+    if (!match) {
+      options = await searchComboboxOptions(input, container, fieldKey, value);
+      match = matchComboboxOption(options, value, fieldKey);
+    }
+    if (!match) {
+      closeCombobox(input);
+      return {
+        ok: false,
+        recoverable: true,
+        continueBatch: true,
+        detail: `No option matching "${value}" for ${fieldKey}.`,
+        options: options.map((option) => option.text).slice(0, 12),
+      };
+    }
+
+    await click(match.el);
+    await delay(250);
+
+    const committedValue = (await waitForCommittedSelectValue(container)) || match.text;
+    const committed = valuesEquivalent(committedValue, match.text, fieldKey);
+    return {
+      ok: true,
+      committed,
+      value: committedValue,
+      detail: committed
+        ? `Set ${fieldKey} to "${match.text}".`
+        : `Clicked option "${match.text}" for ${fieldKey}; verify on next observation.`,
+    };
+  }
+
+  async function greenhouseFillSelect(action, ctx) {
+    const fieldKey = normalizeText(action?.fieldKey);
+    const value = normalizeText(action?.value);
+    return fillSelectByFieldKey(fieldKey, value, ctx);
+  }
+
+  function eeocFieldValuesFromAction(action) {
+    const source =
+      action?.fieldValues &&
+      typeof action.fieldValues === "object" &&
+      !Array.isArray(action.fieldValues)
+        ? action.fieldValues
+        : action || {};
+    const fieldValues = {};
+
+    for (const spec of EEOC_FIELD_SPECS) {
+      const value = normalizeText(source[spec.fieldKey]);
+      if (value) fieldValues[spec.fieldKey] = value;
+    }
+
+    return fieldValues;
+  }
+
+  async function greenhouseFillEeoc(action, ctx) {
+    const requestedFieldValues = eeocFieldValuesFromAction(action);
+    const entries = Object.entries(requestedFieldValues);
+
+    if (!entries.length) {
+      return {
+        ok: false,
+        detail:
+          "greenhouse_fill_eeoc requires at least one explicit EEOC fieldValues entry.",
+      };
+    }
+
+    const results = [];
+    const committedFieldValues = {};
+    const failed = [];
+
+    for (const [fieldKey, value] of entries) {
+      const result = await fillSelectByFieldKey(fieldKey, value, ctx, {
+        scopeSelector: ".eeoc__container",
+      });
+      results.push({
+        fieldKey,
+        requestedValue: value,
+        ok: result.ok !== false,
+        committed: Boolean(result.committed),
+        value: result.value || "",
+        detail: result.detail || "",
+        options: result.options || undefined,
+      });
+
+      if (result.ok === false) {
+        failed.push(fieldKey);
+      } else {
+        committedFieldValues[fieldKey] = result.value || value;
+      }
+    }
+
+    const committedCount = Object.keys(committedFieldValues).length;
+    return {
+      ok: committedCount > 0,
+      recoverable: failed.length > 0,
+      continueBatch: failed.length > 0,
+      committed: failed.length === 0,
+      fieldValues: committedFieldValues,
+      failed,
+      results,
+      detail: failed.length
+        ? `Filled ${committedCount} EEOC field(s); ${failed.length} field(s) need fallback.`
+        : `Filled ${committedCount} EEOC field(s).`,
+    };
+  }
+
+  if (
+    globalThis.WebGPTConnectorTools &&
+    typeof globalThis.WebGPTConnectorTools.register === "function"
+  ) {
+    globalThis.WebGPTConnectorTools.register(
+      "greenhouse_fill_select",
+      greenhouseFillSelect,
+    );
+    globalThis.WebGPTConnectorTools.register(
+      "greenhouse_fill_eeoc",
+      greenhouseFillEeoc,
+    );
+  }
+
   registry.register({
     id: ADAPTER_ID,
     priority: 84,
+    provideTools,
     match({ document: documentRef, url }) {
       return isGreenhousePage(documentRef, url);
     },

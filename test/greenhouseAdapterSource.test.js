@@ -27,6 +27,7 @@ test("Greenhouse adapter scopes itself to the application form regions", () => {
   assert.match(source, /form\.application--form/);
   assert.match(source, /\.application--questions/);
   assert.match(source, /\.field-wrapper/);
+  assert.match(source, /\.education--form/);
   assert.match(source, /fieldset\.phone-input/);
   assert.match(source, /\.phone-input__country \.select__container/);
   assert.match(
@@ -89,12 +90,16 @@ test("Greenhouse adapter keeps comboboxes and options deterministic inside the f
   assert.match(source, /Do not treat typed search text as a committed Greenhouse selection/);
 });
 
-test("Greenhouse adapter nudges batching before combobox observe turns", () => {
+test("Greenhouse adapter batches connector selects and keeps a combobox fallback", () => {
   const source = readSource("content-scripts/adapters/greenhouse.js");
 
   assert.match(source, /function isBatchableTextField/);
-  assert.match(source, /Batch all visible non-combobox safeFillTarget/);
-  assert.match(source, /before opening another React select/);
+  assert.match(source, /Batch every independent safe Greenhouse fill/);
+  assert.match(source, /connector-select fills/);
+  assert.match(source, /searches when the desired option is not immediately visible/);
+  assert.match(source, /do not pre-open the menu just to inspect finite options/i);
+  assert.match(source, /Use click\/open\/observe only when the connector tool is unavailable or failed/);
+  assert.match(source, /function isConnectorFillSelectField/);
   assert.match(source, /const shouldOpenCombobox/);
   assert.match(source, /function comboboxOpenElements/);
   assert.match(source, /function findComboboxOpenControl/);
@@ -103,6 +108,7 @@ test("Greenhouse adapter nudges batching before combobox observe turns", () => {
   assert.match(source, /openTargetId/);
   assert.match(source, /greenhouse_combobox_control_opener/);
   assert.match(source, /preferredAction: "click"/);
+  assert.match(source, /preferredAction:\s*field\.connectorTool/);
   assert.match(source, /Click the Toggle flyout button or inner \.select__control area/);
   assert.match(source, /Do not click the outer field wrapper/);
   assert.match(source, /do not fill search text before opening this menu/);
@@ -130,6 +136,66 @@ test("Greenhouse adapter pins combobox openers/options to unique field-scoped se
     source,
     /siteAdapter\.selectorOverrides \|\| \{\}/,
   );
+});
+
+test("Greenhouse adapter exposes a greenhouse_fill_select connector tool (open+search+match+commit in one step)", () => {
+  const source = readSource("content-scripts/adapters/greenhouse.js");
+
+  // provideTools surfaces the single-step select tool from the same roots as enhanced state.
+  assert.match(source, /function provideTools/);
+  assert.match(source, /name: "greenhouse_fill_select"/);
+  assert.match(source, /function connectorSelectFields/);
+  assert.match(source, /collectFieldRoots\(documentRef \|\| document\)/);
+  assert.match(source, /\.application--questions/);
+  assert.match(source, /\.education--form/);
+  assert.match(source, /fieldKey === "false"/); // excludes unusable id="false" selects
+  // Runner-side executor: opens, reads options, searches when needed, matches, commits.
+  assert.match(source, /async function greenhouseFillSelect/);
+  assert.match(source, /function readComboboxOptions/);
+  assert.match(source, /function searchComboboxOptions/);
+  assert.match(source, /function matchComboboxOption/);
+  assert.match(source, /function dispatchReactSelectInput/);
+  assert.match(source, /function waitForComboboxOptions/);
+  assert.match(source, /function fieldValueAliases/);
+  assert.match(source, /function scoreComboboxOption/);
+  assert.match(source, /No, I do not have a disability and have not had one in the past/);
+  assert.match(source, /Virginia Polytechnic Institute and State University/);
+  assert.match(source, /Bachelor's Degree/);
+  assert.match(source, /function committedSelectValue/);
+  assert.match(source, /function waitForCommittedSelectValue/);
+  assert.match(source, /recoverable:\s*true/);
+  assert.match(source, /continueBatch:\s*true/);
+  assert.match(source, /WebGPTConnectorTools\.register\(\s*"greenhouse_fill_select"/);
+  // Enhanced state should describe connector-backed selects as batchable connector actions.
+  assert.match(source, /function isConnectorFillSelectField/);
+  assert.match(source, /preferredAction:\s*field\.connectorTool/);
+  assert.match(source, /connectorTool:\s*field\.connectorTool/);
+  assert.match(source, /batchPlacement:\s*"can_batch"/);
+  assert.match(source, /greenhouse_fill_select\(fieldKey, value\)/);
+  // The tool is declared on the adapter registration.
+  assert.match(source, /provideTools,/);
+});
+
+test("Greenhouse adapter exposes an EEOC composite connector tool with section hints", () => {
+  const source = readSource("content-scripts/adapters/greenhouse.js");
+
+  assert.match(source, /const EEOC_FIELD_SPECS/);
+  assert.match(source, /fieldKey: "gender"/);
+  assert.match(source, /fieldKey: "hispanic_ethnicity"/);
+  assert.match(source, /fieldKey: "veteran_status"/);
+  assert.match(source, /fieldKey: "disability_status"/);
+  assert.match(source, /function eeocSectionGroups/);
+  assert.match(source, /greenhouse_eeoc_section/);
+  assert.match(source, /preferredAction: "greenhouse_fill_eeoc"/);
+  assert.match(source, /connector action available: greenhouse_fill_eeoc/);
+  assert.match(source, /name: "greenhouse_fill_eeoc"/);
+  assert.match(source, /fieldValues/);
+  assert.match(source, /explicit sensitive values from runContext\.myInfo/);
+  assert.match(source, /async function greenhouseFillEeoc/);
+  assert.match(source, /scopeSelector: "\.eeoc__container"/);
+  assert.match(source, /fieldValues:\s*committedFieldValues/);
+  assert.match(source, /recoverable:\s*failed\.length > 0/);
+  assert.match(source, /WebGPTConnectorTools\.register\(\s*"greenhouse_fill_eeoc"/);
 });
 
 test("Greenhouse adapter marks submit boundaries and uses explicit My Info for EEOC", () => {
