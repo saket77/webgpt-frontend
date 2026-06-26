@@ -1409,6 +1409,7 @@ components:
           type: string
           enum:
             - read_values
+            - add_sheet
             - write_values
             - append_values
             - find_rows

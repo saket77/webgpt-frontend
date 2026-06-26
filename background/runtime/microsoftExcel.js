@@ -535,6 +535,40 @@ function chooseActiveWorksheet(worksheets = [], requestedName = "") {
   );
 }
 
+function findWorksheetByName(worksheets = [], name = "") {
+  const expected = normalizeText(name).toLowerCase();
+  return worksheets.find((worksheet) => normalizeText(worksheet.name).toLowerCase() === expected) || null;
+}
+
+async function addWorksheet({ workbook, worksheets = [], sheetName = "" }) {
+  const name = normalizeText(sheetName);
+  if (!name) {
+    throw new Error("add_sheet requires sheetName.");
+  }
+
+  const existing = findWorksheetByName(worksheets, name);
+  if (existing) {
+    return {
+      sheetName: existing.name,
+      worksheetId: existing.id || "",
+      skipped: true,
+    };
+  }
+
+  const json = await graphFetch(workbookPath(workbook, "/worksheets/add"), {
+    method: "POST",
+    body: {
+      name,
+    },
+  });
+
+  return {
+    sheetName: json?.name || name,
+    worksheetId: json?.id || "",
+    skipped: false,
+  };
+}
+
 async function readRange({ workbook, worksheetName, range }) {
   const json = await graphFetch(
     rangePath({ workbook, worksheetName, range: range || DEFAULT_GRID_RANGE }),
@@ -835,6 +869,14 @@ async function runMicrosoftExcelCommand({ tabId, state, command, workbook, works
     return {
       worksheets,
     };
+  }
+
+  if (name === "add_sheet") {
+    return addWorksheet({
+      workbook,
+      worksheets,
+      sheetName: command.sheetName || command.worksheetName || command.title,
+    });
   }
 
   if (name === "read_range") {

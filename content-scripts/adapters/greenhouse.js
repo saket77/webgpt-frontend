@@ -723,6 +723,10 @@
     );
   }
 
+  function isPhoneCountryCodeRoot(root) {
+    return Boolean(root?.closest?.("fieldset.phone-input .phone-input__country"));
+  }
+
   function isUploadBoundaryField(question) {
     return /\b(resume|cv|cover letter|upload|attach)\b/i.test(question);
   }
@@ -796,6 +800,8 @@
   function collectField(state, root, index) {
     const input = findPrimaryInput(root);
     const question = questionText(root);
+    const phoneCountryCode = isPhoneCountryCodeRoot(root);
+    const displayLabel = phoneCountryCode ? "Phone Country Code" : question;
     const fieldKey = fieldKeyFor(root, input, question, index);
     const controls = controlsInRegion(state.controls || [], root);
     const kindBeforeOptions = fieldKind(root, input, 0);
@@ -849,7 +855,7 @@
       : "";
     const required = isRequiredField(root);
     const sensitiveOptional = isSensitiveOptionalField(root, question);
-    const profileField = isProfileField(question);
+    const profileField = phoneCountryCode || isProfileField(question);
     const uploadBoundary = kind === "file";
     const connectorTool =
       !answered &&
@@ -879,7 +885,10 @@
     );
     const description = descriptionText(root);
     const textFacts = [
-      question,
+      displayLabel,
+      phoneCountryCode
+        ? "phone country-code selector; batch with the Phone fill from My Info when possible"
+        : "",
       description ? `description: ${description}` : "",
       rawValue ? `current value: ${currentValue}` : "currentValue: blank",
       kind === "combobox" && searchValue && !rawValue
@@ -918,7 +927,7 @@
       fieldKind: kind,
       sectionKind: sectionKind(root),
       required,
-      label: question,
+      label: displayLabel,
       description,
       text: textFacts.filter(Boolean).join(" | "),
       currentValue,
@@ -928,6 +937,7 @@
       sensitiveOptional,
       profileField,
       safeMyInfoFill,
+      phoneCountryCode,
       uploadBoundary,
       connectorTool,
       connectorArgs,
@@ -1021,8 +1031,13 @@
         !(field.options || []).length;
 
       if (connectorSelect) {
+        const connectorInstruction = field.phoneCountryCode
+          ? `Prefer connector tool greenhouse_fill_select with fieldKey="${field.fieldKey}" for this Greenhouse phone country-code select. Batch it in the same step as the Phone fill when My Info has a phone/address value: use "United States" for US/+1 and "India" for India/+91. Use click/open/observe only as a fallback if the connector tool is unavailable or fails.`
+          : `Prefer connector tool greenhouse_fill_select with fieldKey="${field.fieldKey}" for this closed Greenhouse React select. It opens, searches when needed, matches the requested value against live options, and commits in one action; batch it with other independent safe fills when the value is known. Use click/open/observe only as a fallback if the connector tool is unavailable or fails.`;
         const connectorHint = {
-          semanticRole: "greenhouse_connector_select",
+          semanticRole: field.phoneCountryCode
+            ? "greenhouse_phone_country_code_connector_select"
+            : "greenhouse_connector_select",
           preferredAction: field.connectorTool,
           connectorTool: field.connectorTool,
           connectorArgs: field.connectorArgs,
@@ -1035,8 +1050,7 @@
           answerText: field.label,
           optionTexts: [],
           verifyAfterAction: "adapter_group_current_value",
-          instruction:
-            `Prefer connector tool greenhouse_fill_select with fieldKey="${field.fieldKey}" for this closed Greenhouse React select. It opens, searches when needed, matches the requested value against live options, and commits in one action; batch it with other independent safe fills when the value is known. Use click/open/observe only as a fallback if the connector tool is unavailable or fails.`,
+          instruction: connectorInstruction,
         };
 
         if (
@@ -1498,6 +1512,9 @@
       .filter((field) => field.safeMyInfoFill)
       .map((field) => field.label)
       .slice(0, 12);
+    const blankPhoneCountryCodeFields = fields.filter(
+      (field) => field.phoneCountryCode && !field.answered,
+    );
     const blankSensitiveFields = fields
       .filter((field) => field.sensitiveOptional && !field.answered)
       .map((field) => field.label)
@@ -1506,6 +1523,9 @@
     return [
       "Greenhouse adapter active: use only fields inside form#application-form, especially .application--questions, .field-wrapper, .eeoc__container, and .application--submit.",
       "Batch every independent safe Greenhouse fill in the same step when values are known: text/url/tel/email fills plus connector-select fills. Do not let a connector-select field block other safe fills.",
+      blankPhoneCountryCodeFields.length
+        ? "Greenhouse Phone Country Code is the phone country/extension selector, not a standalone address country. When filling Phone from My Info, batch greenhouse_fill_select(fieldKey=\"country\", value=\"United States\") for US/+1 phone or address values, or value=\"India\" for India/+91 values."
+        : "",
       "For connector-enabled Greenhouse React select/combobox fields, prefer greenhouse_fill_select(fieldKey, value). The connector opens the menu, searches when the desired option is not immediately visible, matches against live options, and commits; do not pre-open the menu just to inspect finite options. Use click/open/observe only when the connector tool is unavailable or failed.",
       "For Greenhouse React select/combobox fields without a connector, click the closed control opener first, preferably the Toggle flyout button or inner .select__control target, to open the in-field listbox. Then observe and click the matching visible option. Fill search text only if the menu is open and the desired option is not visible. Do not treat typed search text as a committed Greenhouse selection.",
       "For the Greenhouse EEOC section, prefer greenhouse_fill_eeoc(fieldValues) when runContext.myInfo or USER_GOAL has explicit values for gender, Hispanic/Latino, veteran status, or disability status. Omit unknown EEOC fields; do not invent answers or choose decline/prefer-not-to-answer unless explicit.",
@@ -1679,9 +1699,49 @@
       .filter((token) => token && !SELECT_STOP_WORDS.has(token));
   }
 
+  function phoneCountryCodeAliases(value) {
+    const key = canonicalSelectText(value);
+    const raw = normalizeText(value);
+    const compactPhone = raw.replace(/[^\d+]/g, "");
+    const aliases = [];
+    const usLike =
+      key === "us" ||
+      key === "usa" ||
+      key === "u s" ||
+      /\bunited states\b|\bamerica\b|\bphiladelphia\b|\bnew york\b/.test(key) ||
+      /\bpa\b|\bny\b|\bca\b/.test(key) ||
+      compactPhone === "+1" ||
+      compactPhone === "1" ||
+      /^\+?1\d{10}$/.test(compactPhone);
+    const indiaLike =
+      key === "in" ||
+      /\bindia\b|\bmumbai\b|\bdelhi\b|\bbangalore\b|\bbengaluru\b|\bmaharashtra\b/.test(key) ||
+      compactPhone === "+91" ||
+      compactPhone === "91" ||
+      /^\+?91\d{10}$/.test(compactPhone);
+
+    if (usLike) aliases.push("United States", "+1", "US", "USA");
+    if (indiaLike) aliases.push("India", "+91", "IN");
+    return unique(aliases);
+  }
+
+  function equivalentValuesForSelect(fieldKey, ...values) {
+    if (fieldKey !== "country") return [];
+    return unique(
+      values
+        .flatMap((value) => [value, ...phoneCountryCodeAliases(value)])
+        .map(normalizeText)
+        .filter(Boolean),
+    );
+  }
+
   function fieldValueAliases(fieldKey, value) {
     const key = canonicalSelectText(value);
     const aliases = [];
+
+    if (fieldKey === "country") {
+      aliases.push(...phoneCountryCodeAliases(value));
+    }
 
     if (/^school--/.test(fieldKey) && /\bvirginia\b/.test(key) && /\btech\b/.test(key)) {
       aliases.push(
@@ -1758,6 +1818,12 @@
 
     if (/^degree--/.test(fieldKey)) queries.push("Bachelor");
     if (/^school--/.test(fieldKey) && tokens.includes("virginia")) queries.push("Virginia");
+    if (fieldKey === "country" && phoneCountryCodeAliases(value).includes("United States")) {
+      queries.push("United States");
+    }
+    if (fieldKey === "country" && phoneCountryCodeAliases(value).includes("India")) {
+      queries.push("India");
+    }
     if (fieldKey === "disability_status" && tokens.includes("no")) queries.push("No");
     if (fieldKey === "veteran_status" && tokens.includes("veteran")) queries.push("veteran");
 
@@ -2187,6 +2253,7 @@
         ok: true,
         committed: true,
         value: already,
+        equivalentValues: equivalentValuesForSelect(fieldKey, value, already),
         detail: `${fieldKey} already set to "${already}".`,
       };
     }
@@ -2254,6 +2321,12 @@
       ok: true,
       committed,
       value: committedValue,
+      equivalentValues: equivalentValuesForSelect(
+        fieldKey,
+        value,
+        match.text,
+        committedValue,
+      ),
       detail: committed
         ? `Set ${fieldKey} to "${match.text}".`
         : `Clicked option "${match.text}" for ${fieldKey}; verify on next observation.`,

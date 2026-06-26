@@ -85,6 +85,29 @@ Example:
 }
 ```
 
+### `add_sheet`
+
+Create a sheet tab if it does not already exist.
+
+Required:
+
+- `sheetName`
+
+Returns:
+
+- `sheetName`
+- `sheetId`
+- `skipped`
+
+Example:
+
+```json
+{
+  "name": "add_sheet",
+  "sheetName": "GST Recon Summary"
+}
+```
+
 ### `write_values`
 
 Write a rectangular set of values to an A1 range.

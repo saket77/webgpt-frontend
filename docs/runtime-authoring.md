@@ -188,7 +188,7 @@ The Google Sheets runtime is the first non-DOM runtime:
 - detects Sheets tabs by URL
 - requests Google Sheets access through Chrome identity
 - reads spreadsheet metadata and a bounded `A1:T50` planning snapshot
-- executes `read_values`, `write_values`, `append_values`, `find_rows`, `format_range`, and `set_active_range`
+- executes `read_values`, `add_sheet`, `write_values`, `append_values`, `find_rows`, `format_range`, and `set_active_range`
 - posts `google_sheets_commands_executed` back through the normal command-result route
 - supports Sheets replay artifacts through the runtime replay hook
 
@@ -208,7 +208,7 @@ The Microsoft Excel runtime follows the same seam for Excel workbooks opened in 
 - uses auth code + PKCE and stores tokens in extension storage, not the backend
 - resolves the open workbook URL into a Graph `driveItem`
 - reads workbook metadata, worksheets, and a bounded `A1:T50` planning snapshot
-- executes `read_range`, `write_range`, `append_rows`, `find_rows`, `format_range`, `set_active_range`, and `list_worksheets`
+- executes `read_range`, `add_sheet`, `write_range`, `append_rows`, `find_rows`, `format_range`, `set_active_range`, and `list_worksheets`
 - posts `microsoft_excel_commands_executed` back through the normal command-result route
 - supports Excel replay artifacts through the runtime replay hook
 

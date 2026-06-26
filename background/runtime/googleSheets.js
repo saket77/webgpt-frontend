@@ -204,6 +204,11 @@ function buildSheetTabs(sheets = [], activeSheet = null) {
   }));
 }
 
+function findSheetByTitle(sheets = [], title = "") {
+  const expected = normalizeText(title).toLowerCase();
+  return sheets.find((sheet) => normalizeText(sheet.title).toLowerCase() === expected) || null;
+}
+
 async function getAuthToken({ interactive = false } = {}) {
   if (!chrome.identity?.getAuthToken) {
     throw new Error("Chrome identity API is unavailable in this extension context.");
@@ -277,6 +282,47 @@ async function getSpreadsheetMetadata(spreadsheetId) {
   ].join(",");
 
   return sheetsFetch(spreadsheetId, `?fields=${encodeURIComponent(fields)}`);
+}
+
+async function addSheet({ spreadsheetId, sheetName = "", metadata = null }) {
+  const title = normalizeText(sheetName);
+  if (!title) {
+    throw new Error("add_sheet requires sheetName.");
+  }
+
+  const existing = findSheetByTitle(
+    (metadata?.sheets || []).map(normalizeSheetProperties),
+    title,
+  );
+  if (existing) {
+    return {
+      sheetName: existing.title,
+      sheetId: existing.sheetId,
+      skipped: true,
+    };
+  }
+
+  const json = await sheetsFetch(spreadsheetId, ":batchUpdate", {
+    method: "POST",
+    body: {
+      requests: [
+        {
+          addSheet: {
+            properties: {
+              title,
+            },
+          },
+        },
+      ],
+    },
+  });
+  const properties = json?.replies?.[0]?.addSheet?.properties || {};
+
+  return {
+    sheetName: properties.title || title,
+    sheetId: properties.sheetId ?? null,
+    skipped: false,
+  };
 }
 
 async function readValues({ spreadsheetId, range, sheetName = "", majorDimension = "ROWS" }) {
@@ -645,6 +691,14 @@ async function runGoogleSheetsCommand({ tabId, state, command, metadata, activeS
       range: command.range,
       sheetName: command.sheetName || state.activeSheetName,
       majorDimension: command.majorDimension || "ROWS",
+    });
+  }
+
+  if (name === "add_sheet") {
+    return addSheet({
+      spreadsheetId,
+      sheetName: command.sheetName || command.title || command.nameToAdd,
+      metadata,
     });
   }
 

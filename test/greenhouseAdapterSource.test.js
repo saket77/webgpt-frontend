@@ -30,6 +30,8 @@ test("Greenhouse adapter scopes itself to the application form regions", () => {
   assert.match(source, /\.education--form/);
   assert.match(source, /fieldset\.phone-input/);
   assert.match(source, /\.phone-input__country \.select__container/);
+  assert.match(source, /function isPhoneCountryCodeRoot/);
+  assert.match(source, /Phone Country Code/);
   assert.match(
     source,
     /\.phone-input__phone > \.text-input-wrapper > \.input-wrapper/,
@@ -101,6 +103,8 @@ test("Greenhouse adapter batches connector selects and keeps a combobox fallback
   assert.match(source, /Use click\/open\/observe only when the connector tool is unavailable or failed/);
   assert.match(source, /function isConnectorFillSelectField/);
   assert.match(source, /const shouldOpenCombobox/);
+  assert.match(source, /Greenhouse Phone Country Code is the phone country\/extension selector/);
+  assert.match(source, /batch greenhouse_fill_select\(fieldKey=\\"country\\"/);
   assert.match(source, /function comboboxOpenElements/);
   assert.match(source, /function findComboboxOpenControl/);
   assert.match(source, /\.select__indicators button\[aria-label='Toggle flyout'\]/);
@@ -157,6 +161,12 @@ test("Greenhouse adapter exposes a greenhouse_fill_select connector tool (open+s
   assert.match(source, /function dispatchReactSelectInput/);
   assert.match(source, /function waitForComboboxOptions/);
   assert.match(source, /function fieldValueAliases/);
+  assert.match(source, /function phoneCountryCodeAliases/);
+  assert.match(source, /function equivalentValuesForSelect/);
+  assert.match(source, /United States/);
+  assert.match(source, /\+1/);
+  assert.match(source, /India/);
+  assert.match(source, /\+91/);
   assert.match(source, /function scoreComboboxOption/);
   assert.match(source, /No, I do not have a disability and have not had one in the past/);
   assert.match(source, /Virginia Polytechnic Institute and State University/);
@@ -165,6 +175,8 @@ test("Greenhouse adapter exposes a greenhouse_fill_select connector tool (open+s
   assert.match(source, /function waitForCommittedSelectValue/);
   assert.match(source, /recoverable:\s*true/);
   assert.match(source, /continueBatch:\s*true/);
+  assert.match(source, /equivalentValues:\s*equivalentValuesForSelect/);
+  assert.match(source, /greenhouse_phone_country_code_connector_select/);
   assert.match(source, /WebGPTConnectorTools\.register\(\s*"greenhouse_fill_select"/);
   // Enhanced state should describe connector-backed selects as batchable connector actions.
   assert.match(source, /function isConnectorFillSelectField/);
