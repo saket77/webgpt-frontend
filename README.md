@@ -130,6 +130,19 @@ The built sidepanel files are generated into `sidepanel-app/dist/`.
 3. Click **Load unpacked**.
 4. Select this repository folder.
 
+### Package for Sharing
+
+```bash
+node scripts/package-extension.mjs
+```
+
+This rebuilds the sidepanel and writes a lean loadable extension zip to
+`../webgpt-extension-frontend.zip`. To choose a different output path:
+
+```bash
+node scripts/package-extension.mjs --output ../webgpt-extension-frontend-2026-06-26.zip
+```
+
 ### 3. Choose a Backend
 
 Open the WebGPT sidepanel and use the Backend card to choose a compatible planner backend.
