@@ -5,6 +5,9 @@
 WebGPT is an open-source Chrome runtime for AI browser agents.
 
 It lets an AI planner observe the current browser tab, extract structured page or runtime state, execute browser actions, pause for human confirmation, and replay successful workflows across multiple inputs.
+WebGPT is an open-source Chrome runtime for AI browser agents.
+
+It lets an AI planner observe the current browser tab, extract structured page or runtime state, execute browser actions, pause for human confirmation, and replay successful workflows across multiple inputs.
 
 Think of this repo as the browser-side runtime: sidepanel UI, tab/session orchestration, DOM extraction, runtime surfaces, action execution, replay support, and the HTTP adapter contract that lets planner backends plug in cleanly.
 
@@ -133,6 +136,20 @@ The built sidepanel files are generated into `sidepanel-app/dist/`.
 2. Enable **Developer mode**.
 3. Click **Load unpacked**.
 4. Select this repository folder.
+
+### Package for Sharing
+
+```bash
+node scripts/package-extension.mjs
+```
+
+This rebuilds the sidepanel and writes a lean loadable extension zip using the
+manifest version, for example `../webgpt-extension-frontend-v1.0.2.zip`.
+To choose a different output path:
+
+```bash
+node scripts/package-extension.mjs --output ../webgpt-extension-frontend-store.zip
+```
 
 ### Package for Sharing
 
