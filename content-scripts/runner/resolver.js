@@ -1,6 +1,7 @@
 (function () {
   const ns = window.WebGPTRunnerModules;
-  const { normalizeText, isVisible, isEnabled, isEditable } = ns.domUtils;
+  const { normalizeText, lower, isVisible, isEnabled, isEditable } =
+    ns.domUtils;
   const { candidateClosestSelector, candidateElements, promoteCandidate } =
     ns.candidates;
   const { scoreElementAgainstControl } = ns.controlScoring;
@@ -173,6 +174,91 @@
     }
   }
 
+  function isNativeClickTarget(el) {
+    if (!el || !(el instanceof Element)) return false;
+    const tag = lower(el.tagName);
+    const role = lower(el.getAttribute("role"));
+
+    return (
+      [
+        "a",
+        "button",
+        "input",
+        "summary",
+        "option",
+        "label",
+        "select",
+      ].includes(tag) ||
+      [
+        "button",
+        "link",
+        "menuitem",
+        "option",
+        "tab",
+        "checkbox",
+        "radio",
+        "switch",
+      ].includes(role) ||
+      typeof el.onclick === "function" ||
+      el.hasAttribute("onclick")
+    );
+  }
+
+  function preferClickableDescendant(el, control, actionType) {
+    if (actionType !== "click") return { el, suffix: "" };
+    if (!el || !(el instanceof Element)) return { el, suffix: "" };
+    if (isNativeClickTarget(el)) return { el, suffix: "" };
+
+    const descendants = Array.from(
+      el.querySelectorAll(
+        [
+          "a",
+          "button",
+          "input",
+          "summary",
+          "option",
+          "label",
+          "select",
+          '[role="button"]',
+          '[role="link"]',
+          '[role="menuitem"]',
+          '[role="option"]',
+          '[role="tab"]',
+          '[role="checkbox"]',
+          '[role="radio"]',
+          '[role="switch"]',
+          "[onclick]",
+          "[tabindex]",
+        ].join(","),
+      ),
+    ).filter((candidate) => isVisible(candidate) && isEnabled(candidate));
+
+    if (!descendants.length) return { el, suffix: "" };
+
+    let best = null;
+    for (const candidate of descendants) {
+      const score = scoreElementAgainstControl(candidate, control, actionType);
+      if (score === -Infinity) continue;
+      if (!best || score > best.score) best = { el: candidate, score };
+    }
+
+    if (!best) return { el, suffix: "" };
+    if (best.score < 35 && descendants.length > 1) return { el, suffix: "" };
+
+    return {
+      el: best.el,
+      suffix: `:click-descendant:${lower(best.el.tagName)}:score:${best.score}`,
+    };
+  }
+
+  function resolvedMatch(match, control, actionType, strategyUsed) {
+    const preferred = preferClickableDescendant(match.el, control, actionType);
+    return {
+      el: preferred.el,
+      strategyUsed: `${strategyUsed}${preferred.suffix}`,
+    };
+  }
+
   function resolveElement(control, actionType = "click") {
     if (!control) {
       throw new Error("Missing control.");
@@ -188,8 +274,12 @@
     );
     if (byStableSelector) {
       return {
-        el: byStableSelector.el,
-        strategyUsed: `stable-selector:${control.selector}:score:${byStableSelector.score}`,
+        ...resolvedMatch(
+          byStableSelector,
+          control,
+          actionType,
+          `stable-selector:${control.selector}:score:${byStableSelector.score}`,
+        ),
         strategiesTried,
       };
     }
@@ -198,8 +288,12 @@
     strategiesTried.push("semantic-score");
     if (semantic) {
       return {
-        el: semantic.el,
-        strategyUsed: `semantic-score:${semantic.score}`,
+        ...resolvedMatch(
+          semantic,
+          control,
+          actionType,
+          `semantic-score:${semantic.score}`,
+        ),
         strategiesTried,
       };
     }
@@ -208,8 +302,12 @@
     strategiesTried.push("recorded-bounds");
     if (byBounds) {
       return {
-        el: byBounds.el,
-        strategyUsed: `recorded-bounds:score:${byBounds.score}`,
+        ...resolvedMatch(
+          byBounds,
+          control,
+          actionType,
+          `recorded-bounds:score:${byBounds.score}`,
+        ),
         strategiesTried,
       };
     }
@@ -222,8 +320,12 @@
     );
     if (fallback) {
       return {
-        el: fallback.el,
-        strategyUsed: `brittle-selector:${control.selector}:score:${fallback.score}`,
+        ...resolvedMatch(
+          fallback,
+          control,
+          actionType,
+          `brittle-selector:${control.selector}:score:${fallback.score}`,
+        ),
         strategiesTried,
       };
     }

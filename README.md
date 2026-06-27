@@ -2,13 +2,43 @@
 
 ![WebGPT icon](./icons/icon-128.png)
 
-WebGPT is a Chrome extension frontend for AI-powered browser automation. It observes the active tab, extracts structured page or runtime state, sends that state to a compatible planner backend, and safely executes the commands returned by that backend.
+WebGPT is an open-source Chrome runtime for AI browser agents.
+
+It lets an AI planner observe the current browser tab, extract structured page or runtime state, execute browser actions, pause for human confirmation, and replay successful workflows across multiple inputs.
 
 Think of this repo as the browser-side runtime: sidepanel UI, tab/session orchestration, DOM extraction, runtime surfaces, action execution, replay support, and the HTTP adapter contract that lets planner backends plug in cleanly.
 
-## Demo Video
+Unlike one-off browser agents, WebGPT is built around a clean runtime/planner boundary:
+
+- the Chrome extension owns browser execution
+- the backend owns planning
+- site adapters improve reliability on specific websites
+- runtime adapters support non-DOM surfaces like Google Sheets and Microsoft Excel
+- successful workflows can become replayable routines
+
+## Current Demo
 
 [![Watch the WebGPT demo](https://i9.ytimg.com/vi_webp/J1yGDs0M-gA/mq1.webp?sqp=CJjp2M8G-oaymwEmCMACELQB8quKqQMa8AEB-AH-CIAC0AWKAgwIABABGBUgRih_MA8=&rs=AOn4CLCyBim_PHlqGOERym-W9Y5fh5O9YQ)](https://youtu.be/J1yGDs0M-gA)
+
+## Demo Tracks
+
+These are the public demo tracks for showing what WebGPT can do. Each one is designed to become a short video, a README proof point, and a reproducible contributor test case.
+
+| Demo | What it shows | Why it matters |
+| --- | --- | --- |
+| [1. Website extraction](./docs/demos/demo-1-website-extraction.md) | WebGPT reads a normal website, extracts visible information, and summarizes the result | Shows baseline browser-agent usefulness |
+| [2. Human-confirmed form filling](./docs/demos/demo-2-human-confirmation.md) | WebGPT fills fields, pauses before a sensitive final action, and resumes after user confirmation | Shows safety and human-in-the-loop control |
+| [3. Spreadsheet runtime](./docs/demos/demo-3-spreadsheet-runtime.md) | WebGPT works with Google Sheets or Microsoft Excel through runtime-specific state and commands | Shows WebGPT is more than DOM clicking |
+| [4. Replay across inputs](./docs/demos/demo-4-replay-workflow.md) | WebGPT turns a successful run into a repeatable routine across multiple inputs | Shows the workflow layer, not just one-off automation |
+
+## Public Demo Roadmap
+
+- [ ] Demo 1: Website extraction
+- [ ] Demo 2: Human-confirmed form filling
+- [ ] Demo 3: Google Sheets / Microsoft Excel runtime workflow
+- [ ] Demo 4: Replay a saved workflow across multiple inputs
+- [ ] Demo 5: Site adapter example
+- [ ] Demo 6: Custom backend using the OpenAPI contract
 
 ## Why WebGPT?
 
@@ -21,6 +51,38 @@ Web automation agents are easiest to iterate on when the browser runtime and pla
 - **Human-in-the-loop recovery**: supports planner pauses, human hints, success confirmation, and rejected-success resume flows.
 - **Navigation-aware loops**: detects likely navigation, waits for the new document, and resumes with fresh state.
 - **OpenAPI contract**: the default HTTP planner API is documented in `docs/planner-http-api.openapi.yaml`.
+
+## What Makes WebGPT Different?
+
+Most browser agents combine planning, browser execution, and app-specific logic into one loop. WebGPT separates those concerns.
+
+### Browser runtime, not planner lock-in
+
+The extension is responsible for browser state extraction, action execution, navigation handling, sidepanel UX, runtime auth, and human confirmation.
+
+The planner backend is swappable as long as it speaks the documented HTTP contract.
+
+### Structured state over raw screenshots
+
+WebGPT extracts structured browser state: URLs, frames, visible text, controls, labels, scroll containers, and adapter-provided hints.
+
+This gives planner backends a cleaner interface than raw DOM dumps or screenshot-only reasoning.
+
+### Site adapters for reliability
+
+Site adapters add domain-specific state for websites where generic DOM extraction is not enough.
+
+Adapters can enrich state and provide stable mappings, but they do not execute browser actions or call planner services directly.
+
+### Runtime adapters for non-DOM surfaces
+
+Some apps are better controlled through APIs or app-specific state models instead of DOM clicks.
+
+WebGPT's runtime surfaces are designed for products like Google Sheets, Microsoft Excel, and other structured workspaces.
+
+### Replayable workflows
+
+WebGPT is designed to turn successful browser runs into reusable execution patterns, so workflows can be repeated across multiple inputs instead of starting from scratch every time.
 
 ## How It Works
 
@@ -67,6 +129,20 @@ The built sidepanel files are generated into `sidepanel-app/dist/`.
 2. Enable **Developer mode**.
 3. Click **Load unpacked**.
 4. Select this repository folder.
+
+### Package for Sharing
+
+```bash
+node scripts/package-extension.mjs
+```
+
+This rebuilds the sidepanel and writes a lean loadable extension zip using the
+manifest version, for example `../webgpt-extension-frontend-v1.0.2.zip`.
+To choose a different output path:
+
+```bash
+node scripts/package-extension.mjs --output ../webgpt-extension-frontend-store.zip
+```
 
 ### 3. Choose a Backend
 

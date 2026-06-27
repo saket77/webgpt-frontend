@@ -21,6 +21,7 @@ export function BackendConfigCard() {
     hasUnsavedChanges,
     refreshConfig,
     saveConfig,
+    useLocalhostConfig,
     resetConfig,
   } = useBackendConfiguration();
 
@@ -77,6 +78,14 @@ export function BackendConfigCard() {
             loading={loadingAction === "save"}
           >
             Save Backend URL
+          </Button>
+
+          <Button
+            variant="default"
+            onClick={() => void useLocalhostConfig()}
+            loading={loadingAction === "localhost"}
+          >
+            Use Localhost
           </Button>
 
           <Button

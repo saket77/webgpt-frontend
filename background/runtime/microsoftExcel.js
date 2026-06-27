@@ -297,18 +297,37 @@ function parseExcelFileName(url = "") {
   return "";
 }
 
+function isSharePointHost(host = "") {
+  return host.endsWith(".sharepoint.com") || host.endsWith("-my.sharepoint.com");
+}
+
 function isPersonalOneDriveUrl(url = "") {
   const text = String(url || "");
-
-  if (
-    /\/\/(?:[^/]+\.)?my\.microsoftpersonalcontent\.com\//i.test(text) ||
-    /\/\/onedrive\.live\.com\//i.test(text)
-  ) {
-    return true;
-  }
+  let parsed = null;
 
   try {
-    const parsed = new URL(text);
+    parsed = new URL(text);
+  } catch {
+    parsed = null;
+  }
+
+  if (parsed) {
+    const host = parsed.hostname.toLowerCase();
+
+    // Tenant SharePoint / OneDrive for Business URLs can contain Office redirect
+    // params that mention personal-content hosts even when the selected workbook
+    // should be resolved through the tenant URL.
+    if (isSharePointHost(host)) return false;
+
+    if (
+      host === "onedrive.live.com" ||
+      host.endsWith(".onedrive.live.com") ||
+      host === "my.microsoftpersonalcontent.com" ||
+      host.endsWith(".my.microsoftpersonalcontent.com")
+    ) {
+      return true;
+    }
+
     const nestedUrls = [
       parsed.searchParams.get("ru"),
       parsed.searchParams.get("wopisrc"),
@@ -316,9 +335,12 @@ function isPersonalOneDriveUrl(url = "") {
     ].filter(Boolean);
 
     return nestedUrls.some((nestedUrl) => isPersonalOneDriveUrl(nestedUrl));
-  } catch {
-    return false;
   }
+
+  return (
+    /\/\/(?:[^/]+\.)?my\.microsoftpersonalcontent\.com\//i.test(text) ||
+    /\/\/(?:[^/]+\.)?onedrive\.live\.com\//i.test(text)
+  );
 }
 
 function personalOneDriveUnsupportedError() {
@@ -511,6 +533,40 @@ function chooseActiveWorksheet(worksheets = [], requestedName = "") {
     worksheets[0] ||
     null
   );
+}
+
+function findWorksheetByName(worksheets = [], name = "") {
+  const expected = normalizeText(name).toLowerCase();
+  return worksheets.find((worksheet) => normalizeText(worksheet.name).toLowerCase() === expected) || null;
+}
+
+async function addWorksheet({ workbook, worksheets = [], sheetName = "" }) {
+  const name = normalizeText(sheetName);
+  if (!name) {
+    throw new Error("add_sheet requires sheetName.");
+  }
+
+  const existing = findWorksheetByName(worksheets, name);
+  if (existing) {
+    return {
+      sheetName: existing.name,
+      worksheetId: existing.id || "",
+      skipped: true,
+    };
+  }
+
+  const json = await graphFetch(workbookPath(workbook, "/worksheets/add"), {
+    method: "POST",
+    body: {
+      name,
+    },
+  });
+
+  return {
+    sheetName: json?.name || name,
+    worksheetId: json?.id || "",
+    skipped: false,
+  };
 }
 
 async function readRange({ workbook, worksheetName, range }) {
@@ -813,6 +869,14 @@ async function runMicrosoftExcelCommand({ tabId, state, command, workbook, works
     return {
       worksheets,
     };
+  }
+
+  if (name === "add_sheet") {
+    return addWorksheet({
+      workbook,
+      worksheets,
+      sheetName: command.sheetName || command.worksheetName || command.title,
+    });
   }
 
   if (name === "read_range") {

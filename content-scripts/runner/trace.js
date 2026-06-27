@@ -104,9 +104,11 @@
       actionType: "extract",
       frameId: Number.isInteger(action?.frameId) ? action.frameId : 0,
       targetId: action?.targetId || "",
-      controlIds: Array.isArray(action?.controlIds)
-        ? [...action.controlIds]
-        : [],
+      context:
+        action?.context && typeof action.context === "object"
+          ? { ...action.context }
+          : null,
+      controlIds: Array.isArray(action?.controlIds) ? [...action.controlIds] : [],
       strategyUsed:
         extractionBatch?.strategyUsed || "scrollable-container-visible-items",
       strategiesTried: extractionBatch?.strategiesTried || [
@@ -121,6 +123,10 @@
           ? buildReplayTarget("extract-targets", {
               frameId: Number.isInteger(action?.frameId) ? action.frameId : 0,
               targetId: action?.targetId || "",
+              context:
+                action?.context && typeof action.context === "object"
+                  ? { ...action.context }
+                  : null,
               controlSnapshots,
               scrollableContainerSnapshot,
             })

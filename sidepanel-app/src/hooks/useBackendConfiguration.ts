@@ -15,7 +15,7 @@ type BackendConfigurationResponse = {
   config?: BackendConfiguration;
 };
 
-type LoadingAction = "refresh" | "save" | "reset" | null;
+type LoadingAction = "refresh" | "save" | "reset" | "localhost" | null;
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
@@ -55,13 +55,13 @@ export function useBackendConfiguration() {
     }
   }, [applyConfig]);
 
-  const saveConfig = useCallback(async () => {
+  const saveConfig = useCallback(async (baseUrl = draftBaseUrl) => {
     try {
       setLoadingAction("save");
 
       const response = await sendToWorker<BackendConfigurationResponse>({
         type: "WEBGPT_SET_BACKEND_CONFIG",
-        baseUrl: draftBaseUrl,
+        baseUrl,
       });
 
       if (!response?.ok || !response.config) {
@@ -77,6 +77,29 @@ export function useBackendConfiguration() {
       setLoadingAction(null);
     }
   }, [applyConfig, draftBaseUrl]);
+
+  const useLocalhostConfig = useCallback(async () => {
+    try {
+      setLoadingAction("localhost");
+
+      const response = await sendToWorker<BackendConfigurationResponse>({
+        type: "WEBGPT_SET_BACKEND_CONFIG",
+        baseUrl: "http://localhost:3000",
+      });
+
+      if (!response?.ok || !response.config) {
+        throw new Error(response?.error || "Failed to save backend config.");
+      }
+
+      applyConfig(response.config);
+      return response.config;
+    } catch (nextError) {
+      setError(getErrorMessage(nextError));
+      return null;
+    } finally {
+      setLoadingAction(null);
+    }
+  }, [applyConfig]);
 
   const resetConfig = useCallback(async () => {
     try {
@@ -120,6 +143,7 @@ export function useBackendConfiguration() {
     hasUnsavedChanges,
     refreshConfig,
     saveConfig,
+    useLocalhostConfig,
     resetConfig,
   };
 }

@@ -58,6 +58,19 @@ Reads a bounded A1 range.
 
 Returns `address`, `values`, `rowCount`, `columnCount`, and index metadata used by extraction.
 
+### `add_sheet`
+
+Creates a worksheet if it does not already exist.
+
+```json
+{
+  "name": "add_sheet",
+  "sheetName": "GST Recon Summary"
+}
+```
+
+Returns `sheetName`, `worksheetId`, and `skipped`.
+
 ### `write_range`
 
 Writes a rectangular block of values.

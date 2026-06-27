@@ -80,6 +80,45 @@
     };
   }
 
+  // Collect function-tool schemas exposed by active connectors via provideTools(). These ride in
+  // state.connectorTools and are merged into the planner's tool set on the backend (toolsForStep).
+  function collectConnectorTools(activeAdapters, state, context, errors) {
+    const tools = [];
+    const seen = new Set();
+
+    for (const adapter of activeAdapters) {
+      if (typeof adapter.provideTools !== "function") continue;
+
+      try {
+        const provided = adapter.provideTools({
+          state,
+          document: context.document,
+          url: context.url,
+        });
+
+        if (!Array.isArray(provided)) continue;
+
+        for (const tool of provided) {
+          if (!tool || typeof tool !== "object") continue;
+          const name = typeof tool.name === "string" ? tool.name.trim() : "";
+          if (!name || seen.has(name)) continue;
+          seen.add(name);
+          tools.push(tool);
+          if (tools.length >= 32) return tools;
+        }
+      } catch (error) {
+        errors.push({
+          adapterId: adapter.id,
+          stage: "provideTools",
+          error: errorMessage(error),
+        });
+        console.warn("[WebGPT][adapter.provideTools] failed", adapter.id, error);
+      }
+    }
+
+    return tools;
+  }
+
   function enhanceState(state, meta = {}) {
     const context = buildContext(state, meta);
     const { active, errors } = getActiveAdapters(context);
@@ -111,6 +150,11 @@
         });
         console.warn("[WebGPT][adapter.enhanceState] failed", adapter.id, error);
       }
+    }
+
+    const connectorTools = collectConnectorTools(active, nextState, context, errors);
+    if (connectorTools.length) {
+      nextState = { ...nextState, connectorTools };
     }
 
     return applyAdapterInfo(nextState, appliedAdapterIds, errors);

@@ -128,6 +128,11 @@ body {
   border-top-left-radius: 8px;
 }
 
+.user-message .mantine-Text-root {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .empty-state {
   padding: 22px 8px;
   color: #19171d;
@@ -233,7 +238,45 @@ body {
 .activity-event-body {
   margin-top: 3px;
   color: currentColor;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.extracted-items-disclosure {
+  border-top: 1px solid #eee7df;
+  padding-top: 10px;
+}
+
+.extracted-items-summary {
+  cursor: pointer;
+  color: #4b4657;
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.extracted-items-summary:hover {
+  color: #24124f;
+}
+
+.extracted-item {
+  border-top: 1px solid #f0ebe4;
+  padding-top: 10px;
+}
+
+.extracted-item-title,
+.extracted-item-text,
+.extracted-item-meta {
+  overflow-wrap: anywhere;
+}
+
+.extracted-item-text {
+  margin-top: 3px;
+  white-space: pre-wrap;
+}
+
+.extracted-item-meta {
+  margin-top: 4px;
 }
 
 .composer-wrap {
@@ -267,6 +310,22 @@ body {
   border-color: var(--wg-line);
   background: white;
   color: #19171d;
+}
+
+.my-info-card {
+  max-height: min(520px, 72vh);
+  overflow: hidden;
+}
+
+.my-info-card-scroll {
+  max-height: calc(min(520px, 72vh) - 32px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.my-info-input textarea {
+  max-height: 260px;
+  overflow-y: auto;
 }
 
 .settings-code-break {

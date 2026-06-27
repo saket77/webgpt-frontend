@@ -7,6 +7,10 @@ import {
 import { clone } from "../../utils/common.js";
 import { ensureLiveSession, getCommandStep } from "./context.js";
 import {
+  activateSurfaceFromContext,
+  rememberSurfaceContext,
+} from "./surfaceContext.js";
+import {
   BROWSER_DOM_SURFACE,
   GOOGLE_SHEETS_SURFACE,
   MICROSOFT_EXCEL_SURFACE,
@@ -28,9 +32,10 @@ export async function executeExtractStateCommand(
   const sessionSurface = normalizeSurface(session.surface);
   const tabSurface = await runtime.detectSurfaceForTab?.(tabId).catch(() => null);
   const surface =
-    isApiRuntimeSurface(sessionSurface) && tabSurface?.surface === sessionSurface
+    commandSurface ||
+    (isApiRuntimeSurface(sessionSurface) && tabSurface?.surface === sessionSurface
       ? sessionSurface
-      : commandSurface || sessionSurface || tabSurface?.surface || BROWSER_DOM_SURFACE;
+      : sessionSurface || tabSurface?.surface || BROWSER_DOM_SURFACE);
   const replay = command?.replay || null;
   const resultType =
     command?.type === "navigation_completed"
@@ -45,21 +50,53 @@ export async function executeExtractStateCommand(
     });
   }
 
+  if (command?.reason === "surface_handoff") {
+    const fromSurface =
+      normalizeSurface(command?.plan?.commandSurface) ||
+      normalizeSurface(command?.plan?.surface) ||
+      sessionSurface ||
+      "current";
+
+    await addEvent(tabId, {
+      kind: "surface_handoff",
+      step,
+      surface: fromSurface,
+      commandSurface: fromSurface,
+      nextSurface: surface,
+      nextSurfaceContextId:
+        command?.surfaceContextId || command?.nextSurfaceContextId || "",
+      nextCommandType: command?.type || "",
+      nextCommandReason: command?.reason || "",
+      message: `Handoff: ${fromSurface} -> ${surface}`,
+    });
+  }
+
   await addEvent(tabId, {
     kind: "step_started",
     step,
+    surface,
+    surfaceContextId: command?.surfaceContextId || command?.nextSurfaceContextId || "",
     message: `Step ${step} started.`,
   });
+
+  session = await activateSurfaceFromContext(
+    tabId,
+    session,
+    surface,
+    runtime,
+    command?.surfaceContextId || command?.nextSurfaceContextId,
+  );
 
   const state = await runtime.extractStateFromTab(tabId, {
     goal: session.goal,
     step,
     surface,
-    meta:
-      command?.meta ||
-      (command?.type === "navigation_completed"
+    meta: {
+      ...(command?.type === "navigation_completed"
         ? { afterNavigation: true }
         : {}),
+      ...(command?.meta || {}),
+    },
   });
 
   const stateSummary = getAggregateStateSummary(state);
@@ -69,10 +106,13 @@ export async function executeExtractStateCommand(
   session.lastKnownUrl =
     getLastKnownUrlFromState(state) || session.lastKnownUrl || "";
   await saveSession(tabId, session);
+  session = await rememberSurfaceContext(tabId, session, state);
 
   await addEvent(tabId, {
     kind: "state_extracted",
     step,
+    surface,
+    surfaceContextId: command?.surfaceContextId || command?.nextSurfaceContextId || "",
     url: stateSummary.url,
     title: stateSummary.title,
     controlsCount: stateSummary.controlsCount,
@@ -121,6 +161,15 @@ export async function executeExtractStateCommand(
     kind: "planner_output",
     step: session.step || step,
     plannerStatus: plan.status || nextCommand.type || "",
+    surface: plan.surface || nextCommand.surface || "",
+    commandSurface: plan.commandSurface || nextCommand.surface || "",
+    nextSurface:
+      plan.nextSurface ||
+      (nextCommand.reason === "surface_handoff" ? nextCommand.surface : ""),
+    nextSurfaceContextId:
+      plan.nextSurfaceContextId || nextCommand.surfaceContextId || "",
+    nextCommandType: nextCommand.type || "",
+    nextCommandReason: nextCommand.reason || "",
     reasoning: plan.reasoning || "",
     summary: nextCommand.summary || plan.summary || "",
     plannerSummary: nextCommand.plannerSummary || "",

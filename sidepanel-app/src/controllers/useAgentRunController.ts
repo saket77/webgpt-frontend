@@ -34,6 +34,7 @@ export type AgentEvent = {
   item?: any;
   queue?: any;
   results?: any[];
+  surface?: Surface;
 };
 
 export type AgentSession = {
@@ -55,6 +56,8 @@ export type AgentSession = {
   templateRunId?: string;
   templateQueue?: unknown;
   artifactFileName?: string;
+  pendingAccessSurface?: Surface | "";
+  pendingAccessCommand?: unknown;
 };
 
 type SessionScope = "home" | "template";
@@ -104,6 +107,10 @@ type TemplateQueueStartRequest = {
     pendingStatus?: string;
     successStatus?: string;
   };
+};
+
+type PendingAccessResume = {
+  tabId: number;
 };
 
 async function getActiveTabId() {
@@ -221,6 +228,19 @@ async function connectMicrosoftExcel() {
   return response;
 }
 
+async function resumeAfterAccess(tabId: number) {
+  const response = await chrome.runtime.sendMessage({
+    type: "WEBGPT_RESUME_AFTER_ACCESS",
+    tabId,
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.error || "Could not resume after access.");
+  }
+
+  return response;
+}
+
 function sessionStatusText(session?: AgentSession | null) {
   if (!session) return "Idle";
 
@@ -239,6 +259,10 @@ function sessionStatusText(session?: AgentSession | null) {
   }
 
   if (session.pausedReason) {
+    if (session.pausedReason === "awaiting_access") {
+      return "Paused: waiting for access";
+    }
+
     return `Paused: ${session.pausedReason}`;
   }
 
@@ -363,6 +387,9 @@ function applyEventToSession(
       next.awaitingNavigation = false;
       next.stopRequested = false;
       next.pausedReason = event.reason || "paused";
+      if (event.reason === "awaiting_access") {
+        next.pendingAccessSurface = normalizeSurface((event as any).surface);
+      }
       if (typeof event.step === "number") next.pendingStep = event.step;
       break;
 
@@ -520,6 +547,8 @@ export function useAgentRunController({
     useState<StartOverrides | null>(null);
   const [pendingTemplateQueueStart, setPendingTemplateQueueStart] =
     useState<TemplateQueueStartRequest | null>(null);
+  const [pendingAccessResume, setPendingAccessResume] =
+    useState<PendingAccessResume | null>(null);
 
   const [activeTabId, setActiveTabId] = useState<number | null>(null);
   const [attachedTabId, setAttachedTabId] = useState<number | null>(null);
@@ -602,6 +631,31 @@ export function useAgentRunController({
     };
   }, [getSessionForTab]);
 
+  const handleAccessRequiredResponse = useCallback(
+    (response: any, tabId: number) => {
+      const result = response?.result || response;
+      if (!result?.accessRequired) return false;
+
+      const surface = normalizeSurface(result.surface);
+      setPendingAccessResume({ tabId });
+      setPendingStartOverrides(null);
+      setPendingTemplateQueueStart(null);
+      setPreRunSurface(surface);
+      setPreRunDisclosureOpened(true);
+      setStatus(result.message || "Review access before continuing.");
+      setSession((prev) => ({
+        ...(prev || {}),
+        attachedTabId: tabId,
+        running: false,
+        awaitingNavigation: false,
+        pausedReason: "awaiting_access",
+        pendingAccessSurface: surface,
+      }));
+      return true;
+    },
+    [setStatus],
+  );
+
   const refreshSessionView = useCallback(async () => {
     try {
       setError(null);
@@ -626,6 +680,12 @@ export function useAgentRunController({
       setEventLog(nextSession.events || []);
       setAttachedTabId(nextSession.attachedTabId || tabId);
       setGoal(nextSession.goal || "");
+
+      if (nextSession.pausedReason === "awaiting_access") {
+        setPendingAccessResume({ tabId: nextSession.attachedTabId || tabId });
+        setPreRunSurface(normalizeSurface(nextSession.pendingAccessSurface));
+        setPreRunDisclosureOpened(true);
+      }
     } catch (err: any) {
       setError(err?.message || String(err));
       setStatus(err?.message || "Failed to refresh session");
@@ -725,6 +785,10 @@ export function useAgentRunController({
 
       if (!response?.ok) return response;
 
+      if (handleAccessRequiredResponse(response, tabId)) {
+        return response;
+      }
+
       setAttachedTabId(tabId);
       setForeignSession(null);
       setSession((prev) => ({
@@ -740,7 +804,14 @@ export function useAgentRunController({
 
       return response;
     },
-    [artifactFileName, ensureActiveTabId, goal, resolveStartSurface, startAgentRun],
+    [
+      artifactFileName,
+      ensureActiveTabId,
+      goal,
+      handleAccessRequiredResponse,
+      resolveStartSurface,
+      startAgentRun,
+    ],
   );
 
   const startTemplateQueueAfterPreRunChecks = useCallback(
@@ -774,6 +845,10 @@ export function useAgentRunController({
             );
           }
 
+          if (handleAccessRequiredResponse(response, tabId)) {
+            return response;
+          }
+
           const result = response.result || {};
           setAttachedTabId(tabId);
           setForeignSession(null);
@@ -800,7 +875,13 @@ export function useAgentRunController({
         },
       );
     },
-    [ensureActiveTabId, resolveStartSurface, runAction, setEventLog],
+    [
+      ensureActiveTabId,
+      handleAccessRequiredResponse,
+      resolveStartSurface,
+      runAction,
+      setEventLog,
+    ],
   );
 
   const handleStart = useCallback(
@@ -931,13 +1012,48 @@ export function useAgentRunController({
     ],
   );
 
+  const resumeAfterAccessChecks = useCallback(
+    async (tabId: number) => {
+      const response = await runAction(
+        "start",
+        async () => {
+          const resumeResponse = await resumeAfterAccess(tabId);
+          if (handleAccessRequiredResponse(resumeResponse, tabId)) {
+            return resumeResponse;
+          }
+
+          setSession((prev) => ({
+            ...(prev || {}),
+            attachedTabId: tabId,
+            running: true,
+            awaitingNavigation: false,
+            pausedReason: null,
+            pendingAccessSurface: "",
+            pendingAccessCommand: null,
+          }));
+
+          return resumeResponse;
+        },
+        {
+          pendingStatus: "Resuming agent...",
+          successStatus: "Agent resumed.",
+        },
+      );
+
+      return response;
+    },
+    [handleAccessRequiredResponse, runAction],
+  );
+
   const handlePreRunDisclosureCancel = useCallback(() => {
+    const wasAccessResume = Boolean(pendingAccessResume);
     setPreRunDisclosureOpened(false);
     setPendingStartOverrides(null);
     setPendingTemplateQueueStart(null);
+    setPendingAccessResume(null);
     setPreRunSurface(BROWSER_DOM_SURFACE);
-    setStatus("Start cancelled.");
-  }, [setStatus]);
+    setStatus(wasAccessResume ? "Access cancelled." : "Start cancelled.");
+  }, [pendingAccessResume, setStatus]);
 
   const handlePreRunDisclosureAccept = useCallback(async () => {
     try {
@@ -969,12 +1085,16 @@ export function useAgentRunController({
 
       const overrides = pendingStartOverrides || {};
       const templateQueueRequest = pendingTemplateQueueStart;
+      const accessResume = pendingAccessResume;
       setPreRunDisclosureOpened(false);
       setPendingStartOverrides(null);
       setPendingTemplateQueueStart(null);
+      setPendingAccessResume(null);
       setPreRunSurface(BROWSER_DOM_SURFACE);
 
-      if (templateQueueRequest) {
+      if (accessResume) {
+        await resumeAfterAccessChecks(accessResume.tabId);
+      } else if (templateQueueRequest) {
         await startTemplateQueueAfterPreRunChecks(templateQueueRequest);
       } else {
         await startAgentAfterPreRunChecks(overrides);
@@ -988,7 +1108,9 @@ export function useAgentRunController({
   }, [
     pendingStartOverrides,
     pendingTemplateQueueStart,
+    pendingAccessResume,
     preRunSurface,
+    resumeAfterAccessChecks,
     setBusyAction,
     setError,
     setStatus,
@@ -1204,14 +1326,7 @@ export function useAgentRunController({
 
   const hasSessionToReset = Boolean(session || eventLog.length > 0);
 
-  const canReset =
-    hasSessionToReset &&
-    !isRunning &&
-    !isAwaitingNavigation &&
-    !awaitingConfirmation &&
-    busyAction !== "reset" &&
-    busyAction !== "start" &&
-    busyAction !== "stop";
+  const canReset = hasSessionToReset && busyAction !== "reset";
 
   return {
     goal,

@@ -138,6 +138,33 @@ export async function continueRunFlow(
       });
     }
 
+    if (result?.terminal === "access_required") {
+      session = await getSession(resultTabId);
+      session.running = false;
+      session.awaitingNavigation = false;
+      session.stopRequested = false;
+      session.pausedReason = "awaiting_access";
+      session.pendingAccessCommand = clone(result.command || null);
+      session.pendingAccessSurface = normalizeSurface(result.surface);
+      session.attachedTabId = resultTabId;
+      await saveSession(resultTabId, session);
+
+      await addEvent(resultTabId, {
+        kind: "paused",
+        reason: "awaiting_access",
+        surface: session.pendingAccessSurface,
+        message: result.message || "Additional access is required.",
+      });
+
+      return {
+        ok: true,
+        accessRequired: true,
+        surface: session.pendingAccessSurface,
+        reason: result.reason || "access_required",
+        message: result.message || "Additional access is required.",
+      };
+    }
+
     if (result?.terminal !== "max_steps_reached") {
       throw new Error(
         `Command runner stopped unexpectedly: ${result?.terminal || "unknown"}`,
@@ -202,6 +229,7 @@ export async function startAgentFlow(
   isTemplate,
   artifactFileName = "",
   surface = "",
+  myInfo = null,
   { continueRun, plannerAdapter, runtime } = {},
 ) {
   const resumeRun =
@@ -242,6 +270,7 @@ export async function startAgentFlow(
     isTemplateRun: Boolean(session.isTemplateRun),
     artifactFileName: session.artifactFileName,
     surface: session.surface,
+    myInfo,
   });
 
   session = await getSession(tabId);
@@ -258,4 +287,31 @@ export async function startAgentFlow(
   }
 
   return resumeRun(tabId, runResult.command);
+}
+
+export async function resumeAfterAccessFlow(
+  tabId,
+  { continueRun } = {},
+) {
+  const session = await getSession(tabId);
+
+  if (session.pausedReason !== "awaiting_access") {
+    throw new Error("Session is not waiting for access.");
+  }
+
+  const command = session.pendingAccessCommand;
+  if (!command) {
+    throw new Error("No pending command to resume.");
+  }
+
+  session.pausedReason = "";
+  session.pendingAccessCommand = null;
+  session.pendingAccessSurface = "";
+  await saveSession(tabId, session);
+
+  if (!continueRun) {
+    throw new Error("Resume handler is not configured.");
+  }
+
+  return continueRun(tabId, command);
 }

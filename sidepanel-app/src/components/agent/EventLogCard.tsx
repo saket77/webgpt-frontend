@@ -13,6 +13,13 @@ type AgentEvent = {
   primaryFrameId?: number | null;
   frameId?: number | null;
   plannerStatus?: string;
+  surface?: string;
+  commandSurface?: string;
+  nextSurface?: string;
+  nextSurfaceContextId?: string;
+  nextCommandType?: string;
+  nextCommandSurface?: string;
+  nextCommandReason?: string;
   reasoning?: string;
   action?: unknown;
   ok?: boolean;
@@ -42,6 +49,12 @@ export function summarizeEvent(event: AgentEvent) {
       : "";
   const frameCountSuffix =
     typeof event.frameCount === "number" ? ` | frames=${event.frameCount}` : "";
+  const surfaceSuffix = event.surface ? ` | surface=${event.surface}` : "";
+  const handoffSuffix = event.nextSurface
+    ? ` | handoff=${event.commandSurface || event.surface || "current"}->${
+        event.nextSurface
+      }${event.nextSurfaceContextId ? ` context=${event.nextSurfaceContextId}` : ""}`
+    : "";
 
   switch (event.kind) {
     case "loop_started":
@@ -49,15 +62,15 @@ export function summarizeEvent(event: AgentEvent) {
     case "loop_resumed":
       return `[${ts}] Loop resumed: ${event.message ?? ""}`;
     case "step_started":
-      return `[${ts}] Step ${event.step} started`;
+      return `[${ts}] Step ${event.step} started${surfaceSuffix}`;
     case "state_extracted":
-      return `[${ts}] State extracted on ${event.url ?? ""} (${event.controlsCount ?? 0} controls${frameCountSuffix}${primaryFrameSuffix})`;
+      return `[${ts}] State extracted${surfaceSuffix} on ${event.url ?? ""} (${event.controlsCount ?? 0} controls${frameCountSuffix}${primaryFrameSuffix})`;
     case "planner_output":
-      return `[${ts}] Planner → status=${event.plannerStatus || "continue"} | ${event.reasoning || ""}`;
+      return `[${ts}] Planner${surfaceSuffix} → status=${event.plannerStatus || "continue"}${handoffSuffix} | ${event.reasoning || ""}`;
     case "action_planned":
       return `[${ts}] Action planned${frameSuffix} → ${JSON.stringify(event.action)}`;
     case "execution_result":
-      return `[${ts}] Execution ${event.ok ? "succeeded" : "failed"}${frameSuffix}${event.error ? ` | ${event.error}` : ""}`;
+      return `[${ts}] Execution ${event.ok ? "succeeded" : "failed"}${surfaceSuffix}${frameSuffix}${handoffSuffix}${event.error ? ` | ${event.error}` : ""}`;
     case "awaiting_navigation":
       return `[${ts}] Waiting for navigation${frameSuffix}${event.url ? ` → ${event.url}` : "..."}`;
     case "navigation_completed":

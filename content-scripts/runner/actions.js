@@ -266,25 +266,60 @@
         };
       }
 
-      default:
+      default: {
+        // Connector-provided tools (declared by site adapters via provideTools) are executed by
+        // their registered runner-side handler. Base action types are handled above; anything else
+        // that a connector registered runs here.
+        const connectorTools = globalThis.WebGPTConnectorTools;
+        if (connectorTools && connectorTools.has(action.type)) {
+          const result = await connectorTools.run(action.type, action, {
+            state,
+            primitives: ns.primitives,
+            resolver: ns.resolver,
+            domUtils: ns.domUtils,
+          });
+          if (result && typeof result === "object") return result;
+          return {
+            ok: false,
+            detail: `Connector tool ${action.type} returned no result`,
+          };
+        }
+
         throw new Error(`Unsupported action type: ${action.type}`);
+      }
     }
   }
 
   async function runActions(state, actions) {
     const results = [];
+    const recoverableFailures = [];
 
     try {
       for (const action of actions || []) {
         const result = await runSingleAction(state, action);
         results.push({ action, result });
+        if (result && result.ok === false) {
+          if (result.recoverable || result.continueBatch) {
+            recoverableFailures.push({ action, result });
+            await new Promise((resolve) => setTimeout(resolve, 300));
+            continue;
+          }
+          throw new Error(
+            result.detail ||
+              result.error ||
+              `Action ${action.type} reported failure.`,
+          );
+        }
         await new Promise((resolve) => setTimeout(resolve, 300));
       }
 
       return {
         ok: true,
-        summary: "All actions executed.",
+        summary: recoverableFailures.length
+          ? `Actions executed with ${recoverableFailures.length} recoverable connector failure(s).`
+          : "All actions executed.",
         results,
+        recoverableFailures,
       };
     } catch (error) {
       return {

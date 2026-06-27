@@ -58,8 +58,10 @@ export function createAttachSessionToTab({ runtime }) {
     }
 
     const targetSurface = await runtime.detectSurfaceForTab?.(toTabId);
-    const isGoogleSheetsTarget = targetSurface?.surface === "google_sheets";
-    const targetReady = isGoogleSheetsTarget
+    const isApiSurfaceTarget = ["google_sheets", "microsoft_excel"].includes(
+      targetSurface?.surface,
+    );
+    const targetReady = isApiSurfaceTarget
       ? true
       : await runtime.ensureContentScriptReady(toTabId, {
           attempts: 10,

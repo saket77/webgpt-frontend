@@ -56,6 +56,7 @@ export async function executeRunActionsCommand(
   let session = await ensureLiveSession(tabId);
   const step = getCommandStep(command, session);
   const actions = Array.isArray(command.actions) ? command.actions : [];
+  let activeTabId = tabId;
   let state = lastState;
 
   if (!state) {
@@ -90,32 +91,44 @@ export async function executeRunActionsCommand(
 
   let execution = null;
 
-  try {
-    execution = await runtime.runActionsInTab(tabId, state, actions);
-  } catch (error) {
-    const navigation = await maybeMarkNavigation({
-      tabId,
-      command,
-      actions,
-      execution: null,
-      plannerAdapter,
-      runtime,
-    });
-
-    if (navigation) return navigation;
-
+  if (actions.length === 0) {
     execution = {
-      ok: false,
-      summary: "Action execution failed.",
-      error: error?.message || String(error),
+      ok: true,
+      summary: "No browser actions were provided; nothing was executed.",
       results: [],
+      noActions: true,
     };
+  } else {
+    try {
+      execution = await runtime.runActionsInTab(tabId, state, actions);
+      if (Number.isInteger(execution?.tabId)) {
+        activeTabId = execution.tabId;
+      }
+    } catch (error) {
+      const navigation = await maybeMarkNavigation({
+        tabId,
+        command,
+        actions,
+        execution: null,
+        plannerAdapter,
+        runtime,
+      });
+
+      if (navigation) return navigation;
+
+      execution = {
+        ok: false,
+        summary: "Action execution failed.",
+        error: error?.message || String(error),
+        results: [],
+      };
+    }
   }
 
-  session = await getSession(tabId);
+  session = await getSession(activeTabId);
   const pendingNewTab = session.pendingNewTab || null;
 
-  if (Number.isInteger(pendingNewTab?.newTabId)) {
+  if (activeTabId === tabId && Number.isInteger(pendingNewTab?.newTabId)) {
     const navigation = await maybeMarkNavigation({
       tabId,
       command,
@@ -139,7 +152,7 @@ export async function executeRunActionsCommand(
     await sleep(POST_ACTION_STATE_SETTLE_MS);
     await sleep(POST_ACTION_STATE_SETTLE_MS);
 
-    afterState = await runtime.extractStateFromTab(tabId, {
+    afterState = await runtime.extractStateFromTab(activeTabId, {
       goal: session.goal,
       step: command.step || step,
       surface: BROWSER_DOM_SURFACE,
@@ -147,7 +160,7 @@ export async function executeRunActionsCommand(
     });
   } catch (error) {
     const navigation = await maybeMarkNavigation({
-      tabId,
+      tabId: activeTabId,
       command,
       actions,
       execution,
@@ -168,14 +181,14 @@ export async function executeRunActionsCommand(
     postState: afterState,
     surface: BROWSER_DOM_SURFACE,
     browserContext: plannerAdapter.buildBrowserContext(
-      tabId,
+      activeTabId,
       session,
       getLastKnownUrlFromState(afterState),
     ),
     navigationInfo: {},
   });
 
-  session = await getSession(tabId);
+  session = await getSession(activeTabId);
   session = plannerAdapter.syncSessionWithRun(
     session,
     commandResult.run || commandResult.command?.run,
@@ -184,20 +197,34 @@ export async function executeRunActionsCommand(
   session.surface = BROWSER_DOM_SURFACE;
   session.lastKnownUrl =
     getLastKnownUrlFromState(afterState) || session.lastKnownUrl || "";
-  session.attachedTabId = tabId;
-  await saveSession(tabId, session);
+  session.attachedTabId = activeTabId;
+  await saveSession(activeTabId, session);
 
-  await addEvent(tabId, {
+  await addEvent(activeTabId, {
     kind: "execution_result",
     step: session.step || step,
+    surface: BROWSER_DOM_SURFACE,
+    nextCommandType: commandResult.command?.type || "",
+    nextCommandSurface: commandResult.command?.surface || "",
+    nextCommandReason: commandResult.command?.reason || "",
+    nextSurface:
+      commandResult.command?.reason === "surface_handoff"
+        ? commandResult.command?.surface || ""
+        : "",
+    nextSurfaceContextId: commandResult.command?.surfaceContextId || "",
     ok: Boolean(execution?.ok),
     summary: execution?.summary || "",
     error: execution?.error || "",
+    actionCount: actions.length,
+    executedActionCount: Array.isArray(execution?.results)
+      ? execution.results.length
+      : 0,
+    noActions: Boolean(execution?.noActions || actions.length === 0),
     results: clone(execution?.results || []),
   });
 
   const stopAfterExecution = await stopIfRequested(
-    tabId,
+    activeTabId,
     "Agent stopped by user after action execution.",
   );
   if (stopAfterExecution) {
@@ -209,6 +236,7 @@ export async function executeRunActionsCommand(
 
   return {
     nextCommand: commandResult.command || {},
+    nextTabId: activeTabId,
     lastState: afterState,
   };
 }
