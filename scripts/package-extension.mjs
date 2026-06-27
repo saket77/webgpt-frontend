@@ -9,9 +9,18 @@ import { fileURLToPath } from "node:url";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "..");
 
+function readManifest() {
+  return JSON.parse(fs.readFileSync(path.join(repoRoot, "manifest.json"), "utf8"));
+}
+
 function parseArgs(argv) {
+  const manifest = readManifest();
   const options = {
-    output: path.resolve(repoRoot, "..", "webgpt-extension-frontend.zip"),
+    output: path.resolve(
+      repoRoot,
+      "..",
+      `webgpt-extension-frontend-v${manifest.version}.zip`,
+    ),
     skipBuild: false,
   };
 
@@ -39,12 +48,13 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
+  const manifest = readManifest();
   console.log(`Usage: node scripts/package-extension.mjs [options] [output.zip]
 
 Build and package the loadable WebGPT Chrome extension frontend.
 
 Options:
-  -o, --output <path>   Zip output path. Defaults to ../webgpt-extension-frontend.zip
+  -o, --output <path>   Zip output path. Defaults to ../webgpt-extension-frontend-v${manifest.version}.zip
       --skip-build      Reuse the existing sidepanel-app/dist build
   -h, --help            Show this help
 `);

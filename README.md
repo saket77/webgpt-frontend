@@ -136,11 +136,12 @@ The built sidepanel files are generated into `sidepanel-app/dist/`.
 node scripts/package-extension.mjs
 ```
 
-This rebuilds the sidepanel and writes a lean loadable extension zip to
-`../webgpt-extension-frontend.zip`. To choose a different output path:
+This rebuilds the sidepanel and writes a lean loadable extension zip using the
+manifest version, for example `../webgpt-extension-frontend-v1.0.2.zip`.
+To choose a different output path:
 
 ```bash
-node scripts/package-extension.mjs --output ../webgpt-extension-frontend-2026-06-26.zip
+node scripts/package-extension.mjs --output ../webgpt-extension-frontend-store.zip
 ```
 
 ### 3. Choose a Backend
