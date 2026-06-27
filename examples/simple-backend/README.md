@@ -44,7 +44,7 @@ Environment variables:
 
 Any backend can work with the extension if it speaks the documented planner command contract.
 
-This example implements only the small route subset needed for a one-batch action demo. For the full contract, see:
+This example implements only the small route subset needed for a one-batch built-in browser action demo. It does not plan connector-tool actions, runtime surface commands, replay artifacts, or navigation handoffs. For the full contract, see:
 
 ```text
 docs/planner-adapter-contract.md

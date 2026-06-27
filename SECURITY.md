@@ -23,7 +23,7 @@ Security-sensitive areas include:
 - content script page access
 - backend URL configuration
 - action execution and target resolution
-- contributed site adapters
+- contributed site adapters and connector-tool executors
 
 ## Supported Versions
 

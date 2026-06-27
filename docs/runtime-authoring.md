@@ -17,7 +17,7 @@ The frontend loop stays the same:
 7. The frontend extracts fresh state and posts the result back.
 8. Replay, templates, extracted data, and success confirmation keep using the normal backend contract.
 
-This is different from a site adapter. A site adapter enriches DOM state but still executes normal DOM actions. A runtime can have its own state shape, auth, API calls, replay steps, and command vocabulary.
+This is different from a connector-enabled site adapter. A site adapter still starts from browser DOM state and page-local interactions. A connector-enabled adapter can expose a bounded DOM-backed tool for a specific page operation, but it still lives inside `run_actions` and the content-script runner. A runtime can have its own state shape, auth, API calls, replay steps, and command vocabulary.
 
 ## Current Files
 
@@ -134,6 +134,8 @@ Risky runtime commands:
 For Google Sheets v0, see [Google Sheets surface v0](./surfaces/google-sheets-v0.md).
 For Microsoft Excel v0, see [Microsoft Excel surface v0](./surfaces/microsoft-excel-v0.md).
 
+If the command is still a page-local DOM operation, prefer a connector-enabled site adapter. For example, a custom select helper or "fill these visible document placeholders" tool belongs in a site adapter because it needs the live page DOM. A spreadsheet write belongs in a runtime because the useful state is the workbook grid and the durable executor is an API client.
+
 ## Adding A Runtime
 
 1. Define the surface ID and detection rule in `background/runtime/surfaces.js`.
@@ -181,6 +183,8 @@ Replay steps should include `surface` and the runtime command:
 
 Templates do not need a separate frontend flow. They pass `surface` into the same start command and then execute the commands returned by the backend.
 
+Connector-enabled site adapters have a different replay shape. They replay through the browser DOM runtime by calling the registered connector executor after current page state is re-extracted. Runtime replay should be reserved for commands whose target surface is not the DOM, such as Sheets or Excel API operations.
+
 ## Google Sheets Runtime
 
 The Google Sheets runtime is the first non-DOM runtime:
@@ -216,12 +220,20 @@ The important difference from Google Sheets is workbook resolution: the runtime 
 
 ## Runtime Vs Site Adapter
 
-Use a site adapter when:
+Use a state-only site adapter when:
 
 - the site is still fundamentally a DOM workflow
 - generic controls can still be clicked/filled
 - you only need better extraction hints
-- the backend should keep returning `run_actions`
+- the backend should keep returning ordinary `run_actions`
+
+Use a connector-enabled site adapter when:
+
+- the site is still fundamentally a DOM workflow
+- a bounded page-local operation needs multiple low-level DOM steps
+- the adapter already has reliable selectors or field grouping logic
+- replay should call the same DOM-backed connector executor
+- the tool can finish within the current document, or stop cleanly at a navigation boundary
 
 Use a runtime when:
 
@@ -231,4 +243,4 @@ Use a runtime when:
 - auth/config needs a different pre-run path
 - replay should use API commands
 
-Google Sheets is a runtime because the visible page is not a normal DOM app for useful cell work. Canvas quiz pages are site adapters because the browser still clicks and fills ordinary page controls.
+Google Sheets is a runtime because the visible page is not a normal DOM app for useful cell work. Canvas quiz pages are state-only site adapters because the browser still clicks and fills ordinary page controls. Greenhouse and Dotloop are connector-enabled site adapters because their special tools are DOM-backed helpers around page widgets and modals, not API surfaces.

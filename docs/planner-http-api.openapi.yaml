@@ -7,7 +7,7 @@ info:
     The browser extension controller consumes a JavaScript plannerAdapter
     interface; this OpenAPI document describes the HTTP routes used by the
     default adapter implementation, including browser DOM, Google Sheets,
-    and Microsoft Excel runtime surfaces.
+    Microsoft Excel runtime surfaces, and connector-enabled site-adapter tools.
 servers:
   - url: https://webgpt-backend-production.up.railway.app
     description: Hosted WebGPT planner
@@ -600,7 +600,11 @@ components:
           state:
             url: https://example.com
             title: Example
-            frames: []
+            frames:
+              "0":
+                frameId: 0
+                url: https://example.com
+                title: Example
           userHint: ""
           browserContext:
             tabId: 123
@@ -630,7 +634,11 @@ components:
           state:
             url: https://example.com/results
             title: Results
-            frames: []
+            frames:
+              "0":
+                frameId: 0
+                url: https://example.com/results
+                title: Results
           userHint: ""
           browserContext:
             tabId: 123
@@ -673,7 +681,11 @@ components:
           postState:
             url: https://example.com
             title: Example
-            frames: []
+            frames:
+              "0":
+                frameId: 0
+                url: https://example.com
+                title: Example
           browserContext:
             tabId: 123
             observedUrl: https://example.com
@@ -1095,8 +1107,9 @@ components:
         timestamp:
           type: string
         frames:
-          type: array
-          items:
+          type: object
+          description: Browser DOM frames keyed by Chrome frameId.
+          additionalProperties:
             $ref: "#/components/schemas/ExtractedFrame"
         authStatus:
           type: string
@@ -1132,6 +1145,11 @@ components:
         visibleGrid:
           type: object
           additionalProperties: true
+        connectorTools:
+          type: array
+          description: Connector tools hoisted from active browser frames when browser DOM state is active.
+          items:
+            $ref: "#/components/schemas/ConnectorTool"
 
     ExtractedFrame:
       type: object
@@ -1149,6 +1167,11 @@ components:
             $ref: "#/components/schemas/ExtractedControl"
         siteAdapter:
           $ref: "#/components/schemas/SiteAdapterState"
+        connectorTools:
+          type: array
+          description: Connector tools exposed by active site adapters for this frame.
+          items:
+            $ref: "#/components/schemas/ConnectorTool"
 
     ExtractedControl:
       type: object
@@ -1188,6 +1211,35 @@ components:
           type: array
           items:
             type: string
+
+    ConnectorTool:
+      type: object
+      description: Function-tool schema contributed by an active site adapter via provideTools().
+      required: [type, name, parameters]
+      additionalProperties: true
+      properties:
+        type:
+          type: string
+          const: function
+        name:
+          type: string
+          examples: [greenhouse_fill_select, dotloop_add_person]
+        description:
+          type: string
+        parameters:
+          type: object
+          additionalProperties: true
+        webgpt:
+          type: object
+          description: WebGPT-owned metadata used for routing, replay, and audit logs. Backends may remove this before presenting the tool schema to an LLM.
+          additionalProperties: true
+          properties:
+            adapterId:
+              type: string
+            replayable:
+              type: boolean
+            mayCauseNavigation:
+              type: boolean
 
     ActionHint:
       type: object
@@ -1335,6 +1387,18 @@ components:
             reasoning: The search input is visible.
             summary: Search for the address.
             actions: []
+        - type: run_actions
+          runId: run_456
+          step: 3
+          summary: Add a Dotloop person through the active modal.
+          actions:
+            - type: dotloop_add_person
+              name: Morgan Lee
+              email: morgan.lee@example.com
+              phone: 215-555-0198
+              role: Tenant
+              sendIntroEmail: true
+              addToTeam: false
 
     RunGoogleSheetsCommandsCommand:
       allOf:
@@ -1470,7 +1534,7 @@ components:
                 steps:
                   type: array
                   items:
-                    $ref: "#/components/schemas/BrowserAction"
+                    $ref: "#/components/schemas/ReplayStep"
             batchIndex:
               type: integer
             totalBatchCount:
@@ -1486,7 +1550,25 @@ components:
           runId: run_123
           step: 1
           batch:
-            steps: []
+            steps:
+              - action:
+                  type: dotloop_add_person
+                  name: <USER_PROVIDED_VALUE>
+                  email: <USER_PROVIDED_VALUE>
+                  phone: <USER_PROVIDED_VALUE>
+                  role: <USER_PROVIDED_VALUE>
+                  inputBindings:
+                    - path: [name]
+                      inputKey: input_0
+                      originalValue: Morgan Lee
+                replayTarget:
+                  kind: connector-tool
+                  snapshot:
+                    toolName: dotloop_add_person
+                    adapterIds: [dotloop.local]
+                    pageKind: add_person_modal
+                    replayable: true
+                    mayCauseNavigation: false
           batchIndex: 0
           totalBatchCount: 1
           isFirstBatch: true
@@ -1560,7 +1642,8 @@ components:
       properties:
         type:
           type: string
-          examples: [click, fill, press, wait, goto, scroll]
+          description: Built-in browser action type or active connector tool name.
+          examples: [click, fill, press, wait, goto, scroll, dotloop_add_person]
         targetId:
           type: string
         frameId:
@@ -1575,6 +1658,110 @@ components:
           type: integer
         url:
           type: string
+        fieldKey:
+          type: string
+          description: Connector field key for single-field connector actions.
+        fieldValues:
+          type: object
+          description: Connector field values keyed by adapter-defined field or placeholder keys.
+          additionalProperties:
+            type: string
+        inputBindings:
+          type: array
+          description: Replay input bindings for templated action arguments, including nested connector args.
+          items:
+            $ref: "#/components/schemas/ReplayInputBinding"
+        mayCauseNavigation:
+          type: boolean
+          description: True when a connector or browser action can trigger navigation and must be a batch boundary.
+        navigationAction:
+          type: boolean
+          description: Compatibility alias used by adapter hints and some planner outputs.
+        name:
+          type: string
+          description: Connector argument commonly used by add-person or recipient tools.
+        email:
+          type: string
+        phone:
+          type: string
+        role:
+          type: string
+        sendIntroEmail:
+          type: boolean
+        addToTeam:
+          type: boolean
+
+    ReplayInputBinding:
+      type: object
+      additionalProperties: true
+      properties:
+        path:
+          type: array
+          description: Path inside the action object to replace with the input value.
+          items:
+            type: string
+        inputKey:
+          type: string
+        originalValue:
+          type: string
+
+    ReplayStep:
+      type: object
+      description: Saved replay step. Browser DOM steps use action/replayTarget; connector steps use action plus replayTarget.kind=connector-tool; runtime steps use surface/command.
+      additionalProperties: true
+      properties:
+        action:
+          $ref: "#/components/schemas/BrowserAction"
+        replayTarget:
+          $ref: "#/components/schemas/ReplayTarget"
+        surface:
+          type: string
+          examples: [google_sheets, microsoft_excel]
+        commandName:
+          type: string
+        command:
+          oneOf:
+            - $ref: "#/components/schemas/RuntimeCommand"
+            - $ref: "#/components/schemas/AnyObject"
+
+    ReplayTarget:
+      type: object
+      additionalProperties: true
+      properties:
+        kind:
+          type: string
+          enum:
+            - control
+            - scrollable-container
+            - extract-targets
+            - goto
+            - connector-tool
+        snapshot:
+          oneOf:
+            - $ref: "#/components/schemas/ConnectorReplayTargetSnapshot"
+            - $ref: "#/components/schemas/AnyObject"
+
+    ConnectorReplayTargetSnapshot:
+      type: object
+      additionalProperties: true
+      properties:
+        toolName:
+          type: string
+          examples: [dotloop_add_person]
+        adapterIds:
+          type: array
+          items:
+            type: string
+        pageKind:
+          type: string
+        url:
+          type: string
+        title:
+          type: string
+        replayable:
+          type: boolean
+        mayCauseNavigation:
+          type: boolean
 
     Plan:
       type: object

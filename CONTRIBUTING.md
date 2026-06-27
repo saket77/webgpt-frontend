@@ -29,9 +29,9 @@ Contributors can improve how the frontend understands and acts on pages by:
 
 - improving generic extraction in `content-scripts/extract-state/`
 - improving runner behavior in `content-scripts/runner/`
-- adding site-specific extraction adapters in `content-scripts/adapters/`
+- adding state-only or connector-enabled site adapters in `content-scripts/adapters/`
 
-Start with [docs/site-adapter-authoring.md](./docs/site-adapter-authoring.md) before adding an adapter. Site adapters should enrich extracted state; they should not execute actions, hardcode answers, or call planner services directly.
+Start with [docs/site-adapter-authoring.md](./docs/site-adapter-authoring.md) before adding an adapter. State-only adapters should enrich extracted state without mutating the page. Connector-enabled adapters may expose narrowly scoped DOM-backed tools through `provideTools()` and `WebGPTConnectorTools`, but those executors must reuse the adapter's page model, avoid hidden planning decisions, and never call planner services directly.
 
 ## Local Workflow
 
