@@ -87,6 +87,49 @@ For non-DOM runtimes, `surface` tells the backend which planner vocabulary to us
 
 Microsoft Excel uses the same `surface` field with `microsoft_excel` and Excel/SharePoint URLs.
 
+## Connector Tools In Browser State
+
+Browser DOM state can include connector tools contributed by active site adapters. These are page-local function tools exposed by content scripts through `provideTools()`:
+
+```json
+{
+  "url": "https://example.com/editor",
+  "frames": {
+    "0": {
+      "siteAdapter": {
+        "id": "example.site",
+        "pageKind": "editor"
+      },
+      "connectorTools": [
+        {
+          "type": "function",
+          "name": "example_fill_fields",
+          "description": "Fill known Example fields on the current page.",
+          "parameters": {
+            "type": "object",
+            "required": ["fieldValues"],
+            "properties": {
+              "fieldValues": {
+                "type": "object"
+              }
+            }
+          },
+          "webgpt": {
+            "adapterId": "example.site",
+            "replayable": true,
+            "mayCauseNavigation": false
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+Planner backends should treat connector tools as additional action tools for the current browser step. Tool metadata such as `webgpt.adapterId`, `webgpt.replayable`, and `webgpt.mayCauseNavigation` is for WebGPT routing, replay, and audit logs; it is not required in model-facing function schemas.
+
+Connector actions are DOM-backed page operations, not runtime surface commands. They run through `run_actions`, execute in the content-script connector registry, and should reuse the same adapter logic that enriched state.
+
 ## Run Snapshot
 
 The backend `run` object is mostly opaque to the frontend. The controller currently reads:
@@ -155,7 +198,7 @@ Capture current page state after navigation.
 
 ### `run_actions`
 
-Execute browser actions through the content-script runner.
+Execute browser actions through the content-script runner. Action `type` may be a built-in browser action such as `click` or `fill`, or a connector tool name exposed in the last extracted browser state.
 
 ```json
 {
@@ -178,6 +221,27 @@ Execute browser actions through the content-script runner.
 ```
 
 Actions are resolved against the extracted controls the frontend sent earlier. Use `frameId` when the target belongs to a non-primary frame.
+
+Connector actions carry the arguments from their tool schema:
+
+```json
+{
+  "type": "run_actions",
+  "step": 2,
+  "actions": [
+    {
+      "type": "example_fill_fields",
+      "fieldValues": {
+        "tenant_name": "Saket Mundhada"
+      }
+    }
+  ]
+}
+```
+
+Connector executors return normal action results. A useful connector result includes structured evidence such as committed values, skipped targets, failures, or an extraction batch so the backend can verify action effects.
+
+Connector actions must not perform work across a document navigation boundary. If a connector action may navigate, it must be marked as navigation-capable by connector metadata, placed last in the batch, and followed by the normal navigation wait and fresh state extraction before any further work.
 
 ### `run_google_sheets_commands`
 
@@ -246,6 +310,44 @@ Execute saved replay steps before returning to normal planner commands.
   "isFirstBatch": true,
   "mayCauseNavigation": false,
   "fileName": "replay.json"
+}
+```
+
+Replay batches may include:
+
+- Browser action steps with an `action` and `replayTarget`.
+- Connector action steps with an `action.type` matching a registered connector tool and `replayTarget.kind = "connector-tool"`.
+- Runtime surface steps with `surface` and `command`.
+
+Connector replay is connector-native: the browser DOM runtime re-extracts current page state and calls the same connector executor used during normal `run_actions`. If the required adapter/tool is unavailable on the replay page, replay should fail clearly rather than silently replacing the connector action with unrelated DOM clicks.
+
+Connector replay steps can include nested `inputBindings` so saved artifacts can template connector arguments such as `fieldValues`, `name`, `email`, `phone`, or `role`.
+
+```json
+{
+  "action": {
+    "type": "dotloop_add_person",
+    "name": "<USER_PROVIDED_VALUE>",
+    "email": "<USER_PROVIDED_VALUE>",
+    "phone": "<USER_PROVIDED_VALUE>",
+    "role": "<USER_PROVIDED_VALUE>",
+    "inputBindings": [
+      { "path": ["name"], "inputKey": "input_0", "originalValue": "Morgan Lee" },
+      { "path": ["email"], "inputKey": "input_1", "originalValue": "morgan.lee@example.com" },
+      { "path": ["phone"], "inputKey": "input_2", "originalValue": "215-555-0198" },
+      { "path": ["role"], "inputKey": "input_3", "originalValue": "Tenant" }
+    ]
+  },
+  "replayTarget": {
+    "kind": "connector-tool",
+    "snapshot": {
+      "toolName": "dotloop_add_person",
+      "adapterIds": ["dotloop.local"],
+      "pageKind": "add_person_modal",
+      "replayable": true,
+      "mayCauseNavigation": false
+    }
+  }
 }
 ```
 
@@ -331,5 +433,7 @@ A compatible backend or adapter should provide:
 - handling for the frontend result types listed above
 - successful JSON responses for artifact routes, even if artifact persistence is a no-op
 - surface-aware routing when it accepts non-DOM states such as `google_sheets` and `microsoft_excel`
+- connector-tool awareness when it accepts browser states with `connectorTools`
+- custom action preservation for connector arguments such as `fieldKey`, `fieldValues`, booleans, and nested input bindings
 
 Keep backend-specific details out of the generic controller. The adapter boundary is what lets this frontend stay reusable.

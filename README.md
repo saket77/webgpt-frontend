@@ -12,17 +12,17 @@ Unlike one-off browser agents, WebGPT is built around a clean runtime/planner bo
 
 - the Chrome extension owns browser execution
 - the backend owns planning
-- site adapters improve reliability on specific websites
+- site adapters improve reliability on specific websites, including DOM-backed connector tools for high-friction page operations
 - runtime adapters support non-DOM surfaces like Google Sheets and Microsoft Excel
 - successful workflows can become replayable routines
 
-## Current Demo
+## Featured Demo
 
 [![Watch the WebGPT demo](https://i9.ytimg.com/vi_webp/J1yGDs0M-gA/mq1.webp?sqp=CJjp2M8G-oaymwEmCMACELQB8quKqQMa8AEB-AH-CIAC0AWKAgwIABABGBUgRih_MA8=&rs=AOn4CLCyBim_PHlqGOERym-W9Y5fh5O9YQ)](https://youtu.be/J1yGDs0M-gA)
 
 ## Demo Tracks
 
-These are the public demo tracks for showing what WebGPT can do. Each one is designed to become a short video, a README proof point, and a reproducible contributor test case.
+These are the public demo tracks for showing what WebGPT can do. The first four now have companion docs and public video coverage; upcoming tracks focus on connector-enabled adapters and compatible backend authoring.
 
 | Demo | What it shows | Why it matters |
 | --- | --- | --- |
@@ -33,12 +33,13 @@ These are the public demo tracks for showing what WebGPT can do. Each one is des
 
 ## Public Demo Roadmap
 
-- [ ] Demo 1: Website extraction
-- [ ] Demo 2: Human-confirmed form filling
-- [ ] Demo 3: Google Sheets / Microsoft Excel runtime workflow
-- [ ] Demo 4: Replay a saved workflow across multiple inputs
-- [ ] Demo 5: Site adapter example
+- [x] Demo 1: Website extraction
+- [x] Demo 2: Human-confirmed form filling
+- [x] Demo 3: Google Sheets / Microsoft Excel runtime workflow
+- [x] Demo 4: Replay a saved workflow across multiple inputs
+- [ ] Demo 5: Connector-enabled site adapter workflow
 - [ ] Demo 6: Custom backend using the OpenAPI contract
+- [ ] Demo 7: Connector replay and navigation boundaries
 
 ## Why WebGPT?
 
@@ -47,6 +48,7 @@ Web automation agents are easiest to iterate on when the browser runtime and pla
 - **Browser-native execution**: runs as a Chrome extension, using content scripts to inspect and operate on the current page.
 - **Backend-agnostic planning**: use the hosted WebGPT planner or point the extension at any backend that speaks the documented command contract.
 - **Structured state**: extracts frames, controls, labels, scroll containers, URLs, titles, site-adapter hints, and runtime-specific state for planner use.
+- **Connector-enabled adapters**: lets selected site adapters expose bounded page tools, such as multi-step select filling or document-field completion, without turning the site into a separate runtime.
 - **Runtime surfaces**: can route non-DOM products such as Google Sheets and Microsoft Excel through dedicated runtime clients while preserving the same planner loop.
 - **Human-in-the-loop recovery**: supports planner pauses, human hints, success confirmation, and rejected-success resume flows.
 - **Navigation-aware loops**: detects likely navigation, waits for the new document, and resumes with fresh state.
@@ -72,13 +74,15 @@ This gives planner backends a cleaner interface than raw DOM dumps or screenshot
 
 Site adapters add domain-specific state for websites where generic DOM extraction is not enough.
 
-Adapters can enrich state and provide stable mappings, but they do not execute browser actions or call planner services directly.
+Most adapters are state-only: they enrich controls, groups, and planner hints so the backend can return normal browser actions. Some adapters are connector-enabled: they also expose narrowly scoped DOM-backed tools through `provideTools()` and local content-script executors. Connector tools are for operations where one planner action should reuse the adapter's page model to perform a bounded multi-step page interaction, such as committing a custom select value or filling a known set of document placeholders.
 
 ### Runtime adapters for non-DOM surfaces
 
 Some apps are better controlled through APIs or app-specific state models instead of DOM clicks.
 
 WebGPT's runtime surfaces are designed for products like Google Sheets, Microsoft Excel, and other structured workspaces.
+
+Use a runtime when the durable state lives outside the DOM and the extension should execute API-like commands. Use a connector-enabled site adapter when the workflow is still a browser page, but the page needs a local helper to perform a reliable DOM-backed operation.
 
 ### Replayable workflows
 
@@ -247,18 +251,20 @@ icons/            Extension icons
 
 ## Site Adapters
 
-Site adapters enrich extracted state for specific websites without giving those adapters authority to execute actions or call planner services directly.
+Site adapters enrich extracted state for specific websites. State-only adapters only describe the page. Connector-enabled adapters can additionally expose bounded page tools that the planner calls through `run_actions`; those tools execute in the content script and reuse the same DOM detection logic as the adapter.
 
-Use them when generic DOM extraction needs domain context, stable target mapping, or planner hints.
+Use site adapters when generic DOM extraction needs domain context, stable target mapping, planner hints, or a small DOM-backed connector tool. Do not use them for API-backed products whose useful state is not reliably represented in the DOM.
 
 Start here:
 
 - [Site adapter authoring guide](./docs/site-adapter-authoring.md)
 
-The Canvas quiz adapter is an example:
+Examples:
 
 ```text
 content-scripts/adapters/canvasQuiz.js
+content-scripts/adapters/greenhouse.js
+content-scripts/adapters/dotloop.js
 ```
 
 ## Runtime Surfaces

@@ -46,4 +46,5 @@ Required as optional host permissions so WebGPT can run browser automation on ar
 - WebGPT injects local content scripts dynamically through `chrome.scripting.executeScript`.
 - Runs are user-initiated from the side panel.
 - The extension stores ephemeral session state locally and uses the backend as the reasoning/session source of truth.
+- Site-specific connector tools, when available, execute as local content-script helpers for the active page only. They are triggered by the same user-initiated run loop as normal DOM actions and do not load remote code.
 - Microsoft Excel tenant ID, application client ID, and scopes are configured by the user from the side panel settings page. They are stored in extension local storage and are not declared as custom manifest keys.
