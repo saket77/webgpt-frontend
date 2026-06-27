@@ -3,6 +3,8 @@
   const DOCUMENT_FIELDS_TARGET_ID = `site:${ADAPTER_ID}:document_fields`;
   const SOURCE_VALUES_TARGET_ID = `site:${ADAPTER_ID}:source_values`;
   const PEOPLE_TARGET_ID = `site:${ADAPTER_ID}:people`;
+  const FILL_DOCUMENT_FIELDS_TOOL = "dotloop_fill_document_fields";
+  const ADD_PERSON_TOOL = "dotloop_add_person";
   const registry = globalThis.WebGPTContentAdapters;
   const extractModules = globalThis.WebGPTExtractStateModules || {};
   const domUtils = extractModules.domUtils || {};
@@ -410,6 +412,10 @@
       const bounds = elementBounds(item);
       const machineKey = isMachineKey(value) ? value : "";
       const editability = fieldEditability(item, fieldType, value);
+      const connectorTool =
+        machineKey && editability.fillableByCurrentUser
+          ? FILL_DOCUMENT_FIELDS_TOOL
+          : "";
       const valueKind = !value
         ? "empty"
         : machineKey
@@ -439,11 +445,15 @@
         ]
           .filter(Boolean)
           .join("; "),
-        preferredAction: "extract",
+        preferredAction: connectorTool || "extract",
         collectionTargetId: DOCUMENT_FIELDS_TARGET_ID,
         controlIds: unique([editableControl?.id, itemControl?.id]),
         clickTargetId: itemControl?.id || "",
         fillTargetId: editableControl?.id || "",
+        connectorTool,
+        connectorArgs: connectorTool ? { fieldKey: machineKey } : null,
+        batchPlacement: connectorTool ? "can_batch" : "",
+        verifyAfterAction: connectorTool ? "adapter_group_current_value" : "",
         activationRequired: !editableControl?.id,
         observeAfterAction: !editableControl?.id,
         safeFillTarget: Boolean(editableControl?.id),
@@ -913,6 +923,12 @@
     );
     const roleRoot = modal.querySelector("#inputRole, .role-options");
     const roleToggle = roleRoot?.querySelector(".select-toggle, [data-toggle='select']");
+    const sendEmailCheckbox = modal.querySelector(
+      "#send-email-checkbox, input[data-ac-key='sendEmail'], input[key='sendEmail'], input[name='sendEmail']",
+    );
+    const addToTeamCheckbox = modal.querySelector(
+      "#add-to-team-checkbox, input[data-ac-key='teamMember'], input[key='teamMember'], input[name='teamMember']",
+    );
     const addButton = modal.querySelector(
       "#add-person-button, .btn-add-person, .save.button-main",
     );
@@ -945,6 +961,12 @@
       emailTargetId: findControlForElement(controls, emailInput)?.id || "",
       phoneTargetId: findControlForElement(controls, phoneInput)?.id || "",
       roleToggleTargetId: findControlForElement(controls, roleToggle)?.id || "",
+      sendEmailTargetId: findControlForElement(controls, sendEmailCheckbox)?.id || "",
+      addToTeamTargetId: findControlForElement(controls, addToTeamCheckbox)?.id || "",
+      sendEmailPresent: Boolean(sendEmailCheckbox),
+      addToTeamPresent: Boolean(addToTeamCheckbox),
+      sendEmailChecked: Boolean(sendEmailCheckbox?.checked),
+      addToTeamChecked: Boolean(addToTeamCheckbox?.checked),
       addPersonTargetId: findControlForElement(controls, addButton)?.id || "",
       currentRole,
       roleOptions,
@@ -1091,7 +1113,18 @@
         addPersonModal.roleToggleTargetId
           ? `Role dropdown target: ${addPersonModal.roleToggleTargetId}`
           : "",
+        "connector action available: dotloop_add_person(name, role, email, phone, sendIntroEmail, addToTeam)",
         addPersonModal.currentRole ? `current role: ${addPersonModal.currentRole}` : "",
+        addPersonModal.sendEmailPresent
+          ? `Send intro email checkbox: ${
+              addPersonModal.sendEmailChecked ? "checked" : "unchecked"
+            }`
+          : "",
+        addPersonModal.addToTeamPresent
+          ? `Add to my team checkbox: ${
+              addPersonModal.addToTeamChecked ? "checked" : "unchecked"
+            }`
+          : "",
         actionableRoleOptions.length
           ? `visible role options: ${actionableRoleOptions
               .map((option) =>
@@ -1112,14 +1145,26 @@
       emailTargetId: addPersonModal.emailTargetId,
       phoneTargetId: addPersonModal.phoneTargetId,
       roleToggleTargetId: addPersonModal.roleToggleTargetId,
+      sendEmailTargetId: addPersonModal.sendEmailTargetId,
+      addToTeamTargetId: addPersonModal.addToTeamTargetId,
+      sendEmailPresent: addPersonModal.sendEmailPresent,
+      addToTeamPresent: addPersonModal.addToTeamPresent,
+      sendEmailChecked: addPersonModal.sendEmailChecked,
+      addToTeamChecked: addPersonModal.addToTeamChecked,
       roleOptions: actionableRoleOptions.map((option) => option.label),
       addPersonTargetId: addPersonModal.addPersonTargetId,
       errors: addPersonModal.errors,
+      preferredAction: ADD_PERSON_TOOL,
+      connectorTool: ADD_PERSON_TOOL,
+      batchPlacement: "can_batch",
+      verifyAfterAction: "adapter_group_or_people_list",
       controlIds: unique([
         addPersonModal.nameTargetId,
         addPersonModal.emailTargetId,
         addPersonModal.phoneTargetId,
         addPersonModal.roleToggleTargetId,
+        addPersonModal.sendEmailTargetId,
+        addPersonModal.addToTeamTargetId,
         addPersonModal.addPersonTargetId,
         ...addPersonModal.roleOptions.map((option) => option.targetId),
       ]),
@@ -1179,8 +1224,17 @@
         placeholders.length
           ? `machine-readable placeholders: ${placeholders.join(", ")}`
           : "No machine-readable placeholders detected",
-      ].join("; "),
-      preferredAction: "extract",
+        placeholders.length
+          ? "connector action available: dotloop_fill_document_fields(fieldValues)"
+          : "",
+      ]
+        .filter(Boolean)
+        .join("; "),
+      preferredAction: placeholders.length ? FILL_DOCUMENT_FIELDS_TOOL : "extract",
+      connectorTool: placeholders.length ? FILL_DOCUMENT_FIELDS_TOOL : "",
+      connectorFieldKeys: placeholders,
+      batchPlacement: placeholders.length ? "can_batch" : "",
+      verifyAfterAction: placeholders.length ? "adapter_group_current_value" : "",
       fieldCount: fields.length,
       fillableCount,
       receiverOnlyCount,
@@ -1386,29 +1440,31 @@
         continue;
       }
 
-      const instruction = field.fillTargetId
-        ? `Fill this active Dotloop field. ${
-            field.machineKey
-              ? `Its machine-readable placeholder key is ${field.machineKey}.`
-              : "Its identity is value/position based."
-          } After this fill, it is okay to click the next Dotloop field to activate it in the same action batch; only wait before filling that newly activated next field.`
-        : `Click this Dotloop field to activate its textbox, then observe and fill the visible textbox. ${
-            field.machineKey
-              ? `Its machine-readable placeholder key is ${field.machineKey}.`
-              : "Do not infer field identity from PDF image text."
-          } This activation click may follow a safe fill of a different already-active field, but the fill for this field must wait for the next observed state.`;
+      const instruction = field.machineKey
+        ? `Prefer connector tool dotloop_fill_document_fields with fieldValues.${field.machineKey} for this Dotloop template field. The connector clicks/activates the field if needed, fills the live textbox, and commits it in one action. Use normal click/fill only as fallback if the connector is unavailable or fails.`
+        : field.fillTargetId
+          ? "Fill this active Dotloop field. Its identity is value/position based. After this fill, it is okay to click the next Dotloop field to activate it in the same action batch; only wait before filling that newly activated next field."
+          : "Click this Dotloop field to activate its textbox, then observe and fill the visible textbox. Do not infer field identity from PDF image text. This activation click may follow a safe fill of a different already-active field, but the fill for this field must wait for the next observed state.";
       addHint(actionHintsByTargetId, field.fillTargetId || field.clickTargetId, {
         semanticRole: field.machineKey
           ? "dotloop_template_field"
           : "dotloop_document_field",
-        preferredAction: field.fillTargetId ? "fill" : "click",
+        preferredAction: field.machineKey
+          ? FILL_DOCUMENT_FIELDS_TOOL
+          : field.fillTargetId
+            ? "fill"
+            : "click",
+        connectorTool: field.machineKey ? FILL_DOCUMENT_FIELDS_TOOL : "",
+        connectorArgs: field.machineKey ? { fieldKey: field.machineKey } : null,
         answerText: field.machineKey || field.currentValue || field.label,
-        exactValueMode: "literal",
+        exactValueMode: field.machineKey ? "connectorValue" : "literal",
         stableFieldTargetId: field.targetId,
         machineKey: field.machineKey || "",
-        activationRequired: !field.fillTargetId,
-        observeAfterAction: !field.fillTargetId,
-        safeFillTarget: Boolean(field.fillTargetId),
+        activationRequired: field.machineKey ? false : !field.fillTargetId,
+        observeAfterAction: field.machineKey ? false : !field.fillTargetId,
+        safeFillTarget: field.machineKey ? true : Boolean(field.fillTargetId),
+        batchPlacement: field.machineKey ? "can_batch" : "",
+        verifyAfterAction: field.machineKey ? "adapter_group_current_value" : "",
         instruction,
       });
       if (field.clickTargetId && field.fillTargetId && field.clickTargetId !== field.fillTargetId) {
@@ -1426,34 +1482,51 @@
     }
 
     if (addPersonModal) {
+      const addPersonConnectorHint = {
+        preferredAction: ADD_PERSON_TOOL,
+        connectorTool: ADD_PERSON_TOOL,
+        exactValueMode: "connectorValue",
+        batchPlacement: "can_batch",
+        verifyAfterAction: "adapter_group_or_people_list",
+      };
       addHint(actionHintsByTargetId, addPersonModal.nameTargetId, {
         semanticRole: "dotloop_add_person_name",
-        preferredAction: "fill",
-        exactValueMode: "literal",
-        instruction: "Fill the Dotloop Add Person full name.",
+        ...addPersonConnectorHint,
+        instruction:
+          "Prefer connector tool dotloop_add_person for the open Add Person modal. Fallback: fill the Dotloop Add Person full name.",
       });
       addHint(actionHintsByTargetId, addPersonModal.emailTargetId, {
         semanticRole: "dotloop_add_person_email",
-        preferredAction: "fill",
-        exactValueMode: "literal",
+        ...addPersonConnectorHint,
         instruction:
-          "Fill the Dotloop Add Person email only when the user provided an email address.",
+          "Prefer connector tool dotloop_add_person for the open Add Person modal. Fallback: fill the email only when the user provided an email address.",
       });
       addHint(actionHintsByTargetId, addPersonModal.phoneTargetId, {
         semanticRole: "dotloop_add_person_phone",
-        preferredAction: "fill",
-        exactValueMode: "literal",
+        ...addPersonConnectorHint,
         instruction:
-          "Fill the Dotloop Add Person phone only when a phone field is visible. If no phone target exists, do not invent one.",
+          "Prefer connector tool dotloop_add_person for the open Add Person modal. Fallback: fill the phone only when a phone field is visible. If no phone target exists, do not invent one.",
+      });
+      addHint(actionHintsByTargetId, addPersonModal.sendEmailTargetId, {
+        semanticRole: "dotloop_add_person_send_intro_email",
+        ...addPersonConnectorHint,
+        instruction:
+          "Prefer connector tool dotloop_add_person to set Send intro email when the checkbox is present. Fallback: click this checkbox only if it does not match the requested state.",
+      });
+      addHint(actionHintsByTargetId, addPersonModal.addToTeamTargetId, {
+        semanticRole: "dotloop_add_person_add_to_team",
+        ...addPersonConnectorHint,
+        instruction:
+          "Prefer connector tool dotloop_add_person to keep Add to my team off by default unless the user explicitly asks to add the person to the team.",
       });
       addHint(actionHintsByTargetId, addPersonModal.roleToggleTargetId, {
         semanticRole: "dotloop_add_person_role_toggle",
-        preferredAction: "click",
+        ...addPersonConnectorHint,
         activationRequired: true,
         observeAfterAction: true,
         optionTexts: addPersonModal.roleOptions.map((option) => option.label),
         instruction:
-          "Open the Add Person Role dropdown. Choose the requested role option from this modal, not a role label in the existing People list. Do not click Add Person until the role is selected.",
+          "Prefer connector tool dotloop_add_person to select the requested role. Fallback: open the Add Person Role dropdown and choose the requested role option from this modal, not a role label in the existing People list. Do not click Add Person until the role is selected.",
       });
       for (const option of addPersonModal.roleOptions) {
         addHint(actionHintsByTargetId, option.targetId, {
@@ -1466,10 +1539,10 @@
       }
       addHint(actionHintsByTargetId, addPersonModal.addPersonTargetId, {
         semanticRole: "dotloop_add_person_submit",
-        preferredAction: "click",
+        ...addPersonConnectorHint,
         batchPlacement: "last",
         instruction:
-          "Click Add Person only after Full Name is filled and the requested role is selected. If Role is still the placeholder or a role-required error is visible, open Role and choose the requested option first.",
+          "Prefer connector tool dotloop_add_person for filling the modal and clicking Add Person. Fallback: click Add Person only after Full Name is filled and the requested role is selected. If Role is still the placeholder or a role-required error is visible, open Role and choose the requested option first.",
       });
     }
 
@@ -1574,7 +1647,7 @@
     const nonFillableCount = fields.filter((field) => !field.fillableByCurrentUser).length;
 
     return [
-      "Dotloop adapter: use normal browser click/fill/extract actions; no Dotloop API or special executor exists.",
+      "Dotloop connector adapter active: use normal browser navigation/extract actions for loops/documents, and prefer connector tools for supported Dotloop page operations.",
       loops.length
         ? "Dotloop loop cards are primary open targets. Avoid archive/type/closing-date controls unless explicitly requested."
         : "",
@@ -1591,6 +1664,7 @@
       addPersonModal
         ? [
             "Dotloop Add Person modal is open.",
+            "Prefer dotloop_add_person(name, role, email, phone, sendIntroEmail, addToTeam) for this modal; it fills fields, handles role, Send intro email, Add to my team, and clicks Add Person in one connector action. Use normal click/fill only as fallback if the connector is unavailable or fails.",
             addPersonModal.roleToggleTargetId
               ? `Role dropdown target is ${addPersonModal.roleToggleTargetId}.`
               : "",
@@ -1617,13 +1691,13 @@
         ? `Filled source values are extractable with extract.targetId="${SOURCE_VALUES_TARGET_ID}". These values are value-only unless a DOM field key is present; do not infer labels from PDF image text.`
         : "",
       placeholders.length
-        ? `Target template placeholders detected: ${placeholders.join(", ")}. Use these machine-readable placeholders as the reliable fill anchors.`
+        ? `Target template placeholders detected: ${placeholders.join(", ")}. Prefer dotloop_fill_document_fields(fieldValues) when values are known; it clicks/activates and fills each matching placeholder in one connector action. Use these machine-readable placeholders as the reliable fill anchors.`
         : "",
       fields.length && !placeholders.length
         ? "Dotloop overlay fields are visible, but no machine-readable placeholders are detected. Use value/position only and ask for review if mapping is ambiguous."
         : "",
       siteAdapter.workflowPhase === "document_editor"
-        ? "In the Dotloop editor, non-active fields may need one click to reveal/focus their textbox before filling."
+        ? "In the Dotloop editor, non-active fields may need one click to reveal/focus their textbox before filling; dotloop_fill_document_fields performs that click-then-fill loop for matching machine-key placeholders."
         : "",
       siteAdapter.workflowPhase === "document_editor" && siteAdapter.editorBackTargetId
         ? `To switch from this Dotloop document editor back to the loop document list, click editor back target ${siteAdapter.editorBackTargetId}. Do not click the document name/header as a document switcher. Browser back is only a fallback if this target is unavailable.`
@@ -1668,6 +1742,9 @@
         "Dotloop adapter",
         hint.semanticRole ? `role: ${hint.semanticRole}` : "",
         hint.preferredAction ? `preferred action: ${hint.preferredAction}` : "",
+        hint.connectorTool ? `connector: ${hint.connectorTool}` : "",
+        hint.batchPlacement ? `batch: ${hint.batchPlacement}` : "",
+        hint.verifyAfterAction ? `verify: ${hint.verifyAfterAction}` : "",
         hint.avoidAction ? "avoid unless explicitly requested" : "",
         hint.activationRequired ? "activation required" : "",
         hint.observeAfterAction ? "observe after action" : "",
@@ -1792,6 +1869,8 @@
           addPersonModal.emailTargetId,
           addPersonModal.phoneTargetId,
           addPersonModal.roleToggleTargetId,
+          addPersonModal.sendEmailTargetId,
+          addPersonModal.addToTeamTargetId,
           ...addPersonModal.roleOptions.map((option) => option.targetId),
           addPersonModal.addPersonTargetId,
         ]
@@ -1832,9 +1911,692 @@
     };
   }
 
+  function fillablePlaceholderFields(state, documentRef, url) {
+    if (detectWorkflowPhase(documentRef, url) !== "document_editor") return [];
+
+    const seen = new Set();
+    return collectDocumentFields(state || { controls: [] }, documentRef, url)
+      .filter(
+        (field) =>
+          field.machineKey &&
+          field.fillableByCurrentUser &&
+          !field.receiverOnly &&
+          field.connectorTool === FILL_DOCUMENT_FIELDS_TOOL,
+      )
+      .filter((field) => {
+        if (seen.has(field.machineKey)) return false;
+        seen.add(field.machineKey);
+        return true;
+      })
+      .slice(0, 40);
+  }
+
+  function addPersonRoleLabels(addPersonModal) {
+    return unique((addPersonModal?.roleOptions || []).map((option) => option.label))
+      .filter(Boolean)
+      .slice(0, 80);
+  }
+
+  function provideTools({ state, document: documentRef, url }) {
+    const doc = documentRef || document;
+    const tools = [];
+    const fields = fillablePlaceholderFields(state || { controls: [] }, doc, url);
+
+    if (fields.length) {
+      const fieldValueProperties = {};
+      for (const field of fields) {
+        fieldValueProperties[field.machineKey] = {
+          type: "string",
+          description: `Value to fill into Dotloop placeholder ${field.machineKey}.`,
+        };
+      }
+
+      const mapping = fields
+        .map((field) => `${field.machineKey} = "${truncate(field.label, 90)}"`)
+        .join("; ");
+
+      tools.push({
+        type: "function",
+        name: "dotloop_fill_document_fields",
+        description: truncate(
+          "Fill Dotloop PDF/editor placeholder fields in ONE action. Provide fieldValues keyed by visible machine-readable placeholders. The connector clicks/activates each matching field if needed, fills the live input, and commits input/change events. It skips missing, non-fillable, signature/initial, and receiver-only fields. fieldKey -> current placeholder: " +
+            mapping,
+          1100,
+        ),
+        strict: false,
+        parameters: {
+          type: "object",
+          properties: {
+            fieldValues: {
+              type: "object",
+              properties: fieldValueProperties,
+              additionalProperties: false,
+              description:
+                "Object keyed by Dotloop placeholder/machine keys, for example tenant_legal_name.",
+            },
+          },
+          required: ["fieldValues"],
+          additionalProperties: false,
+        },
+      });
+    }
+
+    const addPersonModal = collectAddPersonModal(state || { controls: [] }, doc);
+    if (addPersonModal) {
+      const roleLabels = addPersonRoleLabels(addPersonModal);
+      const roleSchema = roleLabels.length
+        ? {
+            type: "string",
+            enum: roleLabels,
+            description: "Dotloop role label to select from the open Add Person modal.",
+          }
+        : {
+            type: "string",
+            description: "Dotloop role label to select from the open Add Person modal.",
+          };
+
+      tools.push({
+        type: "function",
+        name: "dotloop_add_person",
+        description: truncate(
+          "Add a person through the open Dotloop Add Person modal in ONE action. The connector fills Full Name, optional email, optional phone when the phone field exists, selects role from the modal's preloaded role options, sets Send intro email when requested and present, keeps Add to my team off by default unless explicitly true, then clicks Add Person. Role options: " +
+            roleLabels.join(", "),
+          1100,
+        ),
+        strict: false,
+        parameters: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string",
+              description: "Full name to add.",
+            },
+            email: {
+              type: "string",
+              description: "Email address to fill when provided.",
+            },
+            phone: {
+              type: "string",
+              description: "Phone number to fill only when Dotloop shows a phone field.",
+            },
+            role: roleSchema,
+            sendIntroEmail: {
+              type: "boolean",
+              description:
+                "When true, turn on Send intro email if that checkbox is present. When false, turn it off if present.",
+            },
+            addToTeam: {
+              type: "boolean",
+              description:
+                "Defaults to false. Set true only when the user explicitly asks to add this person to my team.",
+            },
+          },
+          required: ["name", "role"],
+          additionalProperties: false,
+        },
+      });
+    }
+
+    return tools;
+  }
+
+  function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function inputLikeEvent(type, init = {}) {
+    try {
+      return new InputEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        ...init,
+      });
+    } catch {
+      return new Event(type, { bubbles: true, cancelable: true });
+    }
+  }
+
+  function dispatchInputChange(el) {
+    if (!el) return;
+    el.dispatchEvent(inputLikeEvent("input"));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function documentFieldItems(documentRef = document) {
+    return getElements(".data-item", documentRef);
+  }
+
+  function matchingDocumentFieldItems(fieldKey, documentRef = document) {
+    const wanted = normalizeText(fieldKey);
+    if (!wanted) return [];
+    return documentFieldItems(documentRef).filter((item) => {
+      const value = fieldValueFor(item);
+      return isMachineKey(value) && normalizeText(value) === wanted;
+    });
+  }
+
+  function liveDocumentFieldInput(item) {
+    return (
+      getVisibleElements(
+        [
+          "textarea",
+          "input:not([type='hidden']):not([type='file'])",
+          "select",
+          "[contenteditable='true']",
+        ].join(","),
+        item,
+      ).find((el) => {
+        if (el.hasAttribute("disabled")) return false;
+        if (lower(el.getAttribute("aria-disabled")) === "true") return false;
+        return true;
+      }) || null
+    );
+  }
+
+  function documentFieldActivationTarget(item) {
+    return (
+      liveDocumentFieldInput(item) ||
+      item.querySelector(".field.can-modify, .field, .data-display") ||
+      item
+    );
+  }
+
+  function fieldValuesFromAction(action) {
+    const source =
+      action?.fieldValues &&
+      typeof action.fieldValues === "object" &&
+      !Array.isArray(action.fieldValues)
+        ? action.fieldValues
+        : {};
+    const fieldValues = {};
+
+    for (const [key, value] of Object.entries(source)) {
+      const fieldKey = normalizeText(key);
+      const fieldValue = normalizeText(value);
+      if (fieldKey && fieldValue) fieldValues[fieldKey] = fieldValue;
+    }
+
+    return fieldValues;
+  }
+
+  async function fillOneDocumentFieldItem(item, fieldKey, value, ctx) {
+    const click = ctx?.primitives?.clickElement;
+    const fill = ctx?.primitives?.fillElement;
+    const fieldType = fieldTypeFor(item);
+    const currentValue = fieldValueFor(item);
+    const editability = fieldEditability(item, fieldType, currentValue);
+
+    if (!editability.fillableByCurrentUser) {
+      return {
+        ok: false,
+        skipped: true,
+        fieldKey,
+        reason: editability.fillBlockReason || "not fillable by current user",
+        fieldType,
+      };
+    }
+    if (typeof click !== "function" || typeof fill !== "function") {
+      return {
+        ok: false,
+        fieldKey,
+        reason: "runner primitives unavailable",
+        fieldType,
+      };
+    }
+
+    let input = liveDocumentFieldInput(item);
+    if (!input) {
+      await click(documentFieldActivationTarget(item));
+      await delay(180);
+      input = liveDocumentFieldInput(item);
+    }
+    if (!input) {
+      return {
+        ok: false,
+        fieldKey,
+        reason: "field did not reveal a fillable input after activation",
+        fieldType,
+      };
+    }
+
+    await fill(input, value);
+    dispatchInputChange(input);
+    input.dispatchEvent(new Event("blur", { bubbles: true }));
+    input.blur?.();
+    await delay(120);
+
+    return {
+      ok: true,
+      fieldKey,
+      value,
+      fieldType,
+      committedValue: fieldValueFor(item) || value,
+    };
+  }
+
+  async function dotloopFillDocumentFields(action, ctx) {
+    const requestedFieldValues = fieldValuesFromAction(action);
+    const entries = Object.entries(requestedFieldValues);
+    if (!entries.length) {
+      return {
+        ok: false,
+        detail: "dotloop_fill_document_fields requires fieldValues.",
+      };
+    }
+
+    const filled = [];
+    const skipped = [];
+    const failed = [];
+    const committedFieldValues = {};
+
+    for (const [fieldKey, value] of entries) {
+      const items = matchingDocumentFieldItems(fieldKey, document);
+      if (!items.length) {
+        skipped.push({
+          fieldKey,
+          requestedValue: value,
+          reason: "matching placeholder not found",
+        });
+        continue;
+      }
+
+      for (const item of items) {
+        const result = await fillOneDocumentFieldItem(item, fieldKey, value, ctx);
+        if (result.ok) {
+          filled.push(result);
+          committedFieldValues[fieldKey] = result.committedValue || value;
+        } else if (result.skipped) {
+          skipped.push({
+            fieldKey,
+            requestedValue: value,
+            reason: result.reason,
+            fieldType: result.fieldType,
+          });
+        } else {
+          failed.push({
+            fieldKey,
+            requestedValue: value,
+            reason: result.reason || "fill failed",
+            fieldType: result.fieldType,
+          });
+        }
+      }
+    }
+
+    return {
+      ok: filled.length > 0,
+      recoverable: failed.length > 0 || skipped.length > 0,
+      continueBatch: failed.length > 0,
+      committed: failed.length === 0,
+      fieldValues: committedFieldValues,
+      filled,
+      skipped,
+      failed,
+      detail: failed.length
+        ? `Filled ${filled.length} Dotloop field(s); ${failed.length} failed and ${skipped.length} skipped.`
+        : `Filled ${filled.length} Dotloop field(s); ${skipped.length} skipped.`,
+    };
+  }
+
+  function booleanFromAction(value, fallback = null) {
+    if (typeof value === "boolean") return value;
+    if (typeof value === "string") {
+      const text = lower(value);
+      if (["true", "yes", "on", "1", "checked"].includes(text)) return true;
+      if (["false", "no", "off", "0", "unchecked"].includes(text)) return false;
+    }
+    return fallback;
+  }
+
+  function addPersonModalRoot(documentRef = document) {
+    const modal = findAddPersonModal(documentRef);
+    return modal?.closest(".front, .modal") || modal;
+  }
+
+  function addPersonInput(root, selector) {
+    const input = root?.querySelector(selector);
+    if (!input || input.hasAttribute("disabled")) return null;
+    return input;
+  }
+
+  function addPersonPhoneSelector() {
+    return [
+      "#inputPhone",
+      "input[data-ac-key='phone']",
+      "input[key='phone']",
+      "input[name='phone']",
+      "input[type='tel']",
+    ].join(",");
+  }
+
+  function phoneInputForAddPerson(root) {
+    return addPersonInput(root, addPersonPhoneSelector());
+  }
+
+  async function fillAddPersonInput(root, selector, value, label, fill) {
+    const input = addPersonInput(root, selector);
+    const normalizedValue = normalizeText(value);
+    if (!input) {
+      return {
+        present: false,
+        filled: false,
+        skipped: Boolean(normalizedValue),
+        label,
+      };
+    }
+    if (!normalizedValue) {
+      return { present: true, filled: false, skipped: false, label };
+    }
+
+    await fill(input, normalizedValue);
+    dispatchInputChange(input);
+    input.blur?.();
+    await delay(80);
+    return {
+      present: true,
+      filled: true,
+      skipped: false,
+      label,
+      value: normalizeText(input.value) || normalizedValue,
+    };
+  }
+
+  function roleOptionLabel(option) {
+    return normalizeText(textContent(option.querySelector("a, button") || option));
+  }
+
+  function addPersonRoleOptions(root) {
+    const roleRoot = root?.querySelector("#inputRole, .role-options") || root;
+    return getElements("li[data-selected]", roleRoot)
+      .map((option) => ({
+        option,
+        clickable:
+          option.querySelector("a, button, [role='option'], [role='menuitem']") ||
+          option,
+        label: roleOptionLabel(option),
+        value: normalizeText(option.getAttribute("data-selected")),
+      }))
+      .filter((option) => option.label);
+  }
+
+  function findAddPersonRoleOption(root, role) {
+    const requested = lower(role);
+    const options = addPersonRoleOptions(root);
+    return (
+      options.find((option) => lower(option.label) === requested) ||
+      options.find((option) => lower(option.value) === requested) ||
+      options.find((option) => lower(option.label).includes(requested)) ||
+      null
+    );
+  }
+
+  async function selectAddPersonRole(root, role, click) {
+    const roleValue = normalizeText(role);
+    const roleRoot = root?.querySelector("#inputRole, .role-options");
+    const toggle = roleRoot?.querySelector(".select-toggle, [data-toggle='select']");
+    if (!roleRoot || !toggle) {
+      return {
+        ok: false,
+        reason: "role dropdown not found",
+        availableRoles: addPersonRoleOptions(root).map((option) => option.label),
+      };
+    }
+
+    const currentRole = normalizeText(textContent(toggle));
+    if (currentRole && lower(currentRole) === lower(roleValue)) {
+      return { ok: true, role: currentRole, changed: false };
+    }
+
+    await click(toggle);
+    await delay(150);
+
+    const match = findAddPersonRoleOption(root, roleValue);
+    if (!match) {
+      return {
+        ok: false,
+        reason: `role option "${roleValue}" not found`,
+        availableRoles: addPersonRoleOptions(root).map((option) => option.label),
+      };
+    }
+
+    await click(match.clickable);
+    await delay(180);
+
+    return {
+      ok: true,
+      role: normalizeText(textContent(toggle)) || match.label,
+      changed: true,
+      selectedValue: match.value,
+    };
+  }
+
+  function checkboxClickTarget(root, checkbox) {
+    const id = normalizeText(checkbox?.id);
+    if (id) {
+      const dataCheckbox = root.querySelector(`[data-checkbox="${cssEscape(id)}"]`);
+      if (dataCheckbox) return dataCheckbox;
+      const label = root.querySelector(`label[for="${cssEscape(id)}"]`);
+      if (label) return label;
+    }
+    return checkbox?.closest("label") || checkbox;
+  }
+
+  async function setCheckboxState(root, selector, desired, click) {
+    const checkbox = root?.querySelector(selector);
+    if (!checkbox) {
+      return {
+        present: false,
+        checked: false,
+        changed: false,
+      };
+    }
+
+    const normalizedDesired = booleanFromAction(desired, null);
+    if (normalizedDesired === null) {
+      return {
+        present: true,
+        checked: Boolean(checkbox.checked),
+        changed: false,
+      };
+    }
+
+    const before = Boolean(checkbox.checked);
+    if (before !== normalizedDesired) {
+      await click(checkboxClickTarget(root, checkbox));
+      await delay(100);
+      if (Boolean(checkbox.checked) !== normalizedDesired) {
+        checkbox.checked = normalizedDesired;
+        dispatchInputChange(checkbox);
+      }
+    }
+
+    return {
+      present: true,
+      checked: Boolean(checkbox.checked),
+      changed: before !== Boolean(checkbox.checked),
+    };
+  }
+
+  function addedPersonExtractionBatch(person) {
+    const label = [person.name, person.email, person.role].filter(Boolean).join(" / ");
+    return {
+      targetId: PEOPLE_TARGET_ID,
+      items: [
+        {
+          id: `dotloop_added_person_${lower(person.email || person.name).replace(
+            /[^a-z0-9]+/g,
+            "_",
+          )}`,
+          targetId: `site:${ADAPTER_ID}:person:added`,
+          kind: "dotloop_person",
+          adapterId: ADAPTER_ID,
+          preferredAction: "extract",
+          label: label || "Dotloop added person",
+          text: [
+            "Dotloop person added through connector",
+            person.name ? `name: ${person.name}` : "",
+            person.email ? `email: ${person.email}` : "",
+            person.phone ? `phone: ${person.phone}` : "",
+            person.role ? `role: ${person.role}` : "",
+          ]
+            .filter(Boolean)
+            .join("; "),
+          name: person.name,
+          email: person.email,
+          phone: person.phone,
+          role: person.role,
+        },
+      ],
+    };
+  }
+
+  async function dotloopAddPerson(action, ctx) {
+    const click = ctx?.primitives?.clickElement;
+    const fill = ctx?.primitives?.fillElement;
+    const name = normalizeText(action?.name);
+    const role = normalizeText(action?.role);
+    const email = normalizeText(action?.email);
+    const phone = normalizeText(action?.phone);
+
+    if (!name || !role) {
+      return { ok: false, detail: "dotloop_add_person requires name and role." };
+    }
+    if (typeof click !== "function" || typeof fill !== "function") {
+      return {
+        ok: false,
+        detail: "dotloop_add_person runner primitives unavailable.",
+      };
+    }
+
+    const root = addPersonModalRoot(document);
+    if (!root) {
+      return {
+        ok: false,
+        recoverable: true,
+        detail: "Dotloop Add Person modal is not open.",
+      };
+    }
+
+    const nameResult = await fillAddPersonInput(
+      root,
+      "#inputName, input[data-ac-key='name'], input[key='name']",
+      name,
+      "name",
+      fill,
+    );
+    const emailResult = await fillAddPersonInput(
+      root,
+      "#inputEmail, input[data-ac-key='emailAddress'], input[key='emailAddress']",
+      email,
+      "email",
+      fill,
+    );
+
+    const roleResult = await selectAddPersonRole(root, role, click);
+    if (!roleResult.ok) {
+      return {
+        ok: false,
+        recoverable: true,
+        continueBatch: true,
+        detail: roleResult.reason || "Could not select Add Person role.",
+        availableRoles: roleResult.availableRoles || [],
+        nameFilled: Boolean(nameResult.filled),
+        emailFilled: Boolean(emailResult.filled),
+      };
+    }
+
+    const phoneInput = phoneInputForAddPerson(root);
+    const phoneResult = phoneInput
+      ? await fillAddPersonInput(root, addPersonPhoneSelector(), phone, "phone", fill)
+      : {
+          present: false,
+          filled: false,
+          skipped: Boolean(phone),
+          label: "phone",
+        };
+
+    const sendIntroEmail =
+      Object.prototype.hasOwnProperty.call(action || {}, "sendIntroEmail")
+        ? booleanFromAction(action.sendIntroEmail, false)
+        : null;
+    const addToTeam = booleanFromAction(action?.addToTeam, false);
+    const sendIntroResult = await setCheckboxState(
+      root,
+      "#send-email-checkbox, input[data-ac-key='sendEmail'], input[key='sendEmail'], input[name='sendEmail']",
+      sendIntroEmail,
+      click,
+    );
+    const addToTeamResult = await setCheckboxState(
+      root,
+      "#add-to-team-checkbox, input[data-ac-key='teamMember'], input[key='teamMember'], input[name='teamMember']",
+      addToTeam,
+      click,
+    );
+
+    const addButton = root.querySelector(
+      "#add-person-button, .btn-add-person, .save.button-main",
+    );
+    if (!addButton) {
+      return {
+        ok: false,
+        recoverable: true,
+        continueBatch: true,
+        detail: "Add Person submit button not found.",
+        nameFilled: Boolean(nameResult.filled),
+        emailFilled: Boolean(emailResult.filled),
+        phoneFilled: Boolean(phoneResult.filled),
+        role: roleResult.role || role,
+        sendIntroEmail: sendIntroResult,
+        addToTeam: addToTeamResult,
+      };
+    }
+
+    await click(addButton);
+    await delay(250);
+
+    const person = {
+      name,
+      email,
+      phone: phoneResult.present ? phone : "",
+      role: roleResult.role || role,
+    };
+    return {
+      ok: true,
+      committed: true,
+      person,
+      nameFilled: Boolean(nameResult.filled),
+      emailFilled: Boolean(emailResult.filled),
+      phoneFilled: Boolean(phoneResult.filled),
+      phoneSkipped: Boolean(phoneResult.skipped),
+      role: person.role,
+      sendIntroEmail: sendIntroResult,
+      addToTeam: addToTeamResult,
+      extractionBatch: addedPersonExtractionBatch(person),
+      detail: `Added Dotloop person ${[name, email, person.role]
+        .filter(Boolean)
+        .join(" / ")}.`,
+    };
+  }
+
+  if (
+    globalThis.WebGPTConnectorTools &&
+    typeof globalThis.WebGPTConnectorTools.register === "function"
+  ) {
+    globalThis.WebGPTConnectorTools.register(
+      "dotloop_fill_document_fields",
+      dotloopFillDocumentFields,
+    );
+    globalThis.WebGPTConnectorTools.register(
+      "dotloop_add_person",
+      dotloopAddPerson,
+    );
+  }
+
   registry.register({
     id: ADAPTER_ID,
     priority: 80,
+    provideTools,
 
     match({ url, document: documentRef }) {
       return isDotloopPage(url, documentRef);
