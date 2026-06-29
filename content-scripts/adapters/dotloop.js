@@ -5,6 +5,7 @@
   const PEOPLE_TARGET_ID = `site:${ADAPTER_ID}:people`;
   const FILL_DOCUMENT_FIELDS_TOOL = "dotloop_fill_document_fields";
   const ADD_PERSON_TOOL = "dotloop_add_person";
+  const READ_DOCUMENT_TOOL = "dotloop_read_document";
   const registry = globalThis.WebGPTContentAdapters;
   const extractModules = globalThis.WebGPTExtractStateModules || {};
   const domUtils = extractModules.domUtils || {};
@@ -256,6 +257,10 @@
   }
 
   function currentLoopId(url) {
+    return hrefId(safeUrl(url).pathname, /\/loop\/(\d+)/);
+  }
+
+  function currentViewId(url) {
     return hrefId(safeUrl(url).pathname, /\/loop\/(\d+)/);
   }
 
@@ -1072,6 +1077,36 @@
     };
   }
 
+  function editorNavigationGroup(siteAdapter) {
+    if (
+      siteAdapter.workflowPhase !== "document_editor" ||
+      !siteAdapter.editorBackTargetId
+    ) {
+      return null;
+    }
+
+    return {
+      id: "dotloop_editor_navigation",
+      targetId: `site:${ADAPTER_ID}:editor_navigation`,
+      kind: "dotloop_editor_navigation",
+      adapterId: ADAPTER_ID,
+      label: "Dotloop editor navigation",
+      text: [
+        `Currently viewing Dotloop document: ${siteAdapter.documentName || "(unnamed)"}`,
+        `document id: ${siteAdapter.documentId || ""}`,
+        `loop id: ${siteAdapter.loopId || ""}`,
+        `editor back target: ${siteAdapter.editorBackTargetId}`,
+        "To open another PDF/document in this same loop, click the editor back target first, then choose the named document from the loop document list.",
+        "If the requested target document is not visible in the editor, do not ask for a URL until after trying this back-to-loop-documents navigation.",
+      ]
+        .filter(Boolean)
+        .join("; "),
+      preferredAction: "click",
+      openDocumentListTargetId: siteAdapter.editorBackTargetId,
+      controlIds: unique([siteAdapter.editorBackTargetId]),
+    };
+  }
+
   function peopleGroup(people) {
     if (!people.length) return null;
     return {
@@ -1424,7 +1459,7 @@
       preferredAction: "click",
       navigationAction: true,
       instruction:
-        "Return from this Dotloop document editor to the loop document list. Use this when switching to another document in the same loop. The document title/header is not a document switcher.",
+        "Return from this Dotloop document editor to the loop document list. Use this when switching to another document/PDF in the same loop. If a goal names another Dotloop document but it is not visible in the editor, click this target before asking the user for a URL. The document title/header is not a document switcher.",
     });
 
     for (const field of fields) {
@@ -1688,19 +1723,22 @@
             .join(" ")
         : "",
       sourceValues.length
-        ? `Filled source values are extractable with extract.targetId="${SOURCE_VALUES_TARGET_ID}". These values are value-only unless a DOM field key is present; do not infer labels from PDF image text.`
+        ? `Filled source values are extractable with extract.targetId="${SOURCE_VALUES_TARGET_ID}". These values are value-only unless a DOM field key is present; use dotloop_read_document when the task needs visual PDF labels or field-key inference.`
         : "",
       placeholders.length
         ? `Target template placeholders detected: ${placeholders.join(", ")}. Prefer dotloop_fill_document_fields(fieldValues) when values are known; it clicks/activates and fills each matching placeholder in one connector action. Use these machine-readable placeholders as the reliable fill anchors.`
         : "",
       fields.length && !placeholders.length
-        ? "Dotloop overlay fields are visible, but no machine-readable placeholders are detected. Use value/position only and ask for review if mapping is ambiguous."
+        ? "Dotloop overlay fields are visible, but no machine-readable placeholders are detected. If field labels/document text are needed, run dotloop_read_document to extract visual PDF labels before mapping values. Use value/position only when mapping is obvious; ask for review if mapping remains ambiguous."
         : "",
       siteAdapter.workflowPhase === "document_editor"
-        ? "In the Dotloop editor, non-active fields may need one click to reveal/focus their textbox before filling; dotloop_fill_document_fields performs that click-then-fill loop for matching machine-key placeholders."
+        ? "dotloop_read_document is available for the current PDF/document. Use it before asking the user when the goal requires reading PDF text, extracting visual labels, or working with documents that do not expose machine-readable placeholder keys."
+        : "",
+      siteAdapter.workflowPhase === "document_editor"
+        ? "In the Dotloop editor, non-active fields may need one click to reveal/focus their textbox before filling; dotloop_fill_document_fields performs that click-then-fill loop for matching machine-key placeholders or vision-mapped fields from dotloop_read_document."
         : "",
       siteAdapter.workflowPhase === "document_editor" && siteAdapter.editorBackTargetId
-        ? `To switch from this Dotloop document editor back to the loop document list, click editor back target ${siteAdapter.editorBackTargetId}. Do not click the document name/header as a document switcher. Browser back is only a fallback if this target is unavailable.`
+        ? `To switch from this Dotloop document editor to another PDF/document in the same loop, click editor back target ${siteAdapter.editorBackTargetId}, then open the named document from the loop document list. Do not ask for a direct URL until after trying this. Do not click the document name/header as a document switcher. Browser back is only a fallback if this target is unavailable.`
         : "",
       nonFillableCount
         ? `${nonFillableCount} Dotloop overlay fields are not fillable by the current user or are receiver/signature fields. Do not fill them unless the user explicitly asks to edit that field type and the UI allows it.`
@@ -1838,6 +1876,7 @@
     const groups = [
       statusGroup(siteAdapter),
       sharedConfirmationGroup(siteAdapter),
+      editorNavigationGroup(siteAdapter),
       loopsGroup(loops),
       documentsGroup(documents),
       peopleGroup(people),
@@ -1941,6 +1980,30 @@
     const doc = documentRef || document;
     const tools = [];
     const fields = fillablePlaceholderFields(state || { controls: [] }, doc, url);
+
+    if (detectWorkflowPhase(doc, url) === "document_editor") {
+      tools.push({
+        type: "function",
+        name: READ_DOCUMENT_TOOL,
+        description: truncate(
+          "Read the current Dotloop PDF/document in ONE action. The connector gathers Dotloop-rendered page image URLs and overlay fields; the backend vision extractor converts the page images into structured document text blocks and form fields. Use this for summarizing PDFs, answering questions about document contents, or mapping source form fields to templates.",
+          1100,
+        ),
+        strict: false,
+        parameters: {
+          type: "object",
+          properties: {
+            pageLimit: {
+              type: "integer",
+              description:
+                "Maximum number of pages to read from the current document. Defaults to 25.",
+            },
+          },
+          required: [],
+          additionalProperties: false,
+        },
+      });
+    }
 
     if (fields.length) {
       const fieldValueProperties = {};
@@ -2067,13 +2130,303 @@
     return getElements(".data-item", documentRef);
   }
 
-  function matchingDocumentFieldItems(fieldKey, documentRef = document) {
+  function normalizedVisionBbox(value) {
+    if (!Array.isArray(value) || value.length < 4) return null;
+    const numbers = value.slice(0, 4).map((item) => Number(item));
+    if (numbers.some((number) => !Number.isFinite(number))) return null;
+    return numbers.map((number) => Math.max(0, Math.min(1000, number)));
+  }
+
+  function visionFieldTargetForAction(action, fieldKey) {
+    const targets =
+      action?.visionFieldTargets &&
+      typeof action.visionFieldTargets === "object" &&
+      !Array.isArray(action.visionFieldTargets)
+        ? action.visionFieldTargets
+        : {};
+    const wanted = normalizeText(fieldKey);
+    const target = targets[wanted];
+    if (!target || typeof target !== "object") return null;
+    const bbox = normalizedVisionBbox(target.bbox || target.bounding_box_normalized);
+    if (!bbox) return null;
+    return {
+      fieldKey: wanted,
+      label: normalizeText(target.label),
+      pageNumber: Math.max(1, Math.floor(numberFromAction(target.pageNumber, 1))),
+      bbox,
+      type: lower(target.type),
+      confidence: numberFromAction(target.confidence, 0),
+    };
+  }
+
+  function pixelStyleNumber(value) {
+    const match = String(value || "").match(/-?\d+(?:\.\d+)?/);
+    return match ? Number(match[0]) : null;
+  }
+
+  function fieldBoxWithinPage(item, page) {
+    const fieldEl = item.querySelector(".field") || item;
+    const styleX = pixelStyleNumber(item.style?.left);
+    const styleY = pixelStyleNumber(item.style?.top);
+    const styleWidth =
+      pixelStyleNumber(fieldEl.style?.width) || pixelStyleNumber(item.style?.width);
+    const styleHeight =
+      pixelStyleNumber(fieldEl.style?.height) || pixelStyleNumber(item.style?.height);
+
+    if (
+      styleX !== null &&
+      styleY !== null &&
+      styleWidth !== null &&
+      styleHeight !== null
+    ) {
+      return {
+        x: styleX,
+        y: styleY,
+        width: styleWidth,
+        height: styleHeight,
+      };
+    }
+
+    const itemBounds = elementBounds(fieldEl) || elementBounds(item) || {};
+    const pageBounds = elementBounds(page) || {};
+    const width =
+      itemBounds.width ||
+      pixelNumber(fieldEl.style?.width) ||
+      pixelNumber(item.style?.width);
+    const height =
+      itemBounds.height ||
+      pixelNumber(fieldEl.style?.height) ||
+      pixelNumber(item.style?.height);
+    const x =
+      Number.isFinite(itemBounds.x) && Number.isFinite(pageBounds.x)
+        ? itemBounds.x - pageBounds.x
+        : pixelNumber(item.style?.left);
+    const y =
+      Number.isFinite(itemBounds.y) && Number.isFinite(pageBounds.y)
+        ? itemBounds.y - pageBounds.y
+        : pixelNumber(item.style?.top);
+
+    return {
+      x: Number.isFinite(x) ? x : 0,
+      y: Number.isFinite(y) ? y : 0,
+      width: Number.isFinite(width) ? width : 0,
+      height: Number.isFinite(height) ? height : 0,
+    };
+  }
+
+  function rectFromBbox(bbox) {
+    if (!Array.isArray(bbox) || bbox.length < 4) return null;
+    const [x1, y1, x2, y2] = bbox.map((value) => Number(value));
+    if (![x1, y1, x2, y2].every(Number.isFinite)) return null;
+    return {
+      x: Math.min(x1, x2),
+      y: Math.min(y1, y2),
+      width: Math.abs(x2 - x1),
+      height: Math.abs(y2 - y1),
+    };
+  }
+
+  function scaleRect(rect, pageSize) {
+    if (!rect || !pageSize?.width || !pageSize?.height) return null;
+    return {
+      x: (rect.x / 1000) * pageSize.width,
+      y: (rect.y / 1000) * pageSize.height,
+      width: (rect.width / 1000) * pageSize.width,
+      height: (rect.height / 1000) * pageSize.height,
+    };
+  }
+
+  function rectCenter(rect) {
+    return {
+      x: rect.x + rect.width / 2,
+      y: rect.y + rect.height / 2,
+    };
+  }
+
+  function overlapLength(startA, endA, startB, endB) {
+    return Math.max(0, Math.min(endA, endB) - Math.max(startA, startB));
+  }
+
+  function rectArea(rect) {
+    return Math.max(0, rect?.width || 0) * Math.max(0, rect?.height || 0);
+  }
+
+  function scoreFieldMatch(targetRect, candidateRect, pageSize) {
+    const targetArea = rectArea(targetRect);
+    const candidateArea = rectArea(candidateRect);
+    const overlapX = overlapLength(
+      targetRect.x,
+      targetRect.x + targetRect.width,
+      candidateRect.x,
+      candidateRect.x + candidateRect.width,
+    );
+    const overlapY = overlapLength(
+      targetRect.y,
+      targetRect.y + targetRect.height,
+      candidateRect.y,
+      candidateRect.y + candidateRect.height,
+    );
+    const overlapArea = overlapX * overlapY;
+    const overlapRatio = overlapArea / Math.max(1, Math.min(targetArea, candidateArea));
+    const verticalOverlapRatio =
+      overlapY / Math.max(1, Math.min(targetRect.height, candidateRect.height));
+    const horizontalOverlapRatio =
+      overlapX / Math.max(1, Math.min(targetRect.width, candidateRect.width));
+    const targetCenter = rectCenter(targetRect);
+    const candidateCenter = rectCenter(candidateRect);
+    const dx = Math.abs(candidateCenter.x - targetCenter.x) / Math.max(1, pageSize.width);
+    const dy = Math.abs(candidateCenter.y - targetCenter.y) / Math.max(1, pageSize.height);
+    const centerDistance = Math.sqrt(dx * dx + dy * dy);
+
+    // Overlap and same-row evidence dominate center distance; this avoids mapping
+    // a field to the next row when raw Dotloop coordinates are already available.
+    const score =
+      (1 - overlapRatio) * 100 +
+      (1 - verticalOverlapRatio) * 60 +
+      (1 - horizontalOverlapRatio) * 15 +
+      centerDistance * 40;
+
+    return {
+      score,
+      overlapRatio,
+      verticalOverlapRatio,
+      horizontalOverlapRatio,
+      centerDistance,
+    };
+  }
+
+  function visionTargetRects(visionTarget, pageSize) {
+    const raw = rectFromBbox(visionTarget?.bbox);
+    const rects = [];
+    if (raw) rects.push({ mode: "raw", rect: raw });
+    const normalized = scaleRect(raw, pageSize);
+    if (normalized) rects.push({ mode: "normalized", rect: normalized });
+    return rects;
+  }
+
+  function pageSizeForVisionMatch(page) {
+    const bounds = elementBounds(page) || {};
+    return {
+      width: bounds.width || pixelNumber(page.style?.width) || page.clientWidth || 0,
+      height: bounds.height || pixelNumber(page.style?.height) || page.clientHeight || 0,
+    };
+  }
+
+  function fieldTypeCompatibleWithVisionTarget(candidateType, targetType) {
+    const candidate = lower(candidateType);
+    const target = lower(targetType);
+    if (!target || target === "unknown") return true;
+    if (target === "text" || target === "textarea" || target === "textbox") {
+      return !["signature", "initial", "checkbox"].includes(candidate);
+    }
+    if (target === "date") return candidate === "date" || candidate === "text" || candidate === "textbox";
+    return candidate === target;
+  }
+
+  function matchingDocumentFieldItemsByVisionTarget(
+    visionTarget,
+    documentRef = document,
+  ) {
+    if (!visionTarget) return [];
+    const pages = getElements(".document-page", documentRef);
+    const candidates = [];
+
+    for (const [index, item] of documentFieldItems(documentRef).entries()) {
+      const page = item.closest(".document-page");
+      const pageIndex = Math.max(0, pages.indexOf(page)) + 1 || 1;
+      if (!page || pageIndex !== visionTarget.pageNumber) continue;
+
+      const fieldType = fieldTypeFor(item);
+      if (!fieldTypeCompatibleWithVisionTarget(fieldType, visionTarget.type)) {
+        continue;
+      }
+
+      const pageSize = pageSizeForVisionMatch(page);
+      if (!pageSize.width || !pageSize.height) continue;
+
+      const box = fieldBoxWithinPage(item, page);
+      const editability = fieldEditability(item, fieldType, fieldValueFor(item));
+      const editPenalty = editability.fillableByCurrentUser ? 0 : pageSize.width;
+      const rectScores = visionTargetRects(visionTarget, pageSize).map(
+        ({ mode, rect }) => ({
+          mode,
+          targetRect: rect,
+          ...scoreFieldMatch(rect, box, pageSize),
+        }),
+      );
+      const bestRectScore = rectScores.sort((a, b) => a.score - b.score)[0];
+      if (!bestRectScore) continue;
+
+      candidates.push({
+        item,
+        score: bestRectScore.score + editPenalty + index * 0.001,
+        match: {
+          matchedBy: "vision_bbox",
+          matchMode: bestRectScore.mode,
+          matchScore: Number((bestRectScore.score + editPenalty).toFixed(3)),
+          overlapRatio: Number(bestRectScore.overlapRatio.toFixed(3)),
+          verticalOverlapRatio: Number(
+            bestRectScore.verticalOverlapRatio.toFixed(3),
+          ),
+          horizontalOverlapRatio: Number(
+            bestRectScore.horizontalOverlapRatio.toFixed(3),
+          ),
+          centerDistance: Number(bestRectScore.centerDistance.toFixed(3)),
+          visionBox: visionTarget.bbox,
+          domBox: {
+            x: Math.round(box.x),
+            y: Math.round(box.y),
+            width: Math.round(box.width),
+            height: Math.round(box.height),
+          },
+        },
+      });
+    }
+
+    candidates.sort((a, b) => a.score - b.score);
+    return candidates.length ? [candidates[0]] : [];
+  }
+
+  function documentFieldIdentityForItem(item, documentRef = document) {
+    const documentId = currentDocumentId(location.href, documentRef) || "current";
+    const pages = getElements(".document-page", documentRef);
+    const items = documentFieldItems(documentRef);
+    const page = item.closest(".document-page");
+    const pageIndex = Math.max(0, pages.indexOf(page)) + 1 || 1;
+    const position = Math.max(0, items.indexOf(item)) + 1 || 1;
+    return {
+      groupId: `dotloop_field_${documentId}_${pageIndex}_${position}`,
+      groupTargetId: `site:${ADAPTER_ID}:field:${documentId}:${pageIndex}:${position}`,
+      documentId,
+      pageNumber: pageIndex,
+      position,
+    };
+  }
+
+  function matchingDocumentFieldMatches(fieldKey, documentRef = document, visionTarget = null) {
     const wanted = normalizeText(fieldKey);
     if (!wanted) return [];
-    return documentFieldItems(documentRef).filter((item) => {
-      const value = fieldValueFor(item);
-      return isMachineKey(value) && normalizeText(value) === wanted;
-    });
+    const machineMatches = documentFieldItems(documentRef)
+      .filter((item) => {
+        const value = fieldValueFor(item);
+        return isMachineKey(value) && normalizeText(value) === wanted;
+      })
+      .map((item) => ({
+        item,
+        match: {
+          matchedBy: "machine_key",
+          matchMode: "machine_key",
+          matchScore: 0,
+        },
+      }));
+    if (machineMatches.length) return machineMatches;
+    return matchingDocumentFieldItemsByVisionTarget(visionTarget, documentRef);
+  }
+
+  function matchingDocumentFieldItems(fieldKey, documentRef = document, visionTarget = null) {
+    return matchingDocumentFieldMatches(fieldKey, documentRef, visionTarget).map(
+      (match) => match.item,
+    );
   }
 
   function liveDocumentFieldInput(item) {
@@ -2120,12 +2473,179 @@
     return fieldValues;
   }
 
-  async function fillOneDocumentFieldItem(item, fieldKey, value, ctx) {
+  function numberFromAction(value, fallback) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : fallback;
+  }
+
+  function pageLimitFromAction(action) {
+    const limit = Math.floor(numberFromAction(action?.pageLimit, 25));
+    return Math.min(Math.max(limit || 25, 1), 100);
+  }
+
+  function pixelNumber(value) {
+    const match = String(value || "").match(/-?\d+(?:\.\d+)?/);
+    return match ? Number(match[0]) : 0;
+  }
+
+  function normalizeDocumentPage(page, index) {
+    const imageUrl = normalizeText(page?.s3ImageUrl || page?.imageUrl);
+    return {
+      pageNumber: Math.max(1, Math.floor(numberFromAction(page?.number, index + 1))),
+      width: Math.round(numberFromAction(page?.width, 0)),
+      height: Math.round(numberFromAction(page?.height, 0)),
+      imageUrl: imageUrl ? absoluteHref(imageUrl) : "",
+    };
+  }
+
+  function normalizeDocumentField(field) {
+    return {
+      pageNumber: Math.max(1, Math.floor(numberFromAction(field?.pageNumber, 1))),
+      type: normalizeText(field?.type),
+      value: normalizeText(field?.value),
+      x: Math.round(numberFromAction(field?.x, 0)),
+      y: Math.round(numberFromAction(field?.y, 0)),
+      width: Math.round(numberFromAction(field?.width, 0)),
+      height: Math.round(numberFromAction(field?.height, 0)),
+      dataId: normalizeText(field?.dataId),
+    };
+  }
+
+  async function fetchDocumentRevisionPayload(documentId, viewId) {
+    if (!documentId || !viewId || typeof fetch !== "function") return null;
+    const url =
+      `/my/rest/v1_0/document/${encodeURIComponent(documentId)}` +
+      `/revision/0?viewId=${encodeURIComponent(viewId)}`;
+    const response = await fetch(url, {
+      credentials: "include",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!response?.ok) {
+      throw new Error(`Dotloop document revision request failed (${response?.status || 0}).`);
+    }
+    return response.json();
+  }
+
+  function documentPagesFromDom(documentRef = document) {
+    return getElements(".document-page", documentRef).map((page, index) => {
+      const img = page.querySelector("img[src]");
+      const bounds = elementBounds(page) || {};
+      return {
+        pageNumber: index + 1,
+        width: Math.round(
+          numberFromAction(img?.naturalWidth, 0) ||
+            numberFromAction(img?.width, 0) ||
+            bounds.width ||
+            0,
+        ),
+        height: Math.round(
+          numberFromAction(img?.naturalHeight, 0) ||
+            numberFromAction(img?.height, 0) ||
+            pixelNumber(page.style?.height) ||
+            bounds.height ||
+            0,
+        ),
+        imageUrl: img?.src || "",
+      };
+    });
+  }
+
+  function documentFieldsFromDom(documentRef = document) {
+    const pages = getElements(".document-page", documentRef);
+    return documentFieldItems(documentRef).map((item, index) => {
+      const page = item.closest(".document-page");
+      const fieldEl = item.querySelector(".field") || item;
+      const pageIndex = Math.max(0, pages.indexOf(page)) + 1 || 1;
+      return {
+        pageNumber: pageIndex,
+        type: fieldTypeFor(item).toUpperCase(),
+        value: fieldValueFor(item),
+        x: Math.round(pixelNumber(item.style?.left)),
+        y: Math.round(pixelNumber(item.style?.top)),
+        width: Math.round(pixelNumber(fieldEl.style?.width)),
+        height: Math.round(pixelNumber(fieldEl.style?.height)),
+        dataId:
+          normalizeText(item.getAttribute("data-id")) ||
+          normalizeText(item.getAttribute("data-dataid")) ||
+          String(index + 1),
+      };
+    });
+  }
+
+  async function dotloopReadDocument(action) {
+    const documentId = currentDocumentId(location.href, document);
+    const viewId = currentViewId(location.href);
+    const documentName = currentDocumentName(document);
+    const pageLimit = pageLimitFromAction(action);
+    let payload = null;
+    let source = "dom";
+    let restError = "";
+
+    try {
+      payload = await fetchDocumentRevisionPayload(documentId, viewId);
+      if (payload) source = "dotloop_revision_rest";
+    } catch (error) {
+      restError = error?.message || String(error);
+    }
+
+    const pages = (
+      Array.isArray(payload?.pages)
+        ? payload.pages.map(normalizeDocumentPage)
+        : documentPagesFromDom(document)
+    )
+      .filter((page) => page.imageUrl)
+      .slice(0, pageLimit);
+
+    const overlayFields = (
+      Array.isArray(payload?.fields)
+        ? payload.fields.map(normalizeDocumentField)
+        : documentFieldsFromDom(document)
+    ).filter((field) => field.pageNumber);
+
+    if (!pages.length && !overlayFields.length) {
+      return {
+        ok: false,
+        recoverable: true,
+        detail: restError
+          ? `Could not read Dotloop document pages or fields: ${restError}`
+          : "Could not read Dotloop document pages or fields.",
+      };
+    }
+
+    return {
+      ok: true,
+      committed: false,
+      detail: `Prepared Dotloop document read request with ${pages.length} page image(s) and ${overlayFields.length} overlay field(s).`,
+      dotloopDocumentReadRequest: {
+        version: 1,
+        source,
+        document: {
+          documentId: normalizeText(payload?.documentId) || documentId,
+          documentName: normalizeText(payload?.name) || documentName,
+          source: "dotloop",
+          url: location.href,
+          viewId,
+          revision: normalizeText(payload?.revision),
+        },
+        pages,
+        overlayFields,
+        restError,
+      },
+    };
+  }
+
+  function normalizeForCompare(value) {
+    return lower(value);
+  }
+
+  async function fillOneDocumentFieldItem(item, fieldKey, value, ctx, match = {}) {
     const click = ctx?.primitives?.clickElement;
     const fill = ctx?.primitives?.fillElement;
     const fieldType = fieldTypeFor(item);
     const currentValue = fieldValueFor(item);
     const editability = fieldEditability(item, fieldType, currentValue);
+    const identity = documentFieldIdentityForItem(item);
 
     if (!editability.fillableByCurrentUser) {
       return {
@@ -2134,6 +2654,7 @@
         fieldKey,
         reason: editability.fillBlockReason || "not fillable by current user",
         fieldType,
+        ...identity,
       };
     }
     if (typeof click !== "function" || typeof fill !== "function") {
@@ -2142,6 +2663,7 @@
         fieldKey,
         reason: "runner primitives unavailable",
         fieldType,
+        ...identity,
       };
     }
 
@@ -2157,6 +2679,7 @@
         fieldKey,
         reason: "field did not reveal a fillable input after activation",
         fieldType,
+        ...identity,
       };
     }
 
@@ -2165,13 +2688,18 @@
     input.dispatchEvent(new Event("blur", { bubbles: true }));
     input.blur?.();
     await delay(120);
+    const committedValue = fieldValueFor(item) || value;
 
     return {
       ok: true,
       fieldKey,
       value,
+      requestedValue: value,
       fieldType,
-      committedValue: fieldValueFor(item) || value,
+      committedValue,
+      verified: normalizeForCompare(committedValue) === normalizeForCompare(value),
+      ...identity,
+      ...(match || {}),
     };
   }
 
@@ -2189,23 +2717,55 @@
     const skipped = [];
     const failed = [];
     const committedFieldValues = {};
+    const fieldTargets = {};
 
     for (const [fieldKey, value] of entries) {
-      const items = matchingDocumentFieldItems(fieldKey, document);
-      if (!items.length) {
+      const visionTarget = visionFieldTargetForAction(action, fieldKey);
+      const matches = matchingDocumentFieldMatches(fieldKey, document, visionTarget);
+      if (!matches.length) {
         skipped.push({
           fieldKey,
           requestedValue: value,
-          reason: "matching placeholder not found",
+          reason: visionTarget
+            ? "matching placeholder or vision field target not found"
+            : "matching placeholder not found",
         });
         continue;
       }
 
-      for (const item of items) {
-        const result = await fillOneDocumentFieldItem(item, fieldKey, value, ctx);
+      for (const { item, match } of matches) {
+        const result = await fillOneDocumentFieldItem(
+          item,
+          fieldKey,
+          value,
+          ctx,
+          match,
+        );
         if (result.ok) {
           filled.push(result);
           committedFieldValues[fieldKey] = result.committedValue || value;
+          fieldTargets[fieldKey] = {
+            groupId: result.groupId,
+            groupTargetId: result.groupTargetId,
+            targetId: result.groupTargetId,
+            fieldKey,
+            requestedValue: value,
+            committedValue: result.committedValue || value,
+            verified: Boolean(result.verified),
+            fieldType: result.fieldType,
+            documentId: result.documentId,
+            pageNumber: result.pageNumber,
+            position: result.position,
+            matchedBy: result.matchedBy || "unknown",
+            matchMode: result.matchMode || "",
+            matchScore: result.matchScore,
+            overlapRatio: result.overlapRatio,
+            verticalOverlapRatio: result.verticalOverlapRatio,
+            horizontalOverlapRatio: result.horizontalOverlapRatio,
+            centerDistance: result.centerDistance,
+            visionBox: result.visionBox,
+            domBox: result.domBox,
+          };
         } else if (result.skipped) {
           skipped.push({
             fieldKey,
@@ -2230,6 +2790,7 @@
       continueBatch: failed.length > 0,
       committed: failed.length === 0,
       fieldValues: committedFieldValues,
+      fieldTargets,
       filled,
       skipped,
       failed,
@@ -2590,6 +3151,10 @@
     globalThis.WebGPTConnectorTools.register(
       "dotloop_add_person",
       dotloopAddPerson,
+    );
+    globalThis.WebGPTConnectorTools.register(
+      READ_DOCUMENT_TOOL,
+      dotloopReadDocument,
     );
   }
 
