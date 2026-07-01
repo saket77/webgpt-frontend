@@ -1,22 +1,28 @@
-# Demo 2: Human-Confirmed Form Filling
+# Demo 2: WebGPT Works With Microsoft Excel
 
-This demo shows WebGPT filling a form while keeping final user-sensitive actions behind explicit confirmation.
+This Short shows WebGPT moving beyond website-only automation and operating Microsoft Excel as a real work surface.
 
 ## What It Shows
 
-- Planning normal `fill`, `click`, `press`, and `wait` actions
-- Using adapter hints when a site adapter is active
-- Pausing for human guidance or confirmation when the task reaches a sensitive boundary
-- Resuming the same run after a human hint or success rejection
+- WebGPT connects to Microsoft Excel through the settings flow.
+- The setup uses tenant ID, client ID, and the displayed redirect URI.
+- After OAuth is connected, WebGPT can create a sample expense sheet.
+- The generated workbook includes rows plus a total cell, written through the Excel runtime.
 
 ## Why It Matters
 
-Useful browser agents need a visible recovery path. WebGPT treats human intervention as part of the run loop rather than an exception outside the system.
+Spreadsheets are not ordinary DOM pages. WebGPT treats Excel as an API-backed runtime surface instead of trying to click cells in a canvas-like UI.
 
-## Repro Checklist
+This demo shows the connector model expanding from browser pages into real work tools.
 
-1. Open a page with a small form.
-2. Ask WebGPT to fill safe fields with known values.
-3. Confirm it does not perform a sensitive final action unless requested.
-4. Provide a hint or reject a premature completion and confirm the run resumes.
+## Demo Message
 
+WebGPT is moving from website demos into real work tools.
+
+## Repro Shape
+
+1. Open WebGPT settings.
+2. Configure Microsoft Excel with tenant ID, client ID, and redirect URI.
+3. Connect Excel through OAuth.
+4. Open a supported Excel workbook.
+5. Ask WebGPT to create a sample expense sheet with rows and a total cell.

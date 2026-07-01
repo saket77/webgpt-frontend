@@ -1,22 +1,30 @@
-# Demo 3: Spreadsheet Runtime
+# Demo 3: WebGPT Works Across Excel And Google Sheets
 
-This demo shows WebGPT operating on spreadsheet data through a runtime surface instead of pretending spreadsheet canvases are ordinary DOM pages.
+This Short shows WebGPT handling spreadsheet tasks across Microsoft Excel and Google Sheets.
+
+The point is simple: once OAuth is connected, the user should not have to care which spreadsheet product is open. WebGPT should take the task, route it through the right connector, and edit the sheet directly.
 
 ## What It Shows
 
-- Detecting Google Sheets or Microsoft Excel as a non-DOM surface
-- Extracting bounded workbook or spreadsheet state
-- Executing curated commands such as `read_values`, `write_values`, `find_rows`, `read_range`, or `write_range`
-- Keeping OAuth tokens in the extension, not the backend
+- Microsoft Excel and Google Sheets are both supported spreadsheet surfaces.
+- OAuth is already connected before the run starts.
+- The user gives a normal spreadsheet task in plain English.
+- WebGPT edits the sheet directly through the active spreadsheet connector.
+- The planner loop stays the same while the runtime chooses the correct spreadsheet executor.
 
 ## Why It Matters
 
-Some products are better controlled through durable APIs and structured state. Runtime surfaces let WebGPT keep the same planner/controller loop while using a better executor for the job.
+Spreadsheets are not ordinary DOM pages. Their grids are virtualized, cell state is structured, and formulas need real spreadsheet semantics. WebGPT treats them as API-backed surfaces instead of click targets.
 
-## Repro Checklist
+This demo is the clean proof of the connector model: one agent loop, multiple real work tools.
 
-1. Open a supported spreadsheet or workbook.
-2. Connect the relevant runtime auth if needed.
-3. Ask WebGPT to read or update a bounded range.
-4. Confirm the command result and post-command state are reflected in run history.
+## Demo Message
 
+WebGPT is moving past one-off browser demos. It can work inside the spreadsheet tools people already use.
+
+## Repro Shape
+
+1. Connect Microsoft Excel and Google Sheets through settings.
+2. Open a supported workbook or sheet.
+3. Ask WebGPT to create or update spreadsheet data.
+4. Confirm it writes rows, formulas, and totals through the connector rather than DOM clicking.

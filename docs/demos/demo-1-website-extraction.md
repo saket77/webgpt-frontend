@@ -1,22 +1,28 @@
-# Demo 1: Website Extraction
+# Demo 1: WebGPT Routines - Philly Property Workflow
 
-This demo shows WebGPT reading a normal website through the browser DOM runtime and returning structured facts without requiring a site-specific integration.
+This Short shows WebGPT running a Philadelphia property lookup and saving the successful path as a reusable routine.
 
 ## What It Shows
 
-- Extracting browser state from the active tab
-- Ranking visible controls, headings, and page text for the planner
-- Using `extract_state` and `extract` before summarizing facts
-- Keeping the backend focused on planning while the extension owns page observation
+- WebGPT reads and acts on a normal city/property website through the browser runtime.
+- A successful property lookup path can be saved as a routine.
+- The same workflow can run again with a new property input.
+- The final output is a completed property summary, not just a list of clicks.
 
 ## Why It Matters
 
-This is the baseline WebGPT loop. Before runtimes, connectors, replay, or specialized adapters matter, WebGPT needs to prove that a planner can understand an ordinary web page from compact structured state.
+Browser agents should not start from zero every time. Once WebGPT finds a reliable path through a real workflow, it can preserve that path and reuse it across new inputs.
 
-## Repro Checklist
+This is the first public demo in the arc: WebGPT is not only a one-off browser agent. It is a runtime for repeatable browser work.
 
-1. Load the extension.
-2. Open a normal public website.
-3. Ask WebGPT to extract a bounded set of visible facts.
-4. Confirm the run summary cites information actually present in the page state.
+## Demo Message
 
+Same workflow, new input, completed summaries.
+
+## Repro Shape
+
+1. Start from a Philadelphia property lookup workflow.
+2. Let WebGPT complete the lookup once.
+3. Save the successful path as a routine.
+4. Run the routine again with a different property input.
+5. Confirm the repeated run produces the expected property summary.
