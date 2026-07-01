@@ -5,6 +5,9 @@
 WebGPT is an open-source Chrome runtime for AI browser agents.
 
 It lets an AI planner observe the current browser tab, extract structured page or runtime state, execute browser actions, pause for human confirmation, and replay successful workflows across multiple inputs.
+WebGPT is an open-source Chrome runtime for AI browser agents.
+
+It lets an AI planner observe the current browser tab, extract structured page or runtime state, execute browser actions, pause for human confirmation, and replay successful workflows across multiple inputs.
 
 Think of this repo as the browser-side runtime: sidepanel UI, tab/session orchestration, DOM extraction, runtime surfaces, action execution, replay support, and the HTTP adapter contract that lets planner backends plug in cleanly.
 
@@ -41,6 +44,7 @@ The public Shorts series now shows WebGPT moving from repeatable browser routine
 - [x] Demo 5: WebGPT Reads Dotloop PDFs
 - [ ] Demo 6: Custom backend using the OpenAPI contract
 - [ ] Demo 7: Connector replay and navigation boundaries
+- [ ] Demo 7: Connector replay and navigation boundaries
 
 ## Why WebGPT?
 
@@ -49,6 +53,7 @@ Web automation agents are easiest to iterate on when the browser runtime and pla
 - **Browser-native execution**: runs as a Chrome extension, using content scripts to inspect and operate on the current page.
 - **Backend-agnostic planning**: use the hosted WebGPT planner or point the extension at any backend that speaks the documented command contract.
 - **Structured state**: extracts frames, controls, labels, scroll containers, URLs, titles, site-adapter hints, and runtime-specific state for planner use.
+- **Connector-enabled adapters**: lets selected site adapters expose bounded page tools, such as multi-step select filling or document-field completion, without turning the site into a separate runtime.
 - **Connector-enabled adapters**: lets selected site adapters expose bounded page tools, such as multi-step select filling or document-field completion, without turning the site into a separate runtime.
 - **Runtime surfaces**: can route non-DOM products such as Google Sheets and Microsoft Excel through dedicated runtime clients while preserving the same planner loop.
 - **Human-in-the-loop recovery**: supports planner pauses, human hints, success confirmation, and rejected-success resume flows.
@@ -82,6 +87,8 @@ Most adapters are state-only: they enrich controls, groups, and planner hints so
 Some apps are better controlled through APIs or app-specific state models instead of DOM clicks.
 
 WebGPT's runtime surfaces are designed for products like Google Sheets, Microsoft Excel, and other structured workspaces.
+
+Use a runtime when the durable state lives outside the DOM and the extension should execute API-like commands. Use a connector-enabled site adapter when the workflow is still a browser page, but the page needs a local helper to perform a reliable DOM-backed operation.
 
 Use a runtime when the durable state lives outside the DOM and the extension should execute API-like commands. Use a connector-enabled site adapter when the workflow is still a browser page, but the page needs a local helper to perform a reliable DOM-backed operation.
 
@@ -134,6 +141,20 @@ The built sidepanel files are generated into `sidepanel-app/dist/`.
 2. Enable **Developer mode**.
 3. Click **Load unpacked**.
 4. Select this repository folder.
+
+### Package for Sharing
+
+```bash
+node scripts/package-extension.mjs
+```
+
+This rebuilds the sidepanel and writes a lean loadable extension zip using the
+manifest version, for example `../webgpt-extension-frontend-v1.0.2.zip`.
+To choose a different output path:
+
+```bash
+node scripts/package-extension.mjs --output ../webgpt-extension-frontend-store.zip
+```
 
 ### Package for Sharing
 
@@ -253,7 +274,9 @@ icons/            Extension icons
 ## Site Adapters
 
 Site adapters enrich extracted state for specific websites. State-only adapters only describe the page. Connector-enabled adapters can additionally expose bounded page tools that the planner calls through `run_actions`; those tools execute in the content script and reuse the same DOM detection logic as the adapter.
+Site adapters enrich extracted state for specific websites. State-only adapters only describe the page. Connector-enabled adapters can additionally expose bounded page tools that the planner calls through `run_actions`; those tools execute in the content script and reuse the same DOM detection logic as the adapter.
 
+Use site adapters when generic DOM extraction needs domain context, stable target mapping, planner hints, or a small DOM-backed connector tool. Do not use them for API-backed products whose useful state is not reliably represented in the DOM.
 Use site adapters when generic DOM extraction needs domain context, stable target mapping, planner hints, or a small DOM-backed connector tool. Do not use them for API-backed products whose useful state is not reliably represented in the DOM.
 
 Start here:
@@ -261,9 +284,12 @@ Start here:
 - [Site adapter authoring guide](./docs/site-adapter-authoring.md)
 
 Examples:
+Examples:
 
 ```text
 content-scripts/adapters/canvasQuiz.js
+content-scripts/adapters/greenhouse.js
+content-scripts/adapters/dotloop.js
 content-scripts/adapters/greenhouse.js
 content-scripts/adapters/dotloop.js
 ```
