@@ -44,7 +44,6 @@ The public Shorts series now shows WebGPT moving from repeatable browser routine
 - [x] Demo 5: WebGPT Reads Dotloop PDFs
 - [ ] Demo 6: Custom backend using the OpenAPI contract
 - [ ] Demo 7: Connector replay and navigation boundaries
-- [ ] Demo 7: Connector replay and navigation boundaries
 
 ## Why WebGPT?
 

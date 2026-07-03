@@ -43,6 +43,7 @@ export function createController({
     artifactFileName = "",
     surface = "",
     myInfo = null,
+    profileAttachments = [],
   ) =>
     startAgentFlow(
       tabId,
@@ -52,6 +53,7 @@ export function createController({
       artifactFileName,
       surface,
       myInfo,
+      profileAttachments,
       {
         continueRun,
         plannerAdapter,

@@ -5,6 +5,11 @@ import {
   runBrowserControlAction,
 } from "./browserControl.js";
 
+const CONTENT_SCRIPT_PROTOCOL_REVISION = "connector-tools-2026-07-02";
+const PING_MESSAGE_TYPE = "PING_WEBGPT_CONTENT_SCRIPT";
+const EXTRACT_STATE_MESSAGE_TYPE = "WEBGPT_EXTRACT_STATE_V2";
+const RUN_ACTIONS_MESSAGE_TYPE = "WEBGPT_RUN_ACTIONS_V2";
+
 const CONTENT_SCRIPT_FILES = [
   "content-scripts/connectorTools.js",
   "content-scripts/extract-state/domUtils.js",
@@ -327,10 +332,14 @@ function resolveExecutionFrameId(state, actions) {
 async function pingFrame(tabId, frameId) {
   try {
     const response = await sendMessageToFrame(tabId, frameId, {
-      type: "PING_WEBGPT",
+      type: PING_MESSAGE_TYPE,
+      protocolRevision: CONTENT_SCRIPT_PROTOCOL_REVISION,
     });
 
-    return !!response?.ok;
+    return (
+      !!response?.ok &&
+      response.protocolRevision === CONTENT_SCRIPT_PROTOCOL_REVISION
+    );
   } catch (error) {
     console.warn("[WebGPT][pingFrame] failed", {
       tabId,
@@ -485,7 +494,8 @@ async function extractStateFromFrame(
   { goal, step, meta = {} },
 ) {
   const response = await sendMessageToFrame(tabId, frameId, {
-    type: "WEBGPT_EXTRACT_STATE",
+    type: EXTRACT_STATE_MESSAGE_TYPE,
+    protocolRevision: CONTENT_SCRIPT_PROTOCOL_REVISION,
     goal,
     step,
     meta,
@@ -709,7 +719,8 @@ async function runDomActionsInTab(tabId, state, actions) {
   const runnerActions = sanitizeActionsForRunner(actions);
 
   const response = await sendMessageToFrame(tabId, frameId, {
-    type: "WEBGPT_RUN_ACTIONS",
+    type: RUN_ACTIONS_MESSAGE_TYPE,
+    protocolRevision: CONTENT_SCRIPT_PROTOCOL_REVISION,
     state: singleFrameState,
     actions: runnerActions,
   });

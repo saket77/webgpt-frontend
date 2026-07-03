@@ -41,6 +41,8 @@ test("Ashby adapter treats portaled autocomplete options as uncommitted until cl
   assert.match(source, /isComboboxExpanded\(input\) \|\| isComboboxLinkedListboxVisible\(input\)/);
   assert.match(source, /isCombobox && textValue && autocompleteOpen/);
   assert.match(source, /const selectedValue = isCombobox \? "" : selectedValueFromOptions/);
+  assert.match(source, /function floatingPortalOptionElements/);
+  assert.match(source, /\[data-floating-ui-portal\] \[role='option'\]/);
   assert.doesNotMatch(source, /boundsNearCombobox/);
 });
 
@@ -87,4 +89,144 @@ test("Ashby guidance distinguishes profile blanks, sensitive optional fields, an
   assert.match(source, /Sensitive optional Ashby diversity fields are blank/);
   assert.match(source, /blank alternates are not blockers/);
   assert.match(source, /No required Ashby text\/choice field is visibly missing\. Check optional profile blanks/);
+});
+
+test("Ashby adapter exposes composite connector tools for application fields and EEOC", () => {
+  const source = readSource("content-scripts/adapters/ashby.js");
+
+  assert.match(source, /const APPLICATION_FIELDS_TOOL = "ashby_fill_application_fields"/);
+  assert.match(source, /const EEOC_TOOL = "ashby_fill_eeoc"/);
+  assert.match(source, /const EEOC_FIELD_SPECS/);
+  assert.match(source, /fieldKey: "gender"/);
+  assert.match(source, /fieldKey: "race"/);
+  assert.match(source, /fieldKey: "veteran_status"/);
+  assert.match(source, /fieldKey: "disability_status"/);
+  assert.match(source, /function applicationFillGroups/);
+  assert.match(source, /ashby_application_fill_batch/);
+  assert.match(source, /function eeocSectionGroups/);
+  assert.match(source, /ashby_eeoc_section/);
+  assert.match(source, /preferredAction: APPLICATION_FIELDS_TOOL/);
+  assert.match(source, /preferredAction: EEOC_TOOL/);
+  assert.match(source, /connector action available: \$\{APPLICATION_FIELDS_TOOL\}/);
+  assert.match(source, /connector action available: \$\{EEOC_TOOL\}/);
+  assert.match(source, /ASHBY_APPLICATION_CONNECTOR_BATCH_HINT/);
+  assert.match(source, /emit both connector actions in the same planner step/);
+  assert.match(source, /pageKind === "application_form" \? ASHBY_APPLICATION_CONNECTOR_BATCH_HINT : ""/);
+  assert.match(source, /Do not fill\/click this individual Ashby control directly while connector tools are expected/);
+  assert.match(source, /avoidAction: true,\s+safeFillTarget: false,\s+observeAfterAction: false/);
+  assert.match(source, /Ashby connector-managed fields are not normal fill\/click targets/);
+  assert.doesNotMatch(source, /safeFillTarget: field\.connectorTool !== EEOC_TOOL/);
+  assert.match(source, /provideTools,/);
+});
+
+test("Ashby connector executors fill non-file fields and EEOC through WebGPTConnectorTools", () => {
+  const source = readSource("content-scripts/adapters/ashby.js");
+
+  assert.match(source, /function provideTools/);
+  assert.match(source, /name: APPLICATION_FIELDS_TOOL/);
+  assert.match(source, /name: EEOC_TOOL/);
+  assert.match(source, /function eeocFieldSchemaDescription/);
+  assert.match(source, /ASHBY_RACE_INDIAN_HINT/);
+  assert.match(source, /Indian\/India\/South Asian maps to Asian \(Not Hispanic or Latino\), not American Indian or Alaska Native/);
+  assert.match(source, /If runContext\.myInfo says not a veteran, use I am not a protected veteran/);
+  assert.match(source, /description: eeocFieldSchemaDescription\(field\)/);
+  assert.match(source, /function connectorApplicationFields/);
+  assert.match(source, /field\.sectionKind !== "eeoc" && field\.fieldKind !== "file"/);
+  assert.match(source, /function connectorEeocFields/);
+  assert.match(source, /const kind = fieldKind\(root, options\.length, hasCombobox\)/);
+  assert.doesNotMatch(source, /const fieldKind = fieldKind\(/);
+  assert.match(source, /async function fillComboboxField/);
+  assert.match(source, /function readComboboxOptions/);
+  assert.match(source, /comboboxLinkedOptionElements/);
+  assert.match(source, /const portalOptions = floatingPortalOptionElements\(\)/);
+  assert.match(source, /portalOptions\.length\s+\?\s+portalOptions/);
+  assert.match(source, /function searchComboboxOptions/);
+  assert.match(source, /function fillChoiceField/);
+  assert.match(source, /function fillNativeOrTextField/);
+  assert.match(source, /async function ashbyFillApplicationFields/);
+  assert.match(source, /async function ashbyFillEeoc/);
+  assert.match(source, /fieldValues: committedFieldValues/);
+  assert.match(source, /fieldTargets/);
+  assert.match(source, /WebGPTConnectorTools\.register\(\s*APPLICATION_FIELDS_TOOL/);
+  assert.match(source, /WebGPTConnectorTools\.register\(EEOC_TOOL, ashbyFillEeoc\)/);
+});
+
+test("Ashby adapter hides EEOC policy copy and keeps only actionable fields", () => {
+  const source = readSource("content-scripts/adapters/ashby.js");
+
+  assert.match(source, /function isAshbyPolicyNoiseText/);
+  assert.match(source, /equal employment opportunity/);
+  assert.match(source, /completion is voluntary/);
+  assert.match(source, /self-identification of veteran status/);
+  assert.match(source, /filterPlannerNoiseList\(state\.visibleTextSummary/);
+  assert.match(source, /filterPlannerNoiseGroups\(state\.groups/);
+  assert.match(source, /function filterPlannerNoiseControls/);
+  assert.match(source, /controls: filterPlannerNoiseControls/);
+  assert.match(source, /Ashby EEOC\/policy copy is not actionable for the planner/);
+});
+
+test("Ashby connector state uses fieldKey identity for post-action verification", () => {
+  const source = readSource("content-scripts/adapters/ashby.js");
+
+  assert.match(source, /fieldKey: field\.sectionKind === "eeoc" \? field\.eeocFieldKey \|\| field\.fieldPath : field\.fieldPath/);
+  assert.match(source, /groupTargetId: fieldTargetId\(field\.fieldPath\)/);
+  assert.match(source, /matchedBy: field\.eeocFieldKey && field\.eeocFieldKey === fieldKey/);
+  assert.match(source, /matchMode: "ashby_runtime_field"/);
+});
+
+test("Ashby yes/no fields use field-local active buttons and connector-managed hints", () => {
+  const source = readSource("content-scripts/adapters/ashby.js");
+
+  assert.match(source, /function yesNoButtonsForRoot/);
+  assert.match(source, /function yesNoSelectedValue/);
+  assert.match(source, /selectedFromClasses\(button\) === true/);
+  assert.match(source, /if \(isYesNoFieldRoot\(field\.root\)\) return yesNoSelectedValue\(field\.root\)/);
+  assert.match(source, /async function fillYesNoField/);
+  assert.match(source, /if \(isYesNoFieldRoot\(field\.root\)\) return fillYesNoField\(field, value, ctx\)/);
+  assert.match(source, /const isConnectorManagedOption = Boolean\(field\.connectorTool && !isComboboxOption\)/);
+  assert.match(source, /semanticRole: isComboboxOption\s+\? "ashby_autocomplete_option"\s+: isConnectorManagedOption\s+\? "ashby_connector_managed_option"/);
+  assert.match(source, /preferredAction: isConnectorManagedOption\s+\? field\.connectorTool\s+: "click"/);
+  assert.match(source, /avoidAction: isConnectorManagedOption \? true : undefined/);
+  assert.match(source, /function optionSelectorForField/);
+  assert.match(source, /function buildSelectorOverrides/);
+  assert.match(source, /const rootSelector = `\[data-field-path="\$\{cssEscape\(field\.fieldPath\)\}"\]`/);
+  assert.match(source, /enhanceControls\(\s*state\.controls \|\| \[\],\s*siteAdapter\.actionHintsByTargetId \|\| \{\},\s*siteAdapter\.selectorOverrides \|\| \{\}/);
+});
+
+test("Ashby EEOC race matching maps Indian to Asian, not American Indian", () => {
+  const source = readSource("content-scripts/adapters/ashby.js");
+
+  assert.match(source, /\\bindia\(\?:n\)\?\\b/);
+  assert.match(source, /aliases\.push\("Asian \(Not Hispanic or Latino\)"\)/);
+  assert.match(source, /if \(\/\\basian\\b\/\.test\(optionKey\)\) return 1000/);
+  assert.match(source, /if \(\/\\bamerican indian\\b\|\\balaska native\\b\/\.test\(optionKey\)\) return 0/);
+});
+
+test("Ashby location combobox maps PA abbreviation to Pennsylvania portal options", () => {
+  const source = readSource("content-scripts/adapters/ashby.js");
+
+  assert.match(source, /const US_STATE_NAMES = \{/);
+  assert.match(source, /pa: "Pennsylvania"/);
+  assert.match(source, /function locationAliasesFor/);
+  assert.match(source, /\$\{before\}, \$\{stateName\}, United States/);
+  assert.match(source, /if \(isLocationFieldKey\(fieldKey\)\)/);
+});
+
+test("Ashby application connector encourages synthesized normal answers", () => {
+  const source = readSource("content-scripts/adapters/ashby.js");
+
+  assert.match(source, /ASHBY_APPLICATION_SYNTHESIS_HINT/);
+  assert.match(source, /ASHBY_FILL_KNOWN_VALUES_HINT/);
+  assert.match(source, /fill every answerable field by default/);
+  assert.match(source, /do not stop, ask, or defer the whole form just because a few fields are unknown/);
+  assert.match(source, /Fill every field with a known, visible, My Info-supported, or safely synthesized value/);
+  assert.match(source, /unknown fields are not blockers/);
+  assert.match(source, /synthesize a concise honest answer from runContext\.myInfo/);
+  assert.match(source, /Generated text must use complete sentences/);
+  assert.match(source, /never be truncated mid-word or mid-sentence/);
+  assert.doesNotMatch(source, /(?:about|around|up to|aim(?:\s+\w+){0,3})\s+500\s+(?:characters|chars)/i);
+  assert.match(source, /explicit profile fields and synthesized normal answers in the same connector call/);
+  assert.match(source, /Fill all answerable non-file Ashby application fields in ONE step/);
+  assert.match(source, /Include every known or safely synthesized value now/);
+  assert.match(source, /do not omit known fields just because other fields are unknown/);
 });

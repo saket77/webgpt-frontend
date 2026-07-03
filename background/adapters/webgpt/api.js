@@ -57,6 +57,7 @@ export function createWebGptApiClient({ baseUrl } = {}) {
       artifactFileName = "",
       surface = "",
       myInfo = null,
+      profileAttachments = [],
     }) {
       const json = await postJsonToApi(`/runs/start-command`, {
         goal,
@@ -68,6 +69,7 @@ export function createWebGptApiClient({ baseUrl } = {}) {
         artifactFileName,
         surface,
         myInfo,
+        profileAttachments,
       });
 
       if (!json?.ok || !json?.runId || !json?.command) {

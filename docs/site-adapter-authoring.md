@@ -25,6 +25,19 @@ Adapters make page state easier to understand. Connector-enabled adapters can al
 
 If a workflow needs a different state model, auth flow, API executor, or durable non-DOM command vocabulary, use a runtime surface instead. See [Runtime authoring guide](./runtime-authoring.md).
 
+## Connector Build Pipeline
+
+Use this checklist when turning a state-only site adapter into a connector-enabled adapter:
+
+1. Map page regions and stable field keys in `enhanceState()`, using the same DOM helpers the executor will use later.
+2. Separate normal fillable fields, sensitive/compliance fields, file/upload boundaries, and submit/navigation boundaries.
+3. Add compact groups for actionable batches, such as `*_fill_application_fields(fieldValues)` and `*_fill_eeoc(fieldValues)`, instead of exposing long policy or help text.
+4. Set `preferredAction`, `connectorTool`, `connectorArgs`, `batchPlacement`, and `verifyAfterAction` on field groups and relevant control hints.
+5. Expose `provideTools()` only when the current page has the matching live fields, with small schemas keyed by stable field keys.
+6. Register local `WebGPTConnectorTools` executors that reuse the adapter's field model, fill all requested values, return `fieldValues` and `fieldTargets`, and mark partial failures as recoverable when fallback controls can still work.
+7. Filter planner noise from generic `visibleTextSummary` or generic groups when the adapter replaces it with compact actionable facts.
+8. Add source tests that pin injection order, tool schemas, executor registration, batch hints, sensitive-field policy, and state-delta verification keys.
+
 ## Current Files
 
 Adapter code lives in:

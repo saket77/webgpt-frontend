@@ -465,6 +465,11 @@ components:
           type: string
           default: ""
           examples: [browser_dom, google_sheets, microsoft_excel]
+        profileAttachments:
+          type: array
+          description: Optional run-scoped profile attachments, currently resume or cover letter files supplied at run start.
+          items:
+            $ref: "#/components/schemas/ProfileAttachmentInput"
 
     StartTemplateQueueRequest:
       type: object
@@ -485,6 +490,26 @@ components:
           type: string
           default: ""
           examples: [browser_dom, google_sheets, microsoft_excel]
+
+    ProfileAttachmentInput:
+      type: object
+      additionalProperties: false
+      required: [name, role, contentBase64]
+      properties:
+        name:
+          type: string
+        mimeType:
+          type: string
+          default: ""
+        size:
+          type: integer
+          minimum: 0
+        role:
+          type: string
+          enum: [resume, cover_letter]
+        contentBase64:
+          type: string
+          description: Base64-encoded .txt, .md, or .pdf content. The backend extracts text and does not persist raw bytes.
 
     CompleteTemplateQueueItemRequest:
       type: object

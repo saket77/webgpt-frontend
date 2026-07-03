@@ -18,10 +18,15 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
 import { useAgentUX } from "../../providers";
+import type {
+  ProfileAttachmentPayload,
+  ProfileAttachmentRole,
+} from "../../hooks/useAgentActions";
 
 type AgentEvent = {
   kind: string;
@@ -89,7 +94,10 @@ type AgentChatPanelProps = {
   allowFreeformStart?: boolean;
   autoScrollOnMount?: boolean;
   showEmptySuggestions?: boolean;
-  onStart: (submittedGoal?: string) => void;
+  onStart: (
+    submittedGoal?: string,
+    profileAttachments?: ProfileAttachmentPayload[],
+  ) => void;
   onStop: () => void;
   onReset: () => void;
   onSendHint: () => void;
@@ -111,6 +119,56 @@ type ExtractedItemView = {
   heading?: string;
   href?: string;
 };
+
+const PROFILE_ATTACHMENT_ACCEPT =
+  ".txt,.md,.pdf,text/plain,text/markdown,text/x-markdown,application/pdf";
+const MAX_PROFILE_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+const MAX_PROFILE_ATTACHMENTS = 4;
+
+type LocalProfileAttachment = ProfileAttachmentPayload & {
+  localId: string;
+};
+
+function isAcceptedProfileAttachment(file: File) {
+  const name = file.name.toLowerCase();
+  const type = file.type.toLowerCase();
+  return (
+    name.endsWith(".txt") ||
+    name.endsWith(".md") ||
+    name.endsWith(".pdf") ||
+    type === "text/plain" ||
+    type === "text/markdown" ||
+    type === "text/x-markdown" ||
+    type === "application/pdf"
+  );
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+
+  return btoa(binary);
+}
+
+function inferProfileAttachmentRole(file: File): ProfileAttachmentRole {
+  const name = file.name.toLowerCase();
+  return name.includes("cover") || name.includes("letter")
+    ? "cover_letter"
+    : "resume";
+}
+
+function makeProfileAttachmentId(file: File) {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `${file.name}:${file.size}:${file.lastModified}:${Date.now()}`;
+}
 
 function formatTimestamp(timestamp?: number) {
   if (!timestamp) return "";
@@ -525,10 +583,15 @@ export function AgentChatPanel({
   const { eventLog, hint, setHint, status, busyAction } = useAgentUX();
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
+  const profileAttachmentInputRef = useRef<HTMLInputElement | null>(null);
   const autoScrollInitializedRef = useRef(false);
   const autoFollowRef = useRef(true);
   const [submittedGoal, setSubmittedGoal] = useState("");
   const [draft, setDraft] = useState("");
+  const [profileAttachments, setProfileAttachments] = useState<
+    LocalProfileAttachment[]
+  >([]);
+  const [profileAttachmentError, setProfileAttachmentError] = useState("");
   const groupedEvents = useMemo(() => groupEvents(eventLog), [eventLog]);
   const awaitingUserInput = awaitingConfirmation || awaitingHumanHint;
   const agentBusy = isRunning || isAwaitingNavigation || busyAction === "start";
@@ -565,6 +628,8 @@ export function AgentChatPanel({
   const primaryLoading =
     busyAction === "start" ||
     busyAction === "hint";
+  const profileAttachmentDisabled =
+    composerLocked || awaitingUserInput || agentBusy || !allowFreeformStart;
   const tabContextKey = `${activeTabId ?? "none"}:${
     attachedTabId ?? session?.attachedTabId ?? "none"
   }`;
@@ -581,6 +646,80 @@ export function AgentChatPanel({
     });
   }, []);
 
+  const handleProfileAttachmentChange = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const files = Array.from(event.currentTarget.files || []);
+    event.currentTarget.value = "";
+    setProfileAttachmentError("");
+
+    if (!files.length) return;
+
+    const acceptedFiles: File[] = [];
+    const errors: string[] = [];
+
+    for (const file of files) {
+      if (!isAcceptedProfileAttachment(file)) {
+        errors.push(`${file.name} must be .txt, .md, or .pdf.`);
+        continue;
+      }
+
+      if (file.size > MAX_PROFILE_ATTACHMENT_BYTES) {
+        errors.push(`${file.name} must be 4 MB or smaller.`);
+        continue;
+      }
+
+      acceptedFiles.push(file);
+    }
+
+    const openSlots = Math.max(0, MAX_PROFILE_ATTACHMENTS - profileAttachments.length);
+    const selectedFiles = acceptedFiles.slice(0, openSlots);
+
+    if (acceptedFiles.length > openSlots) {
+      errors.push(`You can attach up to ${MAX_PROFILE_ATTACHMENTS} files.`);
+    }
+
+    if (!selectedFiles.length) {
+      setProfileAttachmentError(errors[0] || "No attachment was added.");
+      return;
+    }
+
+    try {
+      const nextAttachments = await Promise.all(
+        selectedFiles.map(async (file) => ({
+          localId: makeProfileAttachmentId(file),
+          name: file.name,
+          mimeType: file.type || "",
+          size: file.size,
+          role: inferProfileAttachmentRole(file),
+          contentBase64: arrayBufferToBase64(await file.arrayBuffer()),
+        })),
+      );
+
+      setProfileAttachments((current) => [...current, ...nextAttachments]);
+      if (errors.length) setProfileAttachmentError(errors[0]);
+    } catch (error) {
+      setProfileAttachmentError(
+        error instanceof Error ? error.message : "Could not read attachment.",
+      );
+    }
+  };
+
+  const removeProfileAttachment = (localId: string) => {
+    setProfileAttachments((current) =>
+      current.filter((attachment) => attachment.localId !== localId),
+    );
+  };
+
+  const startProfileAttachmentPayload: ProfileAttachmentPayload[] =
+    profileAttachments.map((attachment) => ({
+      name: attachment.name,
+      mimeType: attachment.mimeType,
+      size: attachment.size,
+      role: attachment.role,
+      contentBase64: attachment.contentBase64,
+    }));
+
   const handlePrimaryAction = () => {
     if (composerLocked) return;
 
@@ -594,9 +733,10 @@ export function AgentChatPanel({
 
     const submitted = draft.trim() || goal.trim();
     setSubmittedGoal(submitted);
-    onStart(submitted);
+    onStart(submitted, startProfileAttachmentPayload);
     setDraft("");
     setGoal("");
+    setProfileAttachments([]);
   };
 
   const handleComposerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -614,9 +754,10 @@ export function AgentChatPanel({
     if (canStart) {
       const submitted = draft.trim() || goal.trim();
       setSubmittedGoal(submitted);
-      onStart(submitted);
+      onStart(submitted, startProfileAttachmentPayload);
       setDraft("");
       setGoal("");
+      setProfileAttachments([]);
     }
   };
 
@@ -767,6 +908,14 @@ export function AgentChatPanel({
         </ScrollArea>
 
         <Box className="composer-wrap">
+          <input
+            ref={profileAttachmentInputRef}
+            className="profile-attachment-input"
+            type="file"
+            accept={PROFILE_ATTACHMENT_ACCEPT}
+            multiple
+            onChange={(event) => void handleProfileAttachmentChange(event)}
+          />
           <Textarea
             className="composer-input"
             autosize
@@ -788,6 +937,54 @@ export function AgentChatPanel({
             onKeyDown={handleComposerKeyDown}
             placeholder={composerPlaceholder}
           />
+
+          {allowFreeformStart && !awaitingUserInput ? (
+            <Stack className="profile-attachments" gap={6}>
+              <Group className="profile-attachment-row" gap={6} wrap="wrap">
+                <Tooltip label="Add attachments">
+                  <ActionIcon
+                    aria-label="Add attachments"
+                    className="profile-attachment-add"
+                    size="sm"
+                    variant="default"
+                    radius="xl"
+                    disabled={profileAttachmentDisabled}
+                    onClick={() => profileAttachmentInputRef.current?.click()}
+                  >
+                    +
+                  </ActionIcon>
+                </Tooltip>
+
+                {profileAttachments.map((attachment) => (
+                  <Badge
+                    key={attachment.localId}
+                    className="profile-attachment-badge"
+                    variant="light"
+                    color="violet"
+                    rightSection={
+                      <button
+                        className="profile-attachment-remove"
+                        type="button"
+                        disabled={profileAttachmentDisabled}
+                        onClick={() => removeProfileAttachment(attachment.localId)}
+                        aria-label={`Remove ${attachment.name}`}
+                      >
+                        X
+                      </button>
+                    }
+                  >
+                    {attachment.name}
+                  </Badge>
+                ))}
+              </Group>
+
+              {profileAttachmentError ? (
+                <Text size="xs" c="red">
+                  {profileAttachmentError}
+                </Text>
+              ) : null}
+            </Stack>
+          ) : null}
 
           <Group justify="space-between" mt={10} wrap="nowrap">
             <Group gap={6} wrap="nowrap">

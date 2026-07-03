@@ -2,12 +2,34 @@
   const ADAPTER_ID = "greenhouse.application";
   const APPLICATION_TARGET_ID = `site:${ADAPTER_ID}:application`;
   const EEOC_SECTION_TARGET_ID = `site:${ADAPTER_ID}:section:eeoc`;
+  const COVER_LETTER_TARGET_ID = `site:${ADAPTER_ID}:cover_letter`;
   const EEOC_FIELD_SPECS = [
     { fieldKey: "gender", label: "Gender" },
     { fieldKey: "hispanic_ethnicity", label: "Are you Hispanic/Latino?" },
+    { fieldKey: "race", label: "Please identify your race" },
     { fieldKey: "veteran_status", label: "Veteran Status" },
     { fieldKey: "disability_status", label: "Disability Status" },
   ];
+  const GREENHOUSE_RACE_INDIAN_HINT =
+    "For Greenhouse U.S. EEOC Race options, Indian/India/South Asian maps to Asian (Not Hispanic or Latino), not American Indian or Alaska Native.";
+  const GREENHOUSE_HISPANIC_INDIAN_HINT =
+    "For Greenhouse Hispanic/Latino, Indian/India/South Asian in runContext.myInfo directly supports selecting No.";
+  const GREENHOUSE_EEOC_INFERENCE_HINT =
+    `${GREENHOUSE_HISPANIC_INDIAN_HINT} ${GREENHOUSE_RACE_INDIAN_HINT}`;
+  const GREENHOUSE_EEOC_RACE_AFTER_HISPANIC_HINT =
+    "When My Info has Ethnicity/Race Indian, include race=\"Asian (Not Hispanic or Latino)\" in the same greenhouse_fill_eeoc call as hispanic_ethnicity=\"No\", even if the Race select is hidden until Hispanic/Latino is answered; the connector fills Hispanic/Latino first, waits for Race, then fills Race.";
+  const GREENHOUSE_EEOC_BATCH_HINT =
+    "When normal application fields and EEOC values are both known from runContext.myInfo, emit one planner step that batches safe text/long_text/url/tel/email fills, greenhouse_fill_select calls, and greenhouse_fill_eeoc. Do not defer EEOC to a later observe just because other safe fields are being filled.";
+  const GREENHOUSE_APPLICATION_SYNTHESIS_HINT =
+    "For normal non-file, non-EEOC Greenhouse application questions, fill every answerable field by default even when optional. If a value is not explicit, synthesize a concise honest answer from runContext.myInfo, resume details, USER_GOAL, and visible job context. For long text/textarea answers, prefer concise complete answers, never truncate mid-word or mid-sentence, and finish naturally. This is planner guidance, not an enforcement cap; do not synthesize sensitive EEOC, legal/work-authorization, demographic, or file-upload answers.";
+  const GREENHOUSE_FILL_KNOWN_VALUES_HINT =
+    "Strong batching rule for Greenhouse: do not stop, ask, or defer the whole form just because a few fields are unknown. Fill every field with a known, visible, My Info-supported, or safely synthesized value in the same planner step; omit only genuinely unknown unsafe, sensitive, file, or legal values and summarize those blanks after the known fields are handled.";
+  const GREENHOUSE_DEMOGRAPHIC_INFERENCE_HINT =
+    "For Greenhouse demographic questions, answer only from runContext.myInfo, USER_GOAL, or direct supported inferences: Gender Male -> Man, Indian/India/South Asian -> Asian, no disability -> No, and not a veteran -> No. Omit sexual orientation, transgender status, or any demographic field when My Info/goal does not support a value.";
+  const GREENHOUSE_DEMOGRAPHIC_BATCH_HINT =
+    "For Greenhouse #demographic-section / .demographic--container selects, use greenhouse_fill_select(fieldKey, value) and batch those calls with other independent Greenhouse fills when My Info supports the values. These fields may be multi-select; one connector call commits the requested option.";
+  const GREENHOUSE_COVER_LETTER_HINT =
+    "When USER_GOAL asks to add or write a cover letter, generate the final complete cover-letter text from runContext.myInfo, resume details, USER_GOAL, and the visible job description/context, then call greenhouse_write_cover_letter(letterText). The connector clicks Enter manually if needed, waits for #cover_letter_text, and fills the generated text exactly; do not use it unless the user requested a cover letter. Never hard-cut the cover letter to a character count; finish the final sentence and closing naturally.";
   const registry = globalThis.WebGPTContentAdapters;
   const extractModules = globalThis.WebGPTExtractStateModules || {};
   const domUtils = extractModules.domUtils || {};
@@ -286,6 +308,71 @@
       documentRef.querySelector("form#application-form") ||
       documentRef.querySelector("form.application--form")
     );
+  }
+
+  function coverLetterTextarea(documentRef = document) {
+    const form = applicationForm(documentRef);
+    return (
+      form?.querySelector("textarea#cover_letter_text, textarea[name='cover_letter_text']") ||
+      null
+    );
+  }
+
+  function coverLetterRootForElement(el, documentRef = document) {
+    if (!el || !(el instanceof Element)) return null;
+    const form = applicationForm(documentRef);
+    const root =
+      el.closest(".field-wrapper") ||
+      el.closest("[data-field-path]") ||
+      el.closest("section") ||
+      null;
+    return root && form?.contains(root) ? root : null;
+  }
+
+  function isCoverLetterArea(el, documentRef = document) {
+    const root = coverLetterRootForElement(el, documentRef);
+    return /\bcover letter\b/i.test(textContent(root || el));
+  }
+
+  function findCoverLetterManualButton(documentRef = document) {
+    const form = applicationForm(documentRef);
+    if (!form) return null;
+
+    const candidates = getVisibleElements(
+      "button, [role='button'], label, a",
+      form,
+    ).filter((el) => /\benter manually\b/i.test(textContent(el)));
+
+    return candidates.find((el) => isCoverLetterArea(el, documentRef)) || null;
+  }
+
+  function coverLetterEntryInfo(state, documentRef = document) {
+    const textarea = coverLetterTextarea(documentRef);
+    const manualButton = findCoverLetterManualButton(documentRef);
+    if (!textarea && !manualButton) return null;
+
+    const controls = state?.controls || [];
+    const textareaControl = findControlForElement(controls, textarea);
+    const manualControl = findControlForElement(controls, manualButton);
+    const currentText = normalizeText(
+      textarea?.value || textarea?.getAttribute("value") || "",
+    );
+
+    return {
+      targetId: COVER_LETTER_TARGET_ID,
+      label: "Cover Letter",
+      textareaControlId: textareaControl?.id || "",
+      manualControlId: manualControl?.id || "",
+      controlIds: unique([manualControl?.id, textareaControl?.id]),
+      hasTextarea: Boolean(textarea),
+      hasManualButton: Boolean(manualButton),
+      answered: Boolean(currentText),
+      currentValue: currentText
+        ? truncate(currentText, 360)
+        : textarea
+          ? "manual textarea blank"
+          : "manual entry collapsed",
+    };
   }
 
   function isGreenhousePage(documentRef, url) {
@@ -705,10 +792,11 @@
 
   function isSensitiveOptionalField(root, question) {
     if (root.closest(".eeoc__container")) return true;
+    if (root.closest("#demographic-section, .demographic--container")) return true;
 
     const text = lower(question);
     return (
-      /\b(gender|hispanic|latino|race|ethnicity|veteran|disability)\b/.test(text) ||
+      /\b(gender|hispanic|latino|race|ethnicity|veteran|disability|sexual orientation|transgender|demographic)\b/.test(text) ||
       /\bvoluntary self-identification\b/.test(text)
     );
   }
@@ -742,6 +830,9 @@
 
   function sectionKind(root) {
     if (root.closest(".eeoc__container")) return "eeoc";
+    if (root.closest("#demographic-section, .demographic--container")) {
+      return "demographic";
+    }
     if (root.closest(".education--container, .education--form")) return "education";
     return "application";
   }
@@ -781,7 +872,31 @@
     }
 
     for (const eeoc of getElements(".eeoc__container", form)) {
-      for (const root of getElements(".eeoc__question__wrapper, .field-wrapper", eeoc)) {
+      const specificRoots = getElements(".select, .field-wrapper", eeoc).filter(
+        (root) => !(root.matches(".field-wrapper") && root.querySelector(".select")),
+      );
+
+      for (const root of specificRoots) {
+        addRoot(root);
+      }
+
+      for (const root of getElements(".eeoc__question__wrapper", eeoc)) {
+        if (specificRoots.some((specificRoot) => root.contains(specificRoot))) {
+          continue;
+        }
+        addRoot(root);
+      }
+    }
+
+    for (const demographic of getElements(
+      "#demographic-section, .demographic--container",
+      form,
+    )) {
+      const specificRoots = getElements(".select, .field-wrapper", demographic).filter(
+        (root) => !(root.matches(".field-wrapper") && root.querySelector(".select")),
+      );
+
+      for (const root of specificRoots) {
         addRoot(root);
       }
     }
@@ -857,11 +972,14 @@
     const sensitiveOptional = isSensitiveOptionalField(root, question);
     const profileField = phoneCountryCode || isProfileField(question);
     const uploadBoundary = kind === "file";
+    const fieldSectionKind = sectionKind(root);
+    const demographicOptional = fieldSectionKind === "demographic";
     const connectorTool =
       !answered &&
-      !sensitiveOptional &&
       kind === "combobox" &&
-      ["application", "education"].includes(sectionKind(root)) &&
+      ((demographicOptional && sensitiveOptional) ||
+        (!sensitiveOptional &&
+          ["application", "education"].includes(fieldSectionKind))) &&
       fieldWrapperSelectInput(root) === input
         ? "greenhouse_fill_select"
         : "";
@@ -884,6 +1002,17 @@
         !uploadBoundary,
     );
     const description = descriptionText(root);
+    const normalSynthesizable = isNormalSynthesizableField({
+      answered,
+      sensitiveOptional,
+      uploadBoundary,
+      phoneCountryCode,
+      profileField,
+      sectionKind: fieldSectionKind,
+      fieldKind: kind,
+      label: displayLabel,
+      description,
+    });
     const textFacts = [
       displayLabel,
       phoneCountryCode
@@ -902,8 +1031,16 @@
       safeMyInfoFill
         ? "safe profile/contact field; fill from My Info when available"
         : "",
+      normalSynthesizable
+        ? "normal answerable application question; synthesize from My Info/resume/job context when explicit value is not present; for long text prefer a concise complete answer and never truncate mid-word or mid-sentence"
+        : "",
+      demographicOptional
+        ? `sensitive optional demographic field; answer from runContext.myInfo or direct demographic inferences when available; otherwise leave blank unless explicitly requested. ${GREENHOUSE_DEMOGRAPHIC_INFERENCE_HINT}`
+        : "",
       sensitiveOptional
-        ? "sensitive optional EEOC field; answer from explicit runContext.myInfo value when available, otherwise leave blank unless explicitly requested"
+        ? demographicOptional
+          ? ""
+          : "sensitive optional EEOC field; answer from runContext.myInfo values or direct EEOC inferences when available, otherwise leave blank unless explicitly requested"
         : "",
       uploadBoundary ? "upload/file boundary; do not upload unless requested" : "",
       connectorTool
@@ -925,7 +1062,7 @@
       targetId: fieldTargetId(fieldKey),
       fieldKey,
       fieldKind: kind,
-      sectionKind: sectionKind(root),
+      sectionKind: fieldSectionKind,
       required,
       label: displayLabel,
       description,
@@ -935,8 +1072,10 @@
       answered,
       blank: !rawValue,
       sensitiveOptional,
+      demographicOptional,
       profileField,
       safeMyInfoFill,
+      normalSynthesizable,
       phoneCountryCode,
       uploadBoundary,
       connectorTool,
@@ -972,6 +1111,11 @@
       const aSafeProfile = a.safeMyInfoFill ? 0 : 1;
       const bSafeProfile = b.safeMyInfoFill ? 0 : 1;
       if (aSafeProfile !== bSafeProfile) return aSafeProfile - bSafeProfile;
+      const aNormalSynthesizable = a.normalSynthesizable ? 0 : 1;
+      const bNormalSynthesizable = b.normalSynthesizable ? 0 : 1;
+      if (aNormalSynthesizable !== bNormalSynthesizable) {
+        return aNormalSynthesizable - bNormalSynthesizable;
+      }
       const aAnswered = a.answered ? 1 : 0;
       const bAnswered = b.answered ? 1 : 0;
       if (aAnswered !== bAnswered) return aAnswered - bAnswered;
@@ -988,7 +1132,36 @@
   }
 
   function isBatchableTextField(field) {
-    return ["email", "number", "tel", "text", "url"].includes(lower(field?.fieldKind));
+    return ["email", "long_text", "number", "tel", "text", "url"].includes(
+      lower(field?.fieldKind),
+    );
+  }
+
+  function isNormalSynthesizableField(field) {
+    if (!field || field.answered || field.sensitiveOptional || field.uploadBoundary) {
+      return false;
+    }
+    if (field.phoneCountryCode || field.profileField) return false;
+    if (!["application", "education"].includes(lower(field.sectionKind))) return false;
+    if (!["long_text", "text"].includes(lower(field.fieldKind))) return false;
+
+    const text = lower([field.label, field.description].join(" "));
+    if (
+      /\b(work authorization|authorized to work|legally authorized|visa|sponsor|sponsorship|work permit)\b/.test(
+        text,
+      ) ||
+      /\b(gender|race|ethnicity|hispanic|latino|veteran|disability|demographic)\b/.test(
+        text,
+      ) ||
+      /\b(privacy notice|privacy policy|terms|consent|certify|certification|acknowledge|confirm accuracy|background check)\b/.test(
+        text,
+      ) ||
+      /\b(upload|resume|cv|cover letter|file)\b/.test(text)
+    ) {
+      return false;
+    }
+
+    return true;
   }
 
   function addHint(actionHintsByTargetId, targetId, hint) {
@@ -999,7 +1172,13 @@
     };
   }
 
-  function buildActionHints(fields, submitTargetId, uploadTargetIds, controlsById) {
+  function buildActionHints(
+    fields,
+    submitTargetId,
+    uploadTargetIds,
+    controlsById,
+    coverLetterInfo = null,
+  ) {
     const actionHintsByTargetId = {};
 
     for (const field of fields) {
@@ -1033,10 +1212,14 @@
       if (connectorSelect) {
         const connectorInstruction = field.phoneCountryCode
           ? `Prefer connector tool greenhouse_fill_select with fieldKey="${field.fieldKey}" for this Greenhouse phone country-code select. Batch it in the same step as the Phone fill when My Info has a phone/address value: use "United States" for US/+1 and "India" for India/+91. Use click/open/observe only as a fallback if the connector tool is unavailable or fails.`
-          : `Prefer connector tool greenhouse_fill_select with fieldKey="${field.fieldKey}" for this closed Greenhouse React select. It opens, searches when needed, matches the requested value against live options, and commits in one action; batch it with other independent safe fills when the value is known. Use click/open/observe only as a fallback if the connector tool is unavailable or fails.`;
+          : field.demographicOptional
+            ? `Prefer connector tool greenhouse_fill_select with fieldKey="${field.fieldKey}" for this sensitive optional Greenhouse demographic select. Batch it with other independent Greenhouse fills when runContext.myInfo or USER_GOAL supports a value. Use only direct demographic inferences; leave unsupported demographic fields blank. ${GREENHOUSE_DEMOGRAPHIC_INFERENCE_HINT}`
+            : `Prefer connector tool greenhouse_fill_select with fieldKey="${field.fieldKey}" for this closed Greenhouse React select. It opens, searches when needed, matches the requested value against live options, and commits in one action; batch it with other independent safe fills when the value is known. Use click/open/observe only as a fallback if the connector tool is unavailable or fails.`;
         const connectorHint = {
           semanticRole: field.phoneCountryCode
             ? "greenhouse_phone_country_code_connector_select"
+            : field.demographicOptional
+              ? "greenhouse_demographic_connector_select"
             : "greenhouse_connector_select",
           preferredAction: field.connectorTool,
           connectorTool: field.connectorTool,
@@ -1102,8 +1285,12 @@
           ? "Greenhouse React select/combobox field. If the matching option is visible, click that option to commit it. Otherwise fill search text, observe the in-field listbox, then click the exact matching visible option. Do not treat typed search text or a focused option as selected."
           : field.safeMyInfoFill
             ? "This Greenhouse profile/contact field is blank and safe to fill from My Info when a value is present. Do not invent missing values."
+            : field.demographicOptional
+              ? `Sensitive optional Greenhouse demographic field. Fill from runContext.myInfo or direct demographic inference when supported; otherwise leave blank unless USER_GOAL explicitly asks for a value. ${GREENHOUSE_DEMOGRAPHIC_INFERENCE_HINT}`
             : field.sensitiveOptional
-              ? "Sensitive optional Greenhouse EEOC field. Fill from an explicit matching runContext.myInfo value when the goal asks to use My Info or fill the application; otherwise leave blank unless USER_GOAL explicitly asks for a decline/prefer-not-to-answer value."
+              ? `Sensitive optional Greenhouse EEOC field. Fill from a matching runContext.myInfo value or direct EEOC inference when the goal asks to use My Info or fill the application; otherwise leave blank unless USER_GOAL explicitly asks for a decline/prefer-not-to-answer value. ${GREENHOUSE_EEOC_INFERENCE_HINT}`
+              : field.normalSynthesizable
+                ? "This normal Greenhouse application question is answerable even when optional. Synthesize a concise honest answer from runContext.myInfo, resume details, USER_GOAL, and visible job context; for long text/textarea use complete sentences, never truncate mid-word or mid-sentence, and treat any length target as soft planner guidance only. Do not synthesize sensitive, legal, demographic, or file-upload answers."
               : isSelect
                 ? "Fill this Greenhouse native select using the exact visible option text from the user's goal or My Info."
                 : "Fill this Greenhouse application field using My Info or explicit goal text. Do not invent missing personal, legal, or sensitive answers.";
@@ -1132,7 +1319,9 @@
       for (const option of field.options || []) {
         const targetIds = actionableControlIds(option.controlIds, controlsById);
         const instruction = field.sensitiveOptional
-          ? "Sensitive optional Greenhouse EEOC option. Click when this option matches an explicit value in runContext.myInfo and the goal asks to use My Info or fill the application. If My Info lacks this value, click only when USER_GOAL explicitly asks for this value or a decline/prefer-not-to-answer answer."
+          ? field.demographicOptional
+            ? `Sensitive optional Greenhouse demographic option. Click when this option matches runContext.myInfo, USER_GOAL, or a direct demographic inference. If My Info does not support this value, click only when USER_GOAL explicitly asks for it. ${GREENHOUSE_DEMOGRAPHIC_INFERENCE_HINT}`
+            : `Sensitive optional Greenhouse EEOC option. Click when this option matches a runContext.myInfo value or direct EEOC inference and the goal asks to use My Info or fill the application. If My Info does not support this value, click only when USER_GOAL explicitly asks for this value or a decline/prefer-not-to-answer answer. ${GREENHOUSE_EEOC_INFERENCE_HINT}`
           : field.fieldKind === "combobox"
             ? "Click this visible Greenhouse combobox option if it matches the desired field value. After one click, observe the next state and move on if the field shows the value."
             : option.selected
@@ -1171,6 +1360,29 @@
       });
     }
 
+    for (const targetId of actionableControlIds(
+      coverLetterInfo?.controlIds || [],
+      controlsById,
+      3,
+    )) {
+      addHint(actionHintsByTargetId, targetId, {
+        semanticRole:
+          targetId === coverLetterInfo?.textareaControlId
+            ? "greenhouse_cover_letter_textarea"
+            : "greenhouse_cover_letter_manual_entry",
+        preferredAction: "greenhouse_write_cover_letter",
+        connectorTool: "greenhouse_write_cover_letter",
+        exactValueMode: "connectorGeneratedText",
+        avoidAction: false,
+        stableFieldTargetId: COVER_LETTER_TARGET_ID,
+        machineKey: "cover_letter_text",
+        answerText: "Cover Letter",
+        batchPlacement: "only_when_user_requests_cover_letter",
+        verifyAfterAction: "adapter_group_current_value",
+        instruction: GREENHOUSE_COVER_LETTER_HINT,
+      });
+    }
+
     addHint(actionHintsByTargetId, submitTargetId, {
       semanticRole: "greenhouse_submit_application_boundary",
       preferredAction: "click",
@@ -1201,8 +1413,10 @@
       answered: field.answered,
       blank: field.blank,
       sensitiveOptional: field.sensitiveOptional,
+      demographicOptional: field.demographicOptional,
       profileField: field.profileField,
       safeMyInfoFill: field.safeMyInfoFill,
+      normalSynthesizable: field.normalSynthesizable,
       uploadBoundary: field.uploadBoundary,
       autocompleteOpen: field.autocompleteOpen,
       needsAutocompleteCommit: field.needsAutocompleteCommit,
@@ -1251,7 +1465,7 @@
         text: [
           "Greenhouse EEOC section detected",
           `connector action available: greenhouse_fill_eeoc with fieldValues for ${fieldKeys.join(", ")}`,
-          "Use only explicit values from runContext.myInfo or USER_GOAL; omit unknown EEOC fields instead of inventing answers",
+          `Use values from runContext.myInfo, USER_GOAL, or direct EEOC inferences; omit genuinely unknown EEOC fields instead of guessing. ${GREENHOUSE_EEOC_INFERENCE_HINT}`,
           blankLabels.length
             ? `blank sensitive EEOC fields: ${blankLabels.join(" | ")}`
             : "no blank sensitive EEOC fields detected",
@@ -1270,6 +1484,88 @@
         answered: eeocFields.every((field) => field.answered),
         fieldTargets: eeocFields.map((field) => field.targetId),
         controlIds: unique(eeocFields.flatMap((field) => field.controlIds || [])),
+      },
+    ];
+  }
+
+  function demographicSectionGroups(fields) {
+    const demographicFields = fields.filter(
+      (field) => field.sectionKind === "demographic",
+    );
+    if (!demographicFields.length) return [];
+
+    const blankLabels = demographicFields
+      .filter((field) => !field.answered)
+      .map((field) => field.label);
+    const answeredLabels = demographicFields
+      .filter((field) => field.answered)
+      .map((field) => `${field.label}: ${field.currentValue}`);
+
+    return [
+      {
+        id: "greenhouse_demographic_section",
+        kind: "greenhouse_application_section",
+        adapterId: ADAPTER_ID,
+        targetId: "site:greenhouse.application:section:demographic",
+        sectionKind: "demographic",
+        label: "U.S. Standard Demographic Questions",
+        text: [
+          "Greenhouse demographic section detected",
+          "connector action available: greenhouse_fill_select for each demographic select",
+          GREENHOUSE_DEMOGRAPHIC_BATCH_HINT,
+          GREENHOUSE_DEMOGRAPHIC_INFERENCE_HINT,
+          blankLabels.length
+            ? `blank sensitive demographic fields: ${blankLabels.join(" | ")}`
+            : "no blank sensitive demographic fields detected",
+          answeredLabels.length
+            ? `answered sensitive demographic fields: ${answeredLabels.join(" | ")}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join(" | "),
+        preferredAction: "greenhouse_fill_select",
+        connectorTool: "greenhouse_fill_select",
+        batchPlacement: "can_batch_sensitive_supported_only",
+        verifyAfterAction: "adapter_group_current_value",
+        currentValue: `${demographicFields.filter((field) => field.answered).length}/${demographicFields.length} answered`,
+        answered: demographicFields.every((field) => field.answered),
+        fieldTargets: demographicFields.map((field) => field.targetId),
+        controlIds: unique(
+          demographicFields.flatMap((field) => field.controlIds || []),
+        ),
+      },
+    ];
+  }
+
+  function coverLetterGroups(info) {
+    if (!info) return [];
+
+    return [
+      {
+        id: "greenhouse_cover_letter_section",
+        kind: "greenhouse_application_section",
+        adapterId: ADAPTER_ID,
+        targetId: COVER_LETTER_TARGET_ID,
+        sectionKind: "application",
+        label: "Cover Letter",
+        text: [
+          "Greenhouse cover letter manual-entry section detected",
+          "connector action available: greenhouse_write_cover_letter(letterText)",
+          GREENHOUSE_COVER_LETTER_HINT,
+          info.answered
+            ? `cover letter current value: ${info.currentValue}`
+            : `cover letter blank: ${info.currentValue}`,
+        ]
+          .filter(Boolean)
+          .join(" | "),
+        preferredAction: "greenhouse_write_cover_letter",
+        connectorTool: "greenhouse_write_cover_letter",
+        batchPlacement: "only_when_user_requests_cover_letter",
+        verifyAfterAction: "adapter_group_current_value",
+        currentValue: info.currentValue,
+        answered: info.answered,
+        fieldTargets: [COVER_LETTER_TARGET_ID],
+        controlIds: info.controlIds,
       },
     ];
   }
@@ -1342,8 +1638,19 @@
       .filter((field) => field.safeMyInfoFill)
       .map((field) => field.label)
       .slice(0, 16);
+    const blankNormalFields = fields
+      .filter((field) => field.normalSynthesizable)
+      .map((field) => field.label)
+      .slice(0, 12);
+    const blankDemographicFields = fields
+      .filter((field) => field.demographicOptional && !field.answered)
+      .map((field) => field.label)
+      .slice(0, 12);
     const blankSensitiveFields = fields
-      .filter((field) => field.sensitiveOptional && !field.answered)
+      .filter(
+        (field) =>
+          field.sensitiveOptional && !field.demographicOptional && !field.answered,
+      )
       .map((field) => field.label)
       .slice(0, 12);
     const uploadBoundaries = fields
@@ -1354,7 +1661,11 @@
       ? `missing required: ${missingRequired.join(", ")}`
       : blankProfileFields.length
         ? `safe profile/contact fields blank: ${blankProfileFields.join(", ")}`
-        : "required fields handled; optional sensitive/upload/submit boundaries may remain";
+        : blankNormalFields.length
+          ? `answerable normal fields blank: ${blankNormalFields.join(", ")}`
+          : blankDemographicFields.length
+            ? `sensitive demographic fields blank: ${blankDemographicFields.join(", ")}`
+            : "required fields handled; optional sensitive/upload/submit boundaries may remain";
 
     return {
       id: "greenhouse_application_summary",
@@ -1373,9 +1684,15 @@
         blankProfileFields.length
           ? `optional or required profile/contact fields blank and safe to fill from My Info when values are present: ${blankProfileFields.join(" | ")}`
           : "",
-      blankSensitiveFields.length
-        ? `sensitive optional EEOC fields blank: ${blankSensitiveFields.join(" | ")}`
-        : "",
+        blankNormalFields.length
+          ? `optional normal application questions blank and answerable from synthesis when supported by My Info/resume/job context: ${blankNormalFields.join(" | ")}`
+          : "",
+        blankDemographicFields.length
+          ? `optional sensitive demographic fields blank and fillable only when My Info/goal supports direct values: ${blankDemographicFields.join(" | ")}`
+          : "",
+        blankSensitiveFields.length
+          ? `sensitive optional EEOC fields blank: ${blankSensitiveFields.join(" | ")}`
+          : "",
         uploadBoundaries.length
           ? `upload/file boundaries present: ${uploadBoundaries.join(" | ")}`
           : "",
@@ -1512,24 +1829,41 @@
       .filter((field) => field.safeMyInfoFill)
       .map((field) => field.label)
       .slice(0, 12);
+    const blankNormalFields = fields
+      .filter((field) => field.normalSynthesizable)
+      .map((field) => field.label)
+      .slice(0, 12);
+    const blankDemographicFields = fields
+      .filter((field) => field.demographicOptional && !field.answered)
+      .map((field) => field.label)
+      .slice(0, 12);
     const blankPhoneCountryCodeFields = fields.filter(
       (field) => field.phoneCountryCode && !field.answered,
     );
     const blankSensitiveFields = fields
-      .filter((field) => field.sensitiveOptional && !field.answered)
+      .filter(
+        (field) =>
+          field.sensitiveOptional && !field.demographicOptional && !field.answered,
+      )
       .map((field) => field.label)
       .slice(0, 12);
 
     return [
       "Greenhouse adapter active: use only fields inside form#application-form, especially .application--questions, .field-wrapper, .eeoc__container, and .application--submit.",
-      "Batch every independent safe Greenhouse fill in the same step when values are known: text/url/tel/email fills plus connector-select fills. Do not let a connector-select field block other safe fills.",
+      "Batch every independent safe Greenhouse fill in the same step when values are known: text/long_text/url/tel/email fills plus connector-select fills. Do not let a connector-select field block other safe fills.",
+      GREENHOUSE_FILL_KNOWN_VALUES_HINT,
+      GREENHOUSE_EEOC_BATCH_HINT,
+      GREENHOUSE_APPLICATION_SYNTHESIS_HINT,
+      GREENHOUSE_DEMOGRAPHIC_BATCH_HINT,
+      siteAdapter.coverLetterAvailable ? GREENHOUSE_COVER_LETTER_HINT : "",
       blankPhoneCountryCodeFields.length
         ? "Greenhouse Phone Country Code is the phone country/extension selector, not a standalone address country. When filling Phone from My Info, batch greenhouse_fill_select(fieldKey=\"country\", value=\"United States\") for US/+1 phone or address values, or value=\"India\" for India/+91 values."
         : "",
       "For connector-enabled Greenhouse React select/combobox fields, prefer greenhouse_fill_select(fieldKey, value). The connector opens the menu, searches when the desired option is not immediately visible, matches against live options, and commits; do not pre-open the menu just to inspect finite options. Use click/open/observe only when the connector tool is unavailable or failed.",
       "For Greenhouse React select/combobox fields without a connector, click the closed control opener first, preferably the Toggle flyout button or inner .select__control target, to open the in-field listbox. Then observe and click the matching visible option. Fill search text only if the menu is open and the desired option is not visible. Do not treat typed search text as a committed Greenhouse selection.",
-      "For the Greenhouse EEOC section, prefer greenhouse_fill_eeoc(fieldValues) when runContext.myInfo or USER_GOAL has explicit values for gender, Hispanic/Latino, veteran status, or disability status. Omit unknown EEOC fields; do not invent answers or choose decline/prefer-not-to-answer unless explicit.",
-      "For Greenhouse EEOC fields, explicit values in runContext.myInfo are user-provided answers. Use those values when USER_GOAL asks to use My Info or fill the application. If My Info lacks a matching value, leave that EEOC field blank unless USER_GOAL explicitly asks for a decline/prefer-not-to-answer option.",
+      `For the Greenhouse EEOC section, prefer greenhouse_fill_eeoc(fieldValues) when runContext.myInfo or USER_GOAL has values for gender, Hispanic/Latino, race, veteran status, or disability status. Use direct EEOC inferences from My Info when supported; omit genuinely unknown fields and do not choose decline/prefer-not-to-answer unless explicit. ${GREENHOUSE_EEOC_INFERENCE_HINT}`,
+      GREENHOUSE_EEOC_RACE_AFTER_HISPANIC_HINT,
+      "For Greenhouse EEOC fields, values in runContext.myInfo are user-provided profile facts. Use them when USER_GOAL asks to use My Info or fill the application, including direct derivations such as ethnicity/race Indian -> Hispanic/Latino No and Race Asian (Not Hispanic or Latino). If My Info does not support a matching value, leave that EEOC field blank unless USER_GOAL explicitly asks for a decline/prefer-not-to-answer option.",
       "If a Greenhouse field group says currentValue blank and answered false, treat it as not filled. If it says selected/current value, do not repeat the same action.",
       missingRequired.length
         ? `Greenhouse required non-file/non-EEOC fields still missing: ${missingRequired.join(" | ")}.`
@@ -1537,8 +1871,14 @@
       blankProfileFields.length
         ? `Greenhouse profile/contact fields are blank but safe to fill from runContext.myInfo when values are present: ${blankProfileFields.join(" | ")}.`
         : "",
+      blankNormalFields.length
+        ? `Greenhouse optional normal application questions are still part of the application and blank: ${blankNormalFields.join(" | ")}. Answer them when you can synthesize a concise honest response from My Info, resume details, USER_GOAL, or visible job context; keep long text useful, complete, and naturally ended.`
+        : "",
+      blankDemographicFields.length
+        ? `Greenhouse demographic fields are sensitive optional fields and blank: ${blankDemographicFields.join(" | ")}. Use greenhouse_fill_select for each value directly supported by runContext.myInfo or USER_GOAL and batch those calls when possible. ${GREENHOUSE_DEMOGRAPHIC_INFERENCE_HINT}`
+        : "",
       blankSensitiveFields.length
-        ? `Greenhouse EEOC fields are sensitive optional fields and blank: ${blankSensitiveFields.join(" | ")}. Answer them from explicit runContext.myInfo values when USER_GOAL asks to use My Info or fill the application. If My Info has no matching value, leave them blank unless USER_GOAL explicitly asks for decline/prefer-not-to-answer; mention blanks in done summaries.`
+        ? `Greenhouse EEOC fields are sensitive optional fields and blank: ${blankSensitiveFields.join(" | ")}. Answer them from runContext.myInfo values and direct My Info derivations when USER_GOAL asks to use My Info or fill the application. If My Info has no matching or derivable value, leave them blank unless USER_GOAL explicitly asks for decline/prefer-not-to-answer; mention blanks in done summaries.`
         : "",
       siteAdapter.uploadTargetIds.length
         ? "Greenhouse upload/autofill controls are file-upload boundaries. Leave them alone when the user says do not upload."
@@ -1564,26 +1904,114 @@
       .filter((field) => field.safeMyInfoFill)
       .map((field) => field.label)
       .slice(0, 12);
+    const blankNormalFields = fields
+      .filter((field) => field.normalSynthesizable)
+      .map((field) => field.label)
+      .slice(0, 12);
+    const blankDemographicFields = fields
+      .filter((field) => field.demographicOptional && !field.answered)
+      .map((field) => field.label)
+      .slice(0, 12);
     const blankSensitiveFields = fields
-      .filter((field) => field.sensitiveOptional && !field.answered)
+      .filter(
+        (field) =>
+          field.sensitiveOptional && !field.demographicOptional && !field.answered,
+      )
       .map((field) => field.label)
       .slice(0, 12);
 
     return [
       `Greenhouse application adapter: ${fields.length} fields detected inside #application-form.`,
+      "Greenhouse progress rule: unknown fields are not blockers; fill all known/supported/safely synthesized fields first and summarize intentional blanks.",
       missing.length
         ? `Greenhouse missing required fields: ${missing.join(" | ")}`
         : "Greenhouse required non-file/non-EEOC fields appear handled; optional profile, sensitive EEOC, upload, and submit boundaries still need policy-aware review.",
       blankProfileFields.length
         ? `Greenhouse profile/contact fields blank and safe from My Info: ${blankProfileFields.join(" | ")}`
         : "",
+      blankNormalFields.length
+        ? `Greenhouse optional normal questions blank and answerable from My Info/resume/job-context synthesis: ${blankNormalFields.join(" | ")}`
+        : "",
+      blankDemographicFields.length
+        ? `Greenhouse demographic sensitive optional fields blank and connector-fillable when My Info supports values: ${blankDemographicFields.join(" | ")}`
+        : "",
       blankSensitiveFields.length
         ? `Greenhouse sensitive optional EEOC fields blank: ${blankSensitiveFields.join(" | ")}`
+        : "",
+      siteAdapter.coverLetterAvailable
+        ? `Greenhouse cover letter manual entry available: use greenhouse_write_cover_letter(letterText) only when USER_GOAL asks for a cover letter. Current value: ${siteAdapter.coverLetterCurrentValue}.`
         : "",
       siteAdapter.submitTargetId
         ? `Greenhouse submit boundary target: ${siteAdapter.submitTargetId}`
         : "",
     ].filter(Boolean);
+  }
+
+  function isGreenhousePolicyNoiseText(value) {
+    const text = lower(value);
+    if (!text) return false;
+
+    return (
+      /\bequal employment opportunity\b/.test(text) ||
+      /\bcompletion of the form is entirely voluntary\b/.test(text) ||
+      /\bcompletion is entirely voluntary\b/.test(text) ||
+      /\bconfidential file\b/.test(text) ||
+      /\bprotected group status\b/.test(text) ||
+      /\brace & ethnicity definitions\b/.test(text) ||
+      /\bused in aggregate\b|\bin aggregate form\b/.test(text) ||
+      /\bdiversity and inclusion efforts\b/.test(text) ||
+      /\bwill not be associated with your specific application\b/.test(text) ||
+      /\bwill not\b.*\bdisclosed to the hiring team\b/.test(text) ||
+      /\bequal employment opportunity\/affirmative action record keeping\b/.test(
+        text,
+      ) ||
+      /\bclassification of protected categories\b/.test(text) ||
+      /\bvietnam era veterans readjustment assistance act\b/.test(text) ||
+      /\bdisabled veteran\b|\brecently separated veteran\b/.test(text) ||
+      /\bactive duty wartime\b|\bcampaign badge veteran\b/.test(text) ||
+      /\barmed forces service medal veteran\b/.test(text) ||
+      /\bvoluntary self-identification of disability\b/.test(text) ||
+      /\bomb control number\b|\bpublic burden statement\b/.test(text) ||
+      /\bpaperwork reduction act\b|\boffice of federal contract compliance programs\b/.test(
+        text,
+      ) ||
+      /\bmajor life activities\b/.test(text) ||
+      (text.length > 120 &&
+        (/\bvoluntary self-identification\b/.test(text) ||
+          /\bfor government reporting purposes\b/.test(text) ||
+          /\bhow do you know if you have a disability\b/.test(text) ||
+          /\ba person (of|having origins)\b/.test(text) ||
+          /\bnot hispanic or latino\b/.test(text)))
+    );
+  }
+
+  function filterPlannerNoiseList(items) {
+    return (items || []).filter((item) => !isGreenhousePolicyNoiseText(item));
+  }
+
+  function filterPlannerNoiseGroups(groups) {
+    return (groups || []).filter(
+      (group) =>
+        !isGreenhousePolicyNoiseText(
+          [group?.label, group?.text, group?.heading].join(" "),
+        ),
+    );
+  }
+
+  function filterPlannerNoiseControls(controls) {
+    return (controls || []).filter((control) => {
+      if (control?.adapterHints?.[ADAPTER_ID]) return true;
+      return !isGreenhousePolicyNoiseText(
+        [
+          control?.label,
+          control?.text,
+          control?.title,
+          control?.heading,
+          control?.ariaLabel,
+          control?.description,
+        ].join(" "),
+      );
+    });
   }
 
   function buildSiteAdapter(state, documentRef) {
@@ -1594,15 +2022,18 @@
     const controlsById = controlByIdMap(state.controls || []);
     const submitTargetId = findSubmitTargetId(state, form);
     const uploadTargetIds = findUploadTargetIds(state, form);
+    const coverLetterInfo = coverLetterEntryInfo(state, documentRef);
     const applicationQuestionCount = getElements(".application--questions", form).length;
     const actionHintsByTargetId = buildActionHints(
       fields,
       submitTargetId,
       uploadTargetIds,
       controlsById,
+      coverLetterInfo,
     );
     const primaryControlIds = unique([
       ...fields.flatMap((field) => fieldPrimaryControlIds(field, controlsById)),
+      ...(coverLetterInfo?.controlIds || []),
       ...actionableControlIds(uploadTargetIds, controlsById, 4),
       submitTargetId,
     ]).slice(0, 120);
@@ -1635,6 +2066,10 @@
       ).length,
       submitTargetId,
       uploadTargetIds,
+      coverLetterAvailable: Boolean(coverLetterInfo),
+      coverLetterTargetId: coverLetterInfo?.targetId || "",
+      coverLetterControlIds: coverLetterInfo?.controlIds || [],
+      coverLetterCurrentValue: coverLetterInfo?.currentValue || "",
       primaryControlIds,
       actionHintsByTargetId,
       selectorOverrides,
@@ -1644,6 +2079,8 @@
     siteAdapter.groups = [
       applicationGroup(fields, siteAdapter),
       ...eeocSectionGroups(fields),
+      ...demographicSectionGroups(fields),
+      ...coverLetterGroups(coverLetterInfo),
       ...fieldGroups(sortFieldsForPlanner(fields)),
       ...optionGroups(fields),
     ].slice(0, 140);
@@ -1653,11 +2090,29 @@
 
   // ---------------------------------------------------------------------------
   // Connector tool: greenhouse_fill_select
-  // First pass: single-select React-select dropdowns in normal application questions
-  // plus education rows. EEOC uses greenhouse_fill_eeoc.
+  // Handles Greenhouse React-select dropdowns in normal application questions,
+  // education rows, and supported demographic questions. EEOC uses greenhouse_fill_eeoc.
   // ---------------------------------------------------------------------------
 
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  function coverLetterTextFromAction(action) {
+    return String(action?.letterText ?? action?.value ?? action?.text ?? "").replace(
+      /\r\n?/g,
+      "\n",
+    );
+  }
+
+  async function waitForCoverLetterTextarea() {
+    let latest = null;
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      latest = coverLetterTextarea(document);
+      if (latest && isVisible(latest)) return latest;
+      await delay(100);
+    }
+    return latest;
+  }
+
   const SELECT_STOP_WORDS = new Set([
     "a",
     "an",
@@ -1760,6 +2215,28 @@
       );
     }
 
+    if (/\bmale\b/.test(key) && !/\bfemale\b/.test(key)) {
+      aliases.push("Man", "Male");
+    }
+    if (/\bfemale\b|\bwoman\b/.test(key)) {
+      aliases.push("Woman", "Female");
+    }
+    if (
+      /\basian\b/.test(key) ||
+      /\bsouth asian\b/.test(key) ||
+      /\basian indian\b/.test(key) ||
+      (/\bindia(?:n)?\b/.test(key) &&
+        !/\b(american indian|native american|alaska native)\b/.test(key))
+    ) {
+      aliases.push("Asian");
+    }
+    if (/\bno\b.*\bdisab|\bdo not have\b.*\bdisab|\bwithout\b.*\bdisab/.test(key)) {
+      aliases.push("No");
+    }
+    if (/\bnot\b.*\bveteran|\bno\b.*\bveteran|\bnot a protected veteran\b/.test(key)) {
+      aliases.push("No");
+    }
+
     if (fieldKey === "disability_status") {
       if (/\bno\b/.test(key) && /\bdisab/.test(key)) {
         aliases.push(
@@ -1793,8 +2270,65 @@
     }
 
     if (fieldKey === "hispanic_ethnicity") {
-      if (/^(no|not hispanic|not latino)|\bno\b/.test(key)) aliases.push("No");
-      if (/^(yes|hispanic|latino)|\byes\b/.test(key)) aliases.push("Yes");
+      const explicitlyNonHispanic = /\bnot (hispanic|latino)\b/.test(key);
+      const indiaNonHispanic =
+        (/\bindia(?:n)?\b|\bsouth asian\b|\basian indian\b/.test(key) &&
+          !/\b(american indian|native american|alaska native|hispanic|latino)\b/.test(
+            key,
+          )) ||
+        (/\basian\b/.test(key) &&
+          (!/\bhispanic\b|\blatino\b/.test(key) || explicitlyNonHispanic));
+      if (
+        /^(no|not hispanic|not latino)|\bno\b/.test(key) ||
+        explicitlyNonHispanic ||
+        indiaNonHispanic
+      ) {
+        aliases.push("No");
+      }
+      if (
+        (/^(yes|hispanic|latino)|\byes\b/.test(key) ||
+          (/\bhispanic\b|\blatino\b/.test(key) &&
+            !explicitlyNonHispanic)) &&
+        !indiaNonHispanic
+      ) {
+        aliases.push("Yes");
+      }
+      if (/prefer|decline|dont want|do not want/.test(key)) {
+        aliases.push("I do not wish to answer", "I do not want to answer");
+      }
+    }
+
+    if (fieldKey === "race") {
+      if (
+        /\bhispanic\b|\blatino\b/.test(key) &&
+        !/\bnot (hispanic|latino)\b/.test(key)
+      ) {
+        aliases.push("Hispanic or Latino");
+      }
+      if (/\bwhite\b/.test(key)) aliases.push("White (Not Hispanic or Latino)");
+      if (/\bblack\b|\bafrican american\b/.test(key)) {
+        aliases.push("Black or African American (Not Hispanic or Latino)");
+      }
+      if (
+        /\basian\b/.test(key) ||
+        /\bsouth asian\b/.test(key) ||
+        /\basian indian\b/.test(key) ||
+        (/\bindia(?:n)?\b/.test(key) &&
+          !/\b(american indian|native american|alaska native)\b/.test(key))
+      ) {
+        aliases.push("Asian (Not Hispanic or Latino)");
+      }
+      if (/\bnative hawaiian\b|\bpacific islander\b/.test(key)) {
+        aliases.push(
+          "Native Hawaiian or Other Pacific Islander (Not Hispanic or Latino)",
+        );
+      }
+      if (/\bamerican indian\b|\balaska native\b/.test(key)) {
+        aliases.push("American Indian or Alaska Native (Not Hispanic or Latino)");
+      }
+      if (/\btwo\b.*\bmore\b|\bmultiple races\b/.test(key)) {
+        aliases.push("Two or More Races (Not Hispanic or Latino)");
+      }
       if (/prefer|decline|dont want|do not want/.test(key)) {
         aliases.push("I do not wish to answer", "I do not want to answer");
       }
@@ -1824,6 +2358,11 @@
     if (fieldKey === "country" && phoneCountryCodeAliases(value).includes("India")) {
       queries.push("India");
     }
+    if (fieldKey === "hispanic_ethnicity" && aliases.includes("No")) queries.push("No");
+    if (fieldKey === "race" && tokens.length) queries.push(tokens[0]);
+    if (fieldKey === "race" && aliases.includes("Asian (Not Hispanic or Latino)")) {
+      queries.push("Asian");
+    }
     if (fieldKey === "disability_status" && tokens.includes("no")) queries.push("No");
     if (fieldKey === "veteran_status" && tokens.includes("veteran")) queries.push("veteran");
 
@@ -1835,32 +2374,87 @@
     );
   }
 
+  function hasNoSponsorshipIntent(key) {
+    return (
+      /\b(do|does|will|would)?\s*not\s+(need|require)\b.*\b(sponsor|sponsorship|visa support|visa)\b/.test(
+        key,
+      ) ||
+      /\bno\b.*\b(sponsor|sponsorship|visa support)\b/.test(key) ||
+      /\bwithout\b.*\b(sponsor|sponsorship|visa support)\b/.test(key)
+    );
+  }
+
+  function hasNeedsSponsorshipIntent(key) {
+    return (
+      /\b(needs?|requires?)\b.*\b(sponsor|sponsorship|visa support|visa)\b/.test(
+        key,
+      ) ||
+      /\b(sponsored|sponsorship|visa support)\b/.test(key)
+    );
+  }
+
+  function sponsorshipPolarityConflict(optionKey, wantedKey) {
+    const wantedNo = hasNoSponsorshipIntent(wantedKey);
+    const optionNo = hasNoSponsorshipIntent(optionKey);
+    const wantedNeeds = hasNeedsSponsorshipIntent(wantedKey) && !wantedNo;
+    const optionNeeds = hasNeedsSponsorshipIntent(optionKey) && !optionNo;
+    return (wantedNo && optionNeeds) || (wantedNeeds && optionNo);
+  }
+
   function scoreComboboxOption(optionText, value, fieldKey) {
     const optionKey = canonicalSelectText(optionText);
     const wantedKey = canonicalSelectText(value);
     if (!optionKey || !wantedKey) return 0;
-    if (optionKey === wantedKey) return 1000;
+    if (optionKey === wantedKey) return 2000;
+    if (sponsorshipPolarityConflict(optionKey, wantedKey)) return 0;
     if (fieldKey === "gender" && wantedKey === "male") {
-      return optionKey === "male" ? 1000 : 0;
+      return optionKey === "male" ? 2000 : 0;
+    }
+    if (
+      fieldKey === "hispanic_ethnicity" &&
+      (/\bindia(?:n)?\b|\bsouth asian\b|\basian indian\b/.test(wantedKey) ||
+        (/\basian\b/.test(wantedKey) &&
+          (!/\bhispanic\b|\blatino\b/.test(wantedKey) ||
+            /\bnot (hispanic|latino)\b/.test(wantedKey))))
+    ) {
+      if (optionKey === "no") return 2000;
+      if (optionKey === "yes") return 0;
+    }
+    if (
+      fieldKey === "race" &&
+      /\bindia(?:n)?\b/.test(wantedKey) &&
+      !/\b(american indian|native american|alaska native)\b/.test(wantedKey)
+    ) {
+      if (/\basian\b/.test(optionKey)) return 2000;
+      if (/\bamerican indian\b|\balaska native\b/.test(optionKey)) return 0;
+    }
+    if (fieldKey === "race" && /\basian\b/.test(wantedKey)) {
+      if (/\basian\b/.test(optionKey)) return 2000;
+      if (
+        /\bhispanic\b|\blatino\b/.test(optionKey) &&
+        !/\basian\b/.test(optionKey)
+      ) {
+        return 0;
+      }
     }
 
     const aliases = fieldValueAliases(fieldKey, value);
     for (const alias of aliases) {
       const aliasKey = canonicalSelectText(alias);
       if (!aliasKey) continue;
-      if (optionKey === aliasKey) return 980;
-      if (optionKey.startsWith(aliasKey)) return 940;
-      if (optionKey.includes(aliasKey)) return 900;
-      if (aliasKey.includes(optionKey) && optionKey.length >= 5) return 850;
+      if (optionKey === aliasKey) return 1900;
+      if (optionKey.startsWith(aliasKey)) return 1800;
+      if (optionKey.includes(aliasKey)) return 1700;
+      if (aliasKey.includes(optionKey) && optionKey.length >= 5) return 1600;
     }
 
-    if (optionKey.startsWith(wantedKey)) return 820;
-    if (wantedKey.length >= 4 && optionKey.includes(wantedKey)) return 780;
+    if (optionKey.startsWith(wantedKey)) return 1500;
+    if (wantedKey.length >= 4 && optionKey.includes(wantedKey)) return 1400;
 
-    const wantedTokens = selectTokens(value);
+    const wantedTokens = unique(selectTokens(value));
     const optionTokens = new Set(selectTokens(optionText));
     const overlap = wantedTokens.filter((token) => optionTokens.has(token));
-    let score = overlap.length * 120;
+    let score = Math.min(overlap.length * 120, 760);
 
     if (/^degree--/.test(fieldKey) && optionTokens.has("bachelors")) score += 350;
     if (/^degree--/.test(fieldKey) && optionTokens.has("bachelor")) score += 350;
@@ -1917,9 +2511,17 @@
     for (const root of collectFieldRoots(documentRef || document)) {
       const input = findPrimaryInput(root);
       if (!input || fieldWrapperSelectInput(root) !== input) continue;
-      if (sectionKind(root) === "eeoc") continue;
-      if (!["application", "education"].includes(sectionKind(root))) continue;
-      if (isSensitiveOptionalField(root, questionText(root))) continue;
+      const fieldSectionKind = sectionKind(root);
+      if (fieldSectionKind === "eeoc") continue;
+      if (!["application", "education", "demographic"].includes(fieldSectionKind)) {
+        continue;
+      }
+      if (
+        fieldSectionKind !== "demographic" &&
+        isSensitiveOptionalField(root, questionText(root))
+      ) {
+        continue;
+      }
 
       const fieldKey = normalizeText(input.id);
       if (!fieldKey || fieldKey === "false" || seen.has(fieldKey)) continue;
@@ -1941,11 +2543,13 @@
 
     return EEOC_FIELD_SPECS.map((spec) => {
       const input = container.querySelector(`#${cssEscape(spec.fieldKey)}`);
-      if (!input || !isComboboxInput(input)) return null;
+      if (!input || !isComboboxInput(input)) {
+        return { ...spec, present: false };
+      }
       const root =
-        input.closest(".eeoc__question__wrapper") ||
-        input.closest(".field-wrapper") ||
         input.closest(".select") ||
+        input.closest(".field-wrapper") ||
+        input.closest(".eeoc__question__wrapper") ||
         container;
       return {
         ...spec,
@@ -1953,13 +2557,42 @@
           questionText(root) ||
           directLabelForInput(root, input) ||
           spec.label,
+        present: true,
       };
-    }).filter(Boolean);
+    });
+  }
+
+  function eeocFieldSchemaDescription(field) {
+    const special =
+      field.fieldKey === "hispanic_ethnicity"
+        ? GREENHOUSE_HISPANIC_INDIAN_HINT
+        : field.fieldKey === "race"
+          ? `${GREENHOUSE_RACE_INDIAN_HINT} ${GREENHOUSE_EEOC_RACE_AFTER_HISPANIC_HINT}`
+          : field.fieldKey === "veteran_status"
+            ? "If runContext.myInfo says not a veteran, use I am not a protected veteran."
+            : field.fieldKey === "disability_status"
+              ? "If runContext.myInfo says no disability, use the Greenhouse no-disability option."
+              : "";
+    return truncate(
+      [
+        `Answer for ${field.label}.`,
+        field.present ? "Currently visible." : "May appear after a prior EEOC answer.",
+        special,
+        "Omit only when My Info/goal does not support a value.",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      360,
+    );
   }
 
   function provideTools({ document: documentRef }) {
     const fields = connectorSelectFields(documentRef || document);
     const eeocFields = eeocSelectFields(documentRef || document);
+    const coverLetterAvailable = Boolean(
+      coverLetterTextarea(documentRef || document) ||
+        findCoverLetterManualButton(documentRef || document),
+    );
     const tools = [];
 
     if (fields.length) {
@@ -1971,12 +2604,14 @@
         type: "function",
         name: "greenhouse_fill_select",
         description: truncate(
-          "Fill a Greenhouse single-select dropdown in ONE step: opens the menu, matches the value " +
+          "Fill a Greenhouse single- or multi-select dropdown in ONE step: opens the menu, matches the value " +
             "against visible options, searches the dropdown when needed, and commits it. Prefer this over separate click/observe/click " +
             "turns for these selects. It is safe to call multiple times in one step for independent " +
-            "fields when values are known. fieldKey -> label: " +
+            "fields when values are known. For demographic selects, use only My Info/goal-supported values and omit unknown sensitive fields. " +
+            GREENHOUSE_FILL_KNOWN_VALUES_HINT +
+            " fieldKey -> label: " +
             mapping,
-          900,
+          1200,
         ),
         strict: false,
         parameters: {
@@ -2007,7 +2642,7 @@
       for (const field of eeocFields) {
         fieldValueProperties[field.fieldKey] = {
           type: "string",
-          description: `Explicit answer for ${field.label}. Omit when unknown.`,
+          description: eeocFieldSchemaDescription(field),
         };
       }
 
@@ -2015,9 +2650,14 @@
         type: "function",
         name: "greenhouse_fill_eeoc",
         description: truncate(
-          "Fill multiple Greenhouse EEOC self-identification selects in ONE step. Use only " +
-            "explicit sensitive values from runContext.myInfo or USER_GOAL. Omit fields that are " +
-            "unknown; do not invent values or choose decline/prefer-not-to-answer unless explicit. " +
+          "Fill multiple Greenhouse EEOC self-identification selects in ONE step. Use values " +
+            "from runContext.myInfo or USER_GOAL, including direct EEOC inferences from My Info. " +
+            GREENHOUSE_EEOC_INFERENCE_HINT +
+            " " +
+            GREENHOUSE_EEOC_RACE_AFTER_HISPANIC_HINT +
+            " Omit genuinely unknown fields; do not choose decline/prefer-not-to-answer unless explicit. " +
+            GREENHOUSE_FILL_KNOWN_VALUES_HINT +
+            " " +
             "The connector opens each menu, matches the requested value against live options, and " +
             "commits it. fieldKey -> label: " +
             mapping,
@@ -2032,10 +2672,36 @@
               properties: fieldValueProperties,
               additionalProperties: false,
               description:
-                "Object keyed by Greenhouse EEOC fieldKey. Include only explicit values.",
+                "Object keyed by Greenhouse EEOC fieldKey. Include explicit values and direct My Info inferences; omit genuinely unknown values.",
             },
           },
           required: ["fieldValues"],
+          additionalProperties: false,
+        },
+      });
+    }
+
+    if (coverLetterAvailable) {
+      tools.push({
+        type: "function",
+        name: "greenhouse_write_cover_letter",
+        description: truncate(
+          "Write a generated cover letter into the Greenhouse cover-letter manual-entry textarea in ONE step. " +
+            "Use only when USER_GOAL asks to add or write a cover letter. The planner must generate letterText from " +
+            "runContext.myInfo, resume details, USER_GOAL, and the visible job description/context; the connector clicks Enter manually if needed, waits for #cover_letter_text, and fills the text exactly.",
+          900,
+        ),
+        strict: false,
+        parameters: {
+          type: "object",
+          properties: {
+            letterText: {
+              type: "string",
+              description:
+                "Final complete cover letter text generated from My Info, resume details, USER_GOAL, and the visible job description/context. Keep it concise, specific, honest, and application-ready; never truncate mid-word or mid-sentence.",
+            },
+          },
+          required: ["letterText"],
           additionalProperties: false,
         },
       });
@@ -2063,7 +2729,7 @@
         options.rootSelector ||
         (options.scopeSelector
           ? `${options.scopeSelector} .eeoc__question__wrapper, ${options.scopeSelector} .field-wrapper`
-          : ".application--questions .field-wrapper");
+          : ".application--questions .field-wrapper, #demographic-section .select, .demographic--container .select");
       for (const root of getElements(rootSelector, form)) {
         const candidate = fieldWrapperSelectInput(root);
         if (candidate && normalizeText(candidate.id) === normalizeText(fieldKey)) {
@@ -2082,6 +2748,20 @@
       input.closest(".select__control");
 
     return { input, container, control };
+  }
+
+  function locatedSelectReady(located) {
+    return Boolean(located?.input && located?.control && isVisible(located.control));
+  }
+
+  async function waitForSelectByFieldKey(fieldKey, options = {}) {
+    let latest = null;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      latest = locateSelectByFieldKey(fieldKey, options);
+      if (locatedSelectReady(latest)) return latest;
+      await delay(100);
+    }
+    return latest;
   }
 
   function readComboboxOptions(input, container) {
@@ -2241,7 +2921,7 @@
       return { ok: false, detail: "greenhouse_fill_select runner primitives unavailable." };
     }
 
-    const located = locateSelectByFieldKey(fieldKey, locateOptions);
+    const located = await waitForSelectByFieldKey(fieldKey, locateOptions);
     if (!located?.control || !located.input) {
       return { ok: false, detail: `No Greenhouse select found for fieldKey ${fieldKey}.` };
     }
@@ -2339,6 +3019,70 @@
     return fillSelectByFieldKey(fieldKey, value, ctx);
   }
 
+  async function greenhouseWriteCoverLetter(action, ctx) {
+    const letterText = coverLetterTextFromAction(action);
+    const hasText = Boolean(normalizeText(letterText));
+    const fill = ctx?.primitives?.fillElement;
+    const click = ctx?.primitives?.clickElement;
+
+    if (!hasText) {
+      return {
+        ok: false,
+        detail: "greenhouse_write_cover_letter requires letterText.",
+      };
+    }
+    if (typeof fill !== "function") {
+      return {
+        ok: false,
+        detail: "greenhouse_write_cover_letter runner fill primitive unavailable.",
+      };
+    }
+
+    let textarea = coverLetterTextarea(document);
+    const manualButton = findCoverLetterManualButton(document);
+
+    if (!(textarea && isVisible(textarea)) && manualButton) {
+      if (typeof click !== "function") {
+        return {
+          ok: false,
+          detail:
+            "greenhouse_write_cover_letter needs clickElement to open Enter manually.",
+        };
+      }
+      await click(manualButton);
+      await delay(200);
+    }
+
+    textarea = await waitForCoverLetterTextarea();
+    if (!textarea || !isVisible(textarea)) {
+      return {
+        ok: false,
+        recoverable: true,
+        detail:
+          "Could not find the Greenhouse #cover_letter_text textarea after opening Enter manually.",
+      };
+    }
+
+    await fill(textarea, letterText);
+    await delay(100);
+
+    const committedValue = String(
+      textarea.value ?? textarea.getAttribute("value") ?? "",
+    );
+    const committed = normalizeText(committedValue) === normalizeText(letterText);
+
+    return {
+      ok: true,
+      committed,
+      fieldKey: "cover_letter_text",
+      characterCount: letterText.length,
+      valuePreview: truncate(committedValue, 180),
+      detail: committed
+        ? "Wrote the generated cover letter."
+        : "Filled the cover-letter textarea; verify on next observation.",
+    };
+  }
+
   function eeocFieldValuesFromAction(action) {
     const source =
       action?.fieldValues &&
@@ -2358,7 +3102,10 @@
 
   async function greenhouseFillEeoc(action, ctx) {
     const requestedFieldValues = eeocFieldValuesFromAction(action);
-    const entries = Object.entries(requestedFieldValues);
+    const entries = EEOC_FIELD_SPECS.map((spec) => [
+      spec.fieldKey,
+      requestedFieldValues[spec.fieldKey],
+    ]).filter(([, value]) => value);
 
     if (!entries.length) {
       return {
@@ -2420,6 +3167,10 @@
       "greenhouse_fill_eeoc",
       greenhouseFillEeoc,
     );
+    globalThis.WebGPTConnectorTools.register(
+      "greenhouse_write_cover_letter",
+      greenhouseWriteCoverLetter,
+    );
   }
 
   registry.register({
@@ -2460,13 +3211,18 @@
         visibleTextSummary: [
           ...(siteAdapter.visibleTextSummary || []),
           ...siteAdapter.plannerHints,
-          ...(state.visibleTextSummary || []),
+          ...filterPlannerNoiseList(state.visibleTextSummary || []),
         ].slice(0, 80),
-        groups: [...siteAdapter.groups, ...(state.groups || [])],
-        controls: enhanceControls(
-          state.controls || [],
-          siteAdapter.actionHintsByTargetId || {},
-          siteAdapter.selectorOverrides || {},
+        groups: [
+          ...siteAdapter.groups,
+          ...filterPlannerNoiseGroups(state.groups || []),
+        ],
+        controls: filterPlannerNoiseControls(
+          enhanceControls(
+            state.controls || [],
+            siteAdapter.actionHintsByTargetId || {},
+            siteAdapter.selectorOverrides || {},
+          ),
         ),
       };
     },

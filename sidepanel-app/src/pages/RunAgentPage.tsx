@@ -46,8 +46,11 @@ export default function RunAgentPage(props: RunAgentPageProps) {
         canStart={controller.canStart}
         canStop={controller.canStop}
         canReset={controller.canReset}
-        onStart={(submittedGoal) =>
-          void controller.handleStart({ goal: submittedGoal || controller.goal })
+        onStart={(submittedGoal, profileAttachments) =>
+          void controller.handleStart({
+            goal: submittedGoal || controller.goal,
+            profileAttachments,
+          })
         }
         onStop={() => void controller.handleStop()}
         onReset={() => void controller.handleReset()}

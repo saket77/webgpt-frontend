@@ -2,6 +2,16 @@
 import { useCallback } from "react";
 declare const chrome: any;
 
+export type ProfileAttachmentRole = "resume" | "cover_letter";
+
+export type ProfileAttachmentPayload = {
+  name: string;
+  mimeType: string;
+  size: number;
+  role: ProfileAttachmentRole;
+  contentBase64: string;
+};
+
 export type StartAgentRequest = {
   tabId: number;
   goal: string;
@@ -9,6 +19,7 @@ export type StartAgentRequest = {
   inputValues?: Record<string, string[]>;
   isTemplate?: boolean;
   surface?: string;
+  profileAttachments?: ProfileAttachmentPayload[];
 };
 
 async function sendToWorker<T = any>(message: any): Promise<T> {
@@ -32,6 +43,7 @@ export function useAgentActions() {
       inputValues,
       isTemplate,
       surface,
+      profileAttachments,
     }: StartAgentRequest) => {
       return sendToWorker<{
         ok?: boolean;
@@ -44,6 +56,7 @@ export function useAgentActions() {
         inputValues: inputValues || {},
         isTemplate: isTemplate || false,
         surface: surface || "",
+        profileAttachments: profileAttachments || [],
       });
     },
     [],

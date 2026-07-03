@@ -80,6 +80,7 @@ export function registerMessageHandlers() {
           message.artifactFileName || "",
           message.surface || "",
           myInfo,
+          message.profileAttachments || [],
         );
         sendResponse({ ok: true, result });
         return;

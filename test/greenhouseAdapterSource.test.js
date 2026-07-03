@@ -38,6 +38,9 @@ test("Greenhouse adapter scopes itself to the application form regions", () => {
   );
   assert.match(source, /\.eeoc__container/);
   assert.match(source, /\.eeoc__question__wrapper/);
+  assert.match(source, /getElements\("\.select, \.field-wrapper", eeoc\)/);
+  assert.match(source, /root\.matches\("\.field-wrapper"\) && root\.querySelector\("\.select"\)/);
+  assert.match(source, /#demographic-section, \.demographic--container/);
   assert.match(source, /\.application--submit button\[type='submit'\]/);
 });
 
@@ -50,7 +53,7 @@ test("Greenhouse adapter reports field state and policy buckets", () => {
   assert.match(source, /answered: \$\{answered \? "true" : "false"\}/);
   assert.match(source, /required fields still missing/);
   assert.match(source, /safe profile\/contact field; fill from My Info when available/);
-  assert.match(source, /sensitive optional EEOC field; answer from explicit runContext\.myInfo value/);
+  assert.match(source, /sensitive optional EEOC field; answer from runContext\.myInfo values or direct EEOC inferences/);
   assert.match(source, /upload\/file boundary; do not upload unless requested/);
 });
 
@@ -71,6 +74,33 @@ test("Greenhouse adapter treats manual cover-letter textarea as text, not upload
     source,
     /\\b\\(upload\\|attach\\|resume\\|cv\\|cover letter\\)\\b/,
   );
+});
+
+test("Greenhouse adapter exposes a cover-letter connector command through enhanced state", () => {
+  const source = readSource("content-scripts/adapters/greenhouse.js");
+
+  assert.match(source, /const COVER_LETTER_TARGET_ID/);
+  assert.match(source, /GREENHOUSE_COVER_LETTER_HINT/);
+  assert.match(source, /runContext\.myInfo/);
+  assert.match(source, /visible job description\/context/);
+  assert.match(source, /textarea#cover_letter_text/);
+  assert.match(source, /function findCoverLetterManualButton/);
+  assert.match(source, /\benter manually\b/i);
+  assert.match(source, /function coverLetterEntryInfo/);
+  assert.match(source, /function coverLetterGroups/);
+  assert.match(source, /greenhouse_cover_letter_section/);
+  assert.match(source, /greenhouse_cover_letter_manual_entry/);
+  assert.match(source, /siteAdapter\.coverLetterAvailable/);
+  assert.match(source, /coverLetterGroups\(coverLetterInfo\)/);
+  assert.match(source, /preferredAction: "greenhouse_write_cover_letter"/);
+  assert.match(source, /connectorTool: "greenhouse_write_cover_letter"/);
+  assert.match(source, /name: "greenhouse_write_cover_letter"/);
+  assert.match(source, /letterText/);
+  assert.match(source, /async function greenhouseWriteCoverLetter/);
+  assert.match(source, /ctx\?\.primitives\?\.fillElement/);
+  assert.match(source, /ctx\?\.primitives\?\.clickElement/);
+  assert.match(source, /waitForCoverLetterTextarea/);
+  assert.match(source, /WebGPTConnectorTools\.register\(\s*"greenhouse_write_cover_letter"/);
 });
 
 test("Greenhouse adapter keeps comboboxes and options deterministic inside the field", () => {
@@ -97,7 +127,14 @@ test("Greenhouse adapter batches connector selects and keeps a combobox fallback
 
   assert.match(source, /function isBatchableTextField/);
   assert.match(source, /Batch every independent safe Greenhouse fill/);
+  assert.match(source, /GREENHOUSE_FILL_KNOWN_VALUES_HINT/);
+  assert.match(source, /do not stop, ask, or defer the whole form just because a few fields are unknown/);
+  assert.match(source, /Fill every field with a known, visible, My Info-supported, or safely synthesized value/);
+  assert.match(source, /unknown fields are not blockers/);
   assert.match(source, /connector-select fills/);
+  assert.match(source, /GREENHOUSE_EEOC_BATCH_HINT/);
+  assert.match(source, /one planner step that batches safe text\/long_text\/url\/tel\/email fills/);
+  assert.match(source, /greenhouse_fill_select calls, and greenhouse_fill_eeoc/);
   assert.match(source, /searches when the desired option is not immediately visible/);
   assert.match(source, /do not pre-open the menu just to inspect finite options/i);
   assert.match(source, /Use click\/open\/observe only when the connector tool is unavailable or failed/);
@@ -152,6 +189,8 @@ test("Greenhouse adapter exposes a greenhouse_fill_select connector tool (open+s
   assert.match(source, /collectFieldRoots\(documentRef \|\| document\)/);
   assert.match(source, /\.application--questions/);
   assert.match(source, /\.education--form/);
+  assert.match(source, /"demographic"/);
+  assert.match(source, /fieldSectionKind !== "demographic"/);
   assert.match(source, /fieldKey === "false"/); // excludes unusable id="false" selects
   // Runner-side executor: opens, reads options, searches when needed, matches, commits.
   assert.match(source, /async function greenhouseFillSelect/);
@@ -177,6 +216,7 @@ test("Greenhouse adapter exposes a greenhouse_fill_select connector tool (open+s
   assert.match(source, /continueBatch:\s*true/);
   assert.match(source, /equivalentValues:\s*equivalentValuesForSelect/);
   assert.match(source, /greenhouse_phone_country_code_connector_select/);
+  assert.match(source, /greenhouse_demographic_connector_select/);
   assert.match(source, /WebGPTConnectorTools\.register\(\s*"greenhouse_fill_select"/);
   // Enhanced state should describe connector-backed selects as batchable connector actions.
   assert.match(source, /function isConnectorFillSelectField/);
@@ -188,12 +228,34 @@ test("Greenhouse adapter exposes a greenhouse_fill_select connector tool (open+s
   assert.match(source, /provideTools,/);
 });
 
+test("Greenhouse adapter exposes demographic section selects through the connector", () => {
+  const source = readSource("content-scripts/adapters/greenhouse.js");
+
+  assert.match(source, /GREENHOUSE_DEMOGRAPHIC_INFERENCE_HINT/);
+  assert.match(source, /GREENHOUSE_DEMOGRAPHIC_BATCH_HINT/);
+  assert.match(source, /Gender Male -> Man/);
+  assert.match(source, /Indian\/India\/South Asian -> Asian/);
+  assert.match(source, /no disability -> No/);
+  assert.match(source, /not a veteran -> No/);
+  assert.match(source, /Omit sexual orientation, transgender status/);
+  assert.match(source, /function demographicSectionGroups/);
+  assert.match(source, /greenhouse_demographic_section/);
+  assert.match(source, /Greenhouse demographic section detected/);
+  assert.match(source, /#demographic-section \.select, \.demographic--container \.select/);
+  assert.match(source, /field\.demographicOptional/);
+  assert.match(source, /Sensitive optional Greenhouse demographic field/);
+  assert.match(source, /aliases\.push\("Man", "Male"\)/);
+  assert.match(source, /aliases\.push\("Asian"\)/);
+  assert.match(source, /aliases\.push\("No"\)/);
+});
+
 test("Greenhouse adapter exposes an EEOC composite connector tool with section hints", () => {
   const source = readSource("content-scripts/adapters/greenhouse.js");
 
   assert.match(source, /const EEOC_FIELD_SPECS/);
   assert.match(source, /fieldKey: "gender"/);
   assert.match(source, /fieldKey: "hispanic_ethnicity"/);
+  assert.match(source, /fieldKey: "race"/);
   assert.match(source, /fieldKey: "veteran_status"/);
   assert.match(source, /fieldKey: "disability_status"/);
   assert.match(source, /function eeocSectionGroups/);
@@ -202,7 +264,11 @@ test("Greenhouse adapter exposes an EEOC composite connector tool with section h
   assert.match(source, /connector action available: greenhouse_fill_eeoc/);
   assert.match(source, /name: "greenhouse_fill_eeoc"/);
   assert.match(source, /fieldValues/);
-  assert.match(source, /explicit sensitive values from runContext\.myInfo/);
+  assert.match(source, /direct EEOC inferences from My Info/);
+  assert.match(source, /GREENHOUSE_EEOC_RACE_AFTER_HISPANIC_HINT/);
+  assert.match(source, /same greenhouse_fill_eeoc call as hispanic_ethnicity=\\"No\\"/);
+  assert.match(source, /connector fills Hispanic\/Latino first, waits for Race, then fills Race/);
+  assert.match(source, /input\.closest\("\.select"\) \|\|/);
   assert.match(source, /async function greenhouseFillEeoc/);
   assert.match(source, /scopeSelector: "\.eeoc__container"/);
   assert.match(source, /fieldValues:\s*committedFieldValues/);
@@ -210,14 +276,79 @@ test("Greenhouse adapter exposes an EEOC composite connector tool with section h
   assert.match(source, /WebGPTConnectorTools\.register\(\s*"greenhouse_fill_eeoc"/);
 });
 
-test("Greenhouse adapter marks submit boundaries and uses explicit My Info for EEOC", () => {
+test("Greenhouse adapter marks submit boundaries and uses My Info for EEOC", () => {
   const source = readSource("content-scripts/adapters/greenhouse.js");
 
   assert.match(source, /greenhouse_submit_application_boundary/);
   assert.match(source, /Do not click when USER_GOAL says not to submit/);
   assert.match(source, /Greenhouse EEOC fields are sensitive optional fields/);
-  assert.match(source, /explicit values in runContext\.myInfo are user-provided answers/);
-  assert.match(source, /If My Info lacks a matching value/);
+  assert.match(source, /values in runContext\.myInfo are user-provided profile facts/);
+  assert.match(source, /direct derivations such as ethnicity\/race Indian -> Hispanic\/Latino No/);
+  assert.match(source, /If My Info does not support a matching value/);
   assert.match(source, /decline\/prefer-not-to-answer/);
   assert.match(source, /mention blanks in done summaries/);
+});
+
+test("Greenhouse adapter encourages synthesized normal optional answers", () => {
+  const source = readSource("content-scripts/adapters/greenhouse.js");
+
+  assert.match(source, /GREENHOUSE_APPLICATION_SYNTHESIS_HINT/);
+  assert.match(source, /fill every answerable field by default even when optional/);
+  assert.match(source, /Fill every field with a known, visible, My Info-supported, or safely synthesized value/);
+  assert.match(source, /synthesize a concise honest answer from runContext\.myInfo/);
+  assert.match(source, /prefer concise complete answers/);
+  assert.match(source, /never truncate mid-word or mid-sentence/);
+  assert.match(source, /finish naturally/);
+  assert.match(source, /Final complete cover letter text/);
+  assert.doesNotMatch(source, /(?:about|around|up to|aim(?:\s+\w+){0,3})\s+500\s+(?:characters|chars)/i);
+  assert.match(source, /This is planner guidance, not an enforcement cap/);
+  assert.match(source, /do not synthesize sensitive EEOC, legal\/work-authorization, demographic, or file-upload answers/);
+  assert.match(source, /function isNormalSynthesizableField/);
+  assert.match(source, /normalSynthesizable/);
+  assert.match(source, /normal answerable application question/);
+  assert.match(source, /This normal Greenhouse application question is answerable even when optional/);
+  assert.match(source, /Greenhouse optional normal application questions are still part of the application/);
+  assert.match(source, /"long_text"/);
+});
+
+test("Greenhouse EEOC matching infers Indian as Hispanic No and race Asian", () => {
+  const source = readSource("content-scripts/adapters/greenhouse.js");
+
+  assert.match(source, /GREENHOUSE_HISPANIC_INDIAN_HINT/);
+  assert.match(source, /Indian\/India\/South Asian in runContext\.myInfo directly supports selecting No/);
+  assert.match(source, /GREENHOUSE_RACE_INDIAN_HINT/);
+  assert.match(source, /Indian\/India\/South Asian maps to Asian \(Not Hispanic or Latino\)/);
+  assert.match(source, /include race=\\"Asian \(Not Hispanic or Latino\)\\"/);
+  assert.match(source, /if \(optionKey === "no"\) return 2000/);
+  assert.match(source, /aliases\.push\("Asian \(Not Hispanic or Latino\)"\)/);
+  assert.match(source, /if \(\/\\basian\\b\/\.test\(optionKey\)\) return 2000/);
+  assert.match(source, /if \(\/\\bamerican indian\\b\|\\balaska native\\b\/\.test\(optionKey\)\) return 0/);
+  assert.match(source, /EEOC_FIELD_SPECS\.map\(\(spec\) => \[/);
+});
+
+test("Greenhouse select matching keeps exact and sponsorship-polarity matches safe", () => {
+  const source = readSource("content-scripts/adapters/greenhouse.js");
+
+  assert.match(source, /function sponsorshipPolarityConflict/);
+  assert.match(source, /hasNoSponsorshipIntent/);
+  assert.match(source, /hasNeedsSponsorshipIntent/);
+  assert.match(source, /if \(optionKey === wantedKey\) return 2000/);
+  assert.match(source, /if \(sponsorshipPolarityConflict\(optionKey, wantedKey\)\) return 0/);
+  assert.match(source, /const wantedTokens = unique\(selectTokens\(value\)\)/);
+  assert.match(source, /Math\.min\(overlap\.length \* 120, 760\)/);
+});
+
+test("Greenhouse adapter filters long EEOC policy copy from planner state", () => {
+  const source = readSource("content-scripts/adapters/greenhouse.js");
+
+  assert.match(source, /function isGreenhousePolicyNoiseText/);
+  assert.match(source, /vietnam era veterans readjustment assistance act/);
+  assert.match(source, /omb control number/);
+  assert.match(source, /paperwork reduction act/);
+  assert.match(source, /function filterPlannerNoiseList/);
+  assert.match(source, /function filterPlannerNoiseGroups/);
+  assert.match(source, /function filterPlannerNoiseControls/);
+  assert.match(source, /\.\.\.filterPlannerNoiseList\(state\.visibleTextSummary \|\| \[\]\)/);
+  assert.match(source, /\.\.\.filterPlannerNoiseGroups\(state\.groups \|\| \[\]\)/);
+  assert.match(source, /controls: filterPlannerNoiseControls/);
 });

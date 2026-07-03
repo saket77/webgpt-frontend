@@ -6,6 +6,7 @@ import {
   type RunLaunchRequest,
   useAgentLaunchRequest,
 } from "../hooks/useAgentLaunchRequest";
+import type { ProfileAttachmentPayload } from "../hooks/useAgentActions";
 import { useAgentUX } from "../providers";
 
 declare const chrome: any;
@@ -85,6 +86,7 @@ type StartOverrides = {
   inputValues?: Record<string, string[]>;
   isTemplate?: boolean;
   surface?: Surface;
+  profileAttachments?: ProfileAttachmentPayload[];
   options?: {
     clearEvents?: boolean;
     pendingStatus?: string;
@@ -779,6 +781,7 @@ export function useAgentRunController({
           inputValues: overrides.inputValues,
           isTemplate: Boolean(overrides.isTemplate),
           surface: effectiveSurface,
+          profileAttachments: overrides.profileAttachments || [],
         },
         overrides.options,
       );

@@ -29,6 +29,23 @@ test("connectorTools.js is injected before the site adapters", () => {
   assert.ok(connectorIndex < greenhouseIndex, "connectorTools must load before greenhouse");
 });
 
+test("browser runtime uses revisioned content-script protocol before extraction and actions", () => {
+  const browserSource = readSource("background/runtime/browser.js");
+  const agentSource = readSource("content-scripts/agent.js");
+
+  assert.match(browserSource, /const CONTENT_SCRIPT_PROTOCOL_REVISION = "connector-tools-2026-07-02"/);
+  assert.match(agentSource, /const CONTENT_SCRIPT_PROTOCOL_REVISION = "connector-tools-2026-07-02"/);
+  assert.match(browserSource, /type: PING_MESSAGE_TYPE/);
+  assert.match(browserSource, /response\.protocolRevision === CONTENT_SCRIPT_PROTOCOL_REVISION/);
+  assert.match(browserSource, /type: EXTRACT_STATE_MESSAGE_TYPE/);
+  assert.match(browserSource, /type: RUN_ACTIONS_MESSAGE_TYPE/);
+  assert.match(agentSource, /const PING_MESSAGE_TYPE = "PING_WEBGPT_CONTENT_SCRIPT"/);
+  assert.match(agentSource, /const EXTRACT_STATE_MESSAGE_TYPE = "WEBGPT_EXTRACT_STATE_V2"/);
+  assert.match(agentSource, /const RUN_ACTIONS_MESSAGE_TYPE = "WEBGPT_RUN_ACTIONS_V2"/);
+  assert.match(agentSource, /function protocolMatches/);
+  assert.match(agentSource, /connectorToolNames/);
+});
+
 test("adapter registry collects provideTools into state.connectorTools", () => {
   const source = readSource("content-scripts/adapters/registry.js");
 

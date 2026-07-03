@@ -230,6 +230,7 @@ export async function startAgentFlow(
   artifactFileName = "",
   surface = "",
   myInfo = null,
+  profileAttachments = [],
   { continueRun, plannerAdapter, runtime } = {},
 ) {
   const resumeRun =
@@ -271,6 +272,7 @@ export async function startAgentFlow(
     artifactFileName: session.artifactFileName,
     surface: session.surface,
     myInfo,
+    profileAttachments,
   });
 
   session = await getSession(tabId);
