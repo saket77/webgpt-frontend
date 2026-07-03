@@ -28,7 +28,7 @@ const floatingUiComboboxFixture = String.raw`
 `;
 
 test("Ashby adapter treats portaled autocomplete options as uncommitted until closed", () => {
-  const source = readSource("content-scripts/adapters/ashby.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/ashby.js");
 
   assert.match(floatingUiComboboxFixture, /data-floating-ui-portal/);
   assert.match(floatingUiComboboxFixture, /aria-controls=":r0:"/);
@@ -47,7 +47,7 @@ test("Ashby adapter treats portaled autocomplete options as uncommitted until cl
 });
 
 test("Ashby autocomplete option hints are clickable choices, not selected values", () => {
-  const source = readSource("content-scripts/adapters/ashby.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/ashby.js");
 
   assert.match(source, /visible autocomplete option: \$\{option\.optionText\}/);
   assert.match(source, /available option: \$\{option\.optionText\}/);
@@ -55,14 +55,14 @@ test("Ashby autocomplete option hints are clickable choices, not selected values
 });
 
 test("control extraction keeps real ARIA options instead of composite wrappers", () => {
-  const source = readSource("content-scripts/extract-state/controlBuilders.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/extract-state/controlBuilders.js");
 
   assert.match(source, /role !== "option" && el\.querySelector\("\[role='option'\]"\)/);
   assert.match(source, /document\.querySelectorAll\('\[role="option"\]'\)/);
 });
 
 test("Ashby adapter scopes application fields and prioritizes actionable targets", () => {
-  const source = readSource("content-scripts/adapters/ashby.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/ashby.js");
 
   assert.match(source, /function applicationScopes/);
   assert.match(source, /ashby-job-posting-right-pane/);
@@ -75,7 +75,7 @@ test("Ashby adapter scopes application fields and prioritizes actionable targets
 });
 
 test("Ashby guidance distinguishes profile blanks, sensitive optional fields, and 1-of-3 prompts", () => {
-  const source = readSource("content-scripts/adapters/ashby.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/ashby.js");
 
   assert.match(source, /function isSensitiveOptionalField/);
   assert.match(source, /function isOptionalProfileField/);
@@ -92,7 +92,7 @@ test("Ashby guidance distinguishes profile blanks, sensitive optional fields, an
 });
 
 test("Ashby adapter exposes composite connector tools for application fields and EEOC", () => {
-  const source = readSource("content-scripts/adapters/ashby.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/ashby.js");
 
   assert.match(source, /const APPLICATION_FIELDS_TOOL = "ashby_fill_application_fields"/);
   assert.match(source, /const EEOC_TOOL = "ashby_fill_eeoc"/);
@@ -120,7 +120,7 @@ test("Ashby adapter exposes composite connector tools for application fields and
 });
 
 test("Ashby connector executors fill non-file fields and EEOC through WebGPTConnectorTools", () => {
-  const source = readSource("content-scripts/adapters/ashby.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/ashby.js");
 
   assert.match(source, /function provideTools/);
   assert.match(source, /name: APPLICATION_FIELDS_TOOL/);
@@ -152,7 +152,7 @@ test("Ashby connector executors fill non-file fields and EEOC through WebGPTConn
 });
 
 test("Ashby adapter hides EEOC policy copy and keeps only actionable fields", () => {
-  const source = readSource("content-scripts/adapters/ashby.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/ashby.js");
 
   assert.match(source, /function isAshbyPolicyNoiseText/);
   assert.match(source, /equal employment opportunity/);
@@ -166,7 +166,7 @@ test("Ashby adapter hides EEOC policy copy and keeps only actionable fields", ()
 });
 
 test("Ashby connector state uses fieldKey identity for post-action verification", () => {
-  const source = readSource("content-scripts/adapters/ashby.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/ashby.js");
 
   assert.match(source, /fieldKey: field\.sectionKind === "eeoc" \? field\.eeocFieldKey \|\| field\.fieldPath : field\.fieldPath/);
   assert.match(source, /groupTargetId: fieldTargetId\(field\.fieldPath\)/);
@@ -175,7 +175,7 @@ test("Ashby connector state uses fieldKey identity for post-action verification"
 });
 
 test("Ashby yes/no fields use field-local active buttons and connector-managed hints", () => {
-  const source = readSource("content-scripts/adapters/ashby.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/ashby.js");
 
   assert.match(source, /function yesNoButtonsForRoot/);
   assert.match(source, /function yesNoSelectedValue/);
@@ -194,7 +194,7 @@ test("Ashby yes/no fields use field-local active buttons and connector-managed h
 });
 
 test("Ashby EEOC race matching maps Indian to Asian, not American Indian", () => {
-  const source = readSource("content-scripts/adapters/ashby.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/ashby.js");
 
   assert.match(source, /\\bindia\(\?:n\)\?\\b/);
   assert.match(source, /aliases\.push\("Asian \(Not Hispanic or Latino\)"\)/);
@@ -203,7 +203,7 @@ test("Ashby EEOC race matching maps Indian to Asian, not American Indian", () =>
 });
 
 test("Ashby location combobox maps PA abbreviation to Pennsylvania portal options", () => {
-  const source = readSource("content-scripts/adapters/ashby.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/ashby.js");
 
   assert.match(source, /const US_STATE_NAMES = \{/);
   assert.match(source, /pa: "Pennsylvania"/);
@@ -213,7 +213,7 @@ test("Ashby location combobox maps PA abbreviation to Pennsylvania portal option
 });
 
 test("Ashby application connector encourages synthesized normal answers", () => {
-  const source = readSource("content-scripts/adapters/ashby.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/ashby.js");
 
   assert.match(source, /ASHBY_APPLICATION_SYNTHESIS_HINT/);
   assert.match(source, /ASHBY_FILL_KNOWN_VALUES_HINT/);

@@ -42,7 +42,7 @@ The first planning snapshot is bounded to `A1:T50`.
 
 ## Commands
 
-Commands are executed by `background/runtime/microsoftExcel.js` through Microsoft Graph.
+Commands are executed by `apps/extension-host/src/background/runtime/microsoftExcel.js` through Microsoft Graph.
 
 ### `read_range`
 

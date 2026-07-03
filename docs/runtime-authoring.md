@@ -10,7 +10,7 @@ The frontend loop stays the same:
 
 1. The sidepanel starts a run and sends `surface` to the backend.
 2. The backend returns `extract_state`.
-3. `background/runtime/index.js` routes extraction to the active runtime.
+3. `apps/extension-host/src/background/runtime/index.js` routes extraction to the active runtime.
 4. The backend plans against that runtime's state and command vocabulary.
 5. The backend returns a surface-specific command.
 6. The frontend command router executes through the runtime.
@@ -24,36 +24,38 @@ This is different from a connector-enabled site adapter. A site adapter still st
 Runtime code lives in:
 
 ```text
-background/runtime/
-  browser.js        Browser DOM runtime: content-script extraction, DOM action execution, DOM replay
+apps/extension-host/src/background/runtime/
+  browser.js        Browser DOM runtime: page-runtime injection, DOM action execution, DOM replay
   googleSheets.js   Google Sheets runtime: Chrome identity auth, Sheets API extraction, Sheets command execution
   microsoftExcel.js Microsoft Excel runtime: Microsoft auth, Graph extraction, Excel command execution
-  index.js          Runtime facade used by the controller
-  surfaces.js       Surface IDs and active-tab detection
+  index.js          Runtime facade passed into controller-core
+
+packages/controller-core/src/runtime/
+  surfaces.js       Surface IDs shared by controller-core and extension-host
 ```
 
 Runtime commands are dispatched from:
 
 ```text
-background/controller/commands/router.js
-background/controller/commands/runActions.js
-background/controller/commands/runGoogleSheetsCommands.js
-background/controller/commands/runMicrosoftExcelCommands.js
-background/controller/commands/replayBatch.js
+packages/controller-core/src/controller/commands/router.js
+packages/controller-core/src/controller/commands/runActions.js
+packages/controller-core/src/controller/commands/runGoogleSheetsCommands.js
+packages/controller-core/src/controller/commands/runMicrosoftExcelCommands.js
+packages/controller-core/src/controller/commands/replayBatch.js
 ```
 
 The sidepanel decides pre-run permissions and passes `surface` through:
 
 ```text
-sidepanel-app/src/controllers/useAgentRunController.ts
-sidepanel-app/src/components/agent/PreRunDisclosureModal.tsx
-background/messages.js
-background/adapters/webgpt/api.js
+apps/extension-host/sidepanel-app/src/controllers/useAgentRunController.ts
+apps/extension-host/sidepanel-app/src/components/agent/PreRunDisclosureModal.tsx
+apps/extension-host/src/background/messages.js
+apps/extension-host/src/background/adapters/webgpt/api.js
 ```
 
 ## Runtime Interface
 
-`background/runtime/index.js` is the facade the controller talks to. A new runtime should fit this shape:
+`apps/extension-host/src/background/runtime/index.js` is the facade the controller talks to. A new runtime should fit this shape:
 
 ```js
 {
@@ -138,13 +140,13 @@ If the command is still a page-local DOM operation, prefer a connector-enabled s
 
 ## Adding A Runtime
 
-1. Define the surface ID and detection rule in `background/runtime/surfaces.js`.
-2. Add a runtime file in `background/runtime/`.
-3. Implement `extractStateFromTab`.
-4. Implement the smallest useful command executor.
-5. Add a command handler under `background/controller/commands/`.
-6. Route the command in `background/controller/commands/router.js`.
-7. Add runtime routing in `background/runtime/index.js`.
+1. Define the surface ID in `packages/controller-core/src/runtime/surfaces.js`.
+2. Add detection and runtime routing in `apps/extension-host/src/background/runtime/index.js`.
+3. Add a runtime file in `apps/extension-host/src/background/runtime/`.
+4. Implement `extractStateFromTab`.
+5. Implement the smallest useful command executor.
+6. Add a command handler under `packages/controller-core/src/controller/commands/`.
+7. Route the command in `packages/controller-core/src/controller/commands/router.js`.
 8. Thread auth/config checks through `useAgentRunController.ts` only if the runtime needs pre-run permission.
 9. Add the surface to backend payloads through the existing `surface` field.
 10. Document the surface vocabulary in `docs/surfaces/`.
@@ -179,7 +181,7 @@ Replay steps should include `surface` and the runtime command:
 }
 ```
 
-`background/runtime/index.js` can route replay batches to the right runtime when all steps belong to that surface. Mixed replay batches should stay conservative until there is an explicit cross-runtime replay coordinator.
+`apps/extension-host/src/background/runtime/index.js` can route replay batches to the right runtime when all steps belong to that surface. Mixed replay batches should stay conservative until there is an explicit cross-runtime replay coordinator.
 
 Templates do not need a separate frontend flow. They pass `surface` into the same start command and then execute the commands returned by the backend.
 

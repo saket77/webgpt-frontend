@@ -1,14 +1,17 @@
 # Contributing To WebGPT Frontend
 
-This repository is the browser frontend for WebGPT: a Chrome extension, content-script execution layer, sidepanel UI, and planner-backend integration surface.
+This repository is the browser frontend for WebGPT: a Chrome extension host, shared in-page runtime, controller core, sidepanel UI, and planner-backend integration surface.
 
 The planner itself is intentionally outside this repository. Contributions should keep the frontend useful with compatible backends without moving planner-specific logic into the browser extension.
 
 ## Where To Make Changes
 
-- Put extension orchestration and browser/runtime changes in `background/`.
-- Put DOM extraction and browser action execution changes in `content-scripts/`.
-- Put sidepanel UI changes in `sidepanel-app/src/`.
+- Put reusable DOM extraction, browser action execution, connector tools, and site adapters in `packages/page-runtime/src/`.
+- Put host-agnostic planner loop and command-flow changes in `packages/controller-core/src/`.
+- Put shared planner HTTP contract code in `packages/planner-http-adapter/src/`.
+- Put Chrome extension orchestration, browser/runtime adapters, settings, auth, and service-worker changes in `apps/extension-host/src/`.
+- Put Browserbase cloud host orchestration and Playwright runtime code in `apps/browserbase-host/src/`.
+- Put sidepanel UI changes in `apps/extension-host/sidepanel-app/src/`.
 - Put integration and contributor documentation in `docs/` or this folder.
 
 ## Supported Contribution Paths
@@ -27,18 +30,17 @@ The contract lives in [docs/planner-adapter-contract.md](./docs/planner-adapter-
 
 Contributors can improve how the frontend understands and acts on pages by:
 
-- improving generic extraction in `content-scripts/extract-state/`
-- improving runner behavior in `content-scripts/runner/`
-- adding state-only or connector-enabled site adapters in `content-scripts/adapters/`
+- improving generic extraction in `packages/page-runtime/src/content-scripts/extract-state/`
+- improving runner behavior in `packages/page-runtime/src/content-scripts/runner/`
+- adding state-only or connector-enabled site adapters in `packages/page-runtime/src/content-scripts/adapters/`
 
 Start with [docs/site-adapter-authoring.md](./docs/site-adapter-authoring.md) before adding an adapter. State-only adapters should enrich extracted state without mutating the page. Connector-enabled adapters may expose narrowly scoped DOM-backed tools through `provideTools()` and `WebGPTConnectorTools`, but those executors must reuse the adapter's page model, avoid hidden planning decisions, and never call planner services directly.
 
 ## Local Workflow
 
-### Build The Sidepanel
+### Build The Extension
 
 ```bash
-cd sidepanel-app
 npm install
 npm run build
 ```
@@ -46,7 +48,7 @@ npm run build
 ### Lint The Sidepanel
 
 ```bash
-cd sidepanel-app
+cd apps/extension-host/sidepanel-app
 npm run lint
 ```
 
@@ -54,10 +56,28 @@ npm run lint
 
 Before opening a PR, verify the change in a loaded unpacked extension:
 
-1. Build `sidepanel-app`
+1. Run `npm run build`
 2. Reload the unpacked extension in Chrome
 3. Open the sidepanel on a normal web page
 4. Confirm the behavior you changed still works end to end
+
+Load `apps/extension-host/dist-extension` as the unpacked extension. Run `npm run smoke:extension` before manual verification to catch missing service-worker, sidepanel, icon, or content-script build outputs.
+
+### Browserbase Cloud Host Smoke
+
+The cloud host is a local CLI/API app for proving WebGPT can run inside Browserbase cloud browsers while using the same planner backend:
+
+```bash
+npm run smoke:cloud
+```
+
+Live Browserbase runs require `BROWSERBASE_API_KEY`, `BROWSERBASE_PROJECT_ID`, and a compatible backend:
+
+```bash
+npm run cloud:run -- --eprocure --backend http://localhost:3000
+```
+
+Keep cloud host changes behind host adapters. The Browserbase host should reuse `packages/page-runtime`, `packages/controller-core`, and `packages/planner-http-adapter`; it should not import Chrome extension settings, sidepanel code, or Chrome APIs.
 
 For backend-related changes, also verify that:
 

@@ -1,0 +1,11 @@
+{
+  "name": "@webgpt/extension-host",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ../../scripts/build-extension.mjs",
+    "package": "node ../../scripts/package-extension.mjs",
+    "smoke": "node ../../scripts/smoke-extension.mjs"
+  }
+}

@@ -43,24 +43,26 @@ Use this checklist when turning a state-only site adapter into a connector-enabl
 Adapter code lives in:
 
 ```text
-content-scripts/adapters/
-  registry.js
-  canvasQuiz.js
-  greenhouse.js
-  dotloop.js
+packages/page-runtime/src/content-scripts/
   connectorTools.js
+  adapters/
+    registry.js
+    canvasQuiz.js
+    greenhouse.js
+    dotloop.js
 ```
 
-Adapter scripts are injected before `content-scripts/extractState.js` by:
+Adapter scripts are injected before `content-scripts/extractState.js` by the extension host using the canonical page-runtime manifest:
 
 ```text
-background/runtime/browser.js
+packages/page-runtime/src/manifest.js
+apps/extension-host/src/background/runtime/browser.js
 ```
 
 The generic extractor calls the registry from:
 
 ```text
-content-scripts/extractState.js
+packages/page-runtime/src/content-scripts/extractState.js
 ```
 
 ## Adapter Contract
@@ -297,7 +299,7 @@ If a state-only target cannot be mapped to a generic control, include it as a no
 
 ## Canvas Quiz Adapter
 
-`content-scripts/adapters/canvasQuiz.js` is the first included adapter. It recognizes Canvas-like quiz pages and extracts:
+`packages/page-runtime/src/content-scripts/adapters/canvasQuiz.js` is the first included adapter. It recognizes Canvas-like quiz pages and extracts:
 
 - quiz title and question status
 - current question metadata
@@ -321,7 +323,7 @@ The Canvas adapter is state-only. It does not answer quiz questions. It only mak
 
 ## Connector-Enabled Examples
 
-`content-scripts/adapters/greenhouse.js` and `content-scripts/adapters/dotloop.js` are connector-enabled adapters.
+`packages/page-runtime/src/content-scripts/adapters/greenhouse.js` and `packages/page-runtime/src/content-scripts/adapters/dotloop.js` are connector-enabled adapters.
 
 Greenhouse exposes connector tools for custom select/EEOC flows where the adapter already knows the field roots and React select behavior. Dotloop exposes tools for document-field filling and Add Person modal completion. In both cases, the connector tools reuse the same detection logic as `enhanceState()` so state, planning hints, execution, replay evidence, and action effects describe the same page concepts.
 

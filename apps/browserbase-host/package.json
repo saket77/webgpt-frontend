@@ -1,0 +1,17 @@
+{
+  "name": "@webgpt/browserbase-host",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "webgpt-cloud": "src/cli.js"
+  },
+  "scripts": {
+    "run": "node src/cli.js",
+    "smoke": "node src/cli.js --dry-run --url https://example.com --goal smoke"
+  },
+  "dependencies": {
+    "@browserbasehq/sdk": "^2.0.0",
+    "playwright-core": "^1.57.0"
+  }
+}

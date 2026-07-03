@@ -10,7 +10,7 @@ function readSource(relativePath) {
 }
 
 test("connector-tools registry exposes register/has/run on a content-script global", () => {
-  const source = readSource("content-scripts/connectorTools.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/connectorTools.js");
 
   assert.match(source, /globalThis\.WebGPTConnectorTools\s*=/);
   assert.match(source, /function register/);
@@ -19,7 +19,7 @@ test("connector-tools registry exposes register/has/run on a content-script glob
 });
 
 test("connectorTools.js is injected before the site adapters", () => {
-  const source = readSource("background/runtime/browser.js");
+  const source = readSource("packages/page-runtime/src/manifest.js");
 
   assert.match(source, /content-scripts\/connectorTools\.js/);
   // Must load before greenhouse (which registers a connector executor at load time).
@@ -30,8 +30,8 @@ test("connectorTools.js is injected before the site adapters", () => {
 });
 
 test("browser runtime uses revisioned content-script protocol before extraction and actions", () => {
-  const browserSource = readSource("background/runtime/browser.js");
-  const agentSource = readSource("content-scripts/agent.js");
+  const browserSource = readSource("apps/extension-host/src/background/runtime/browser.js");
+  const agentSource = readSource("apps/extension-host/src/content-scripts/agent.js");
 
   assert.match(browserSource, /const CONTENT_SCRIPT_PROTOCOL_REVISION = "connector-tools-2026-07-02"/);
   assert.match(agentSource, /const CONTENT_SCRIPT_PROTOCOL_REVISION = "connector-tools-2026-07-02"/);
@@ -47,7 +47,7 @@ test("browser runtime uses revisioned content-script protocol before extraction 
 });
 
 test("adapter registry collects provideTools into state.connectorTools", () => {
-  const source = readSource("content-scripts/adapters/registry.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/registry.js");
 
   assert.match(source, /function collectConnectorTools/);
   assert.match(source, /adapter\.provideTools/);
@@ -56,7 +56,7 @@ test("adapter registry collects provideTools into state.connectorTools", () => {
 });
 
 test("runner dispatches unknown action types to the connector-tool registry", () => {
-  const source = readSource("content-scripts/runner/actions.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/runner/actions.js");
 
   assert.match(source, /globalThis\.WebGPTConnectorTools/);
   assert.match(source, /connectorTools\.has\(action\.type\)/);
@@ -64,7 +64,7 @@ test("runner dispatches unknown action types to the connector-tool registry", ()
 });
 
 test("runner can continue after recoverable connector failures", () => {
-  const source = readSource("content-scripts/runner/actions.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/runner/actions.js");
 
   assert.match(source, /result\.ok\s*===\s*false/);
   assert.match(source, /result\.recoverable \|\| result\.continueBatch/);

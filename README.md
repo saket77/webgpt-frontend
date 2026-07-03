@@ -1,10 +1,7 @@
 # WebGPT
 
-![WebGPT icon](./icons/icon-128.png)
+![WebGPT icon](./apps/extension-host/src/icons/icon-128.png)
 
-WebGPT is an open-source Chrome runtime for AI browser agents.
-
-It lets an AI planner observe the current browser tab, extract structured page or runtime state, execute browser actions, pause for human confirmation, and replay successful workflows across multiple inputs.
 WebGPT is an open-source Chrome runtime for AI browser agents.
 
 It lets an AI planner observe the current browser tab, extract structured page or runtime state, execute browser actions, pause for human confirmation, and replay successful workflows across multiple inputs.
@@ -53,7 +50,6 @@ Web automation agents are easiest to iterate on when the browser runtime and pla
 - **Backend-agnostic planning**: use the hosted WebGPT planner or point the extension at any backend that speaks the documented command contract.
 - **Structured state**: extracts frames, controls, labels, scroll containers, URLs, titles, site-adapter hints, and runtime-specific state for planner use.
 - **Connector-enabled adapters**: lets selected site adapters expose bounded page tools, such as multi-step select filling or document-field completion, without turning the site into a separate runtime.
-- **Connector-enabled adapters**: lets selected site adapters expose bounded page tools, such as multi-step select filling or document-field completion, without turning the site into a separate runtime.
 - **Runtime surfaces**: can route non-DOM products such as Google Sheets and Microsoft Excel through dedicated runtime clients while preserving the same planner loop.
 - **Human-in-the-loop recovery**: supports planner pauses, human hints, success confirmation, and rejected-success resume flows.
 - **Navigation-aware loops**: detects likely navigation, waits for the new document, and resumes with fresh state.
@@ -86,8 +82,6 @@ Most adapters are state-only: they enrich controls, groups, and planner hints so
 Some apps are better controlled through APIs or app-specific state models instead of DOM clicks.
 
 WebGPT's runtime surfaces are designed for products like Google Sheets, Microsoft Excel, and other structured workspaces.
-
-Use a runtime when the durable state lives outside the DOM and the extension should execute API-like commands. Use a connector-enabled site adapter when the workflow is still a browser page, but the page needs a local helper to perform a reliable DOM-backed operation.
 
 Use a runtime when the durable state lives outside the DOM and the extension should execute API-like commands. Use a connector-enabled site adapter when the workflow is still a browser page, but the page needs a local helper to perform a reliable DOM-backed operation.
 
@@ -124,50 +118,37 @@ The extension owns browser execution, runtime auth, runtime API calls, and lifec
 
 ## Quick Start
 
-### 1. Build the Sidepanel
+### 1. Build the Extension
 
 ```bash
-cd sidepanel-app
 npm install
 npm run build
 ```
 
-The built sidepanel files are generated into `sidepanel-app/dist/`.
+The loadable extension is generated into `apps/extension-host/dist-extension/`.
 
 ### 2. Load the Chrome Extension
 
 1. Open `chrome://extensions`.
 2. Enable **Developer mode**.
 3. Click **Load unpacked**.
-4. Select this repository folder.
+4. Select `apps/extension-host/dist-extension`.
 
 ### Package for Sharing
 
 ```bash
-node scripts/package-extension.mjs
+npm run package:extension
 ```
 
-This rebuilds the sidepanel and writes a lean loadable extension zip using the
+This rebuilds the extension and writes a lean loadable extension zip using the
 manifest version, for example `../webgpt-extension-frontend-v1.0.2.zip`.
 To choose a different output path:
 
 ```bash
-node scripts/package-extension.mjs --output ../webgpt-extension-frontend-store.zip
+npm run package:extension -- --output ../webgpt-extension-frontend-store.zip
 ```
 
-### Package for Sharing
-
-```bash
-node scripts/package-extension.mjs
-```
-
-This rebuilds the sidepanel and writes a lean loadable extension zip using the
-manifest version, for example `../webgpt-extension-frontend-v1.0.2.zip`.
-To choose a different output path:
-
-```bash
-node scripts/package-extension.mjs --output ../webgpt-extension-frontend-store.zip
-```
+Run `npm run smoke:extension` after building to verify the generated extension has the expected manifest, service worker, sidepanel assets, and content scripts.
 
 ### 3. Choose a Backend
 
@@ -188,6 +169,37 @@ http://localhost:8787
 ```
 
 Use `http://localhost:8787` with the included simple backend.
+
+## Browserbase Cloud Host
+
+WebGPT also has a local Browserbase host proof of concept in `apps/browserbase-host/`.
+
+This is not a second planner and it does not use Browserbase Agents or Stagehand. It creates a Browserbase cloud browser, injects the shared `packages/page-runtime` scripts with Playwright, runs the shared `packages/controller-core` planner loop, and talks to the same WebGPT backend contract as the Chrome extension.
+
+Dry-run the CLI wiring without spending Browserbase time:
+
+```bash
+npm run smoke:cloud
+```
+
+Run the eProcure bench against a running planner backend:
+
+```bash
+export BROWSERBASE_API_KEY=your_browserbase_key
+export BROWSERBASE_PROJECT_ID=your_browserbase_project_id
+npm run cloud:run -- --eprocure --backend http://localhost:3000
+```
+
+Run an arbitrary public page goal:
+
+```bash
+npm run cloud:run -- \
+  --url "https://example.com" \
+  --goal "Summarize the visible page state" \
+  --backend http://localhost:3000
+```
+
+The CLI prints the Browserbase session ID, Live View URL when Browserbase returns one, planner run ID, status, final result, and a local JSONL event log path under `.webgpt-cloud-runs/`.
 
 ## Run the Simple Backend
 
@@ -262,20 +274,18 @@ Command responses use the standard envelope:
 ## Project Layout
 
 ```text
-background/        Extension service worker, runtime surfaces, controller flows, session state, backend adapters
-content-scripts/  DOM state extraction, action resolution, DOM action execution, site adapters
-sidepanel-app/    React sidepanel UI
-docs/             Planner contracts, OpenAPI spec, adapter docs
-examples/         Minimal compatible backend examples
-icons/            Extension icons
+packages/page-runtime/       In-page extractor, runner, connector tools, and site adapters
+packages/controller-core/    Planner command loop and host-agnostic controller ports
+apps/extension-host/         Chrome extension host, service worker, sidepanel, icons, Chrome adapters
+docs/                        Planner contracts, OpenAPI spec, adapter docs
+examples/                    Minimal compatible backend examples
+scripts/                     Build, smoke, and packaging scripts
 ```
 
 ## Site Adapters
 
 Site adapters enrich extracted state for specific websites. State-only adapters only describe the page. Connector-enabled adapters can additionally expose bounded page tools that the planner calls through `run_actions`; those tools execute in the content script and reuse the same DOM detection logic as the adapter.
-Site adapters enrich extracted state for specific websites. State-only adapters only describe the page. Connector-enabled adapters can additionally expose bounded page tools that the planner calls through `run_actions`; those tools execute in the content script and reuse the same DOM detection logic as the adapter.
 
-Use site adapters when generic DOM extraction needs domain context, stable target mapping, planner hints, or a small DOM-backed connector tool. Do not use them for API-backed products whose useful state is not reliably represented in the DOM.
 Use site adapters when generic DOM extraction needs domain context, stable target mapping, planner hints, or a small DOM-backed connector tool. Do not use them for API-backed products whose useful state is not reliably represented in the DOM.
 
 Start here:
@@ -283,14 +293,11 @@ Start here:
 - [Site adapter authoring guide](./docs/site-adapter-authoring.md)
 
 Examples:
-Examples:
 
 ```text
-content-scripts/adapters/canvasQuiz.js
-content-scripts/adapters/greenhouse.js
-content-scripts/adapters/dotloop.js
-content-scripts/adapters/greenhouse.js
-content-scripts/adapters/dotloop.js
+packages/page-runtime/src/content-scripts/adapters/canvasQuiz.js
+packages/page-runtime/src/content-scripts/adapters/greenhouse.js
+packages/page-runtime/src/content-scripts/adapters/dotloop.js
 ```
 
 ## Runtime Surfaces
@@ -300,8 +307,8 @@ Runtime surfaces are a sibling extension point to site adapters. Use them when a
 The first non-DOM runtimes are Google Sheets and Microsoft Excel:
 
 ```text
-background/runtime/googleSheets.js
-background/runtime/microsoftExcel.js
+apps/extension-host/src/background/runtime/googleSheets.js
+apps/extension-host/src/background/runtime/microsoftExcel.js
 ```
 
 Google Sheets detects Sheets tabs, requests Sheets access through Chrome identity, extracts spreadsheet state, executes curated Sheets API commands, and routes Sheets replay steps through the same controller loop.
@@ -316,12 +323,19 @@ Start here:
 
 ## Development Commands
 
-Sidepanel:
+Frontend workspace:
 
 ```bash
-cd sidepanel-app
 npm install
 npm run build
+npm run smoke:extension
+npm test
+```
+
+Sidepanel lint:
+
+```bash
+cd apps/extension-host/sidepanel-app
 npm run lint
 ```
 

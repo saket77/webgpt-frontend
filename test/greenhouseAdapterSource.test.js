@@ -10,7 +10,7 @@ function readSource(relativePath) {
 }
 
 test("Greenhouse adapter is injected before state extraction", () => {
-  const source = readSource("background/runtime/browser.js");
+  const source = readSource("packages/page-runtime/src/manifest.js");
 
   assert.match(source, /content-scripts\/adapters\/greenhouse\.js/);
   assert.match(
@@ -20,7 +20,7 @@ test("Greenhouse adapter is injected before state extraction", () => {
 });
 
 test("Greenhouse adapter scopes itself to the application form regions", () => {
-  const source = readSource("content-scripts/adapters/greenhouse.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/greenhouse.js");
 
   assert.match(source, /const ADAPTER_ID = "greenhouse\.application"/);
   assert.match(source, /form#application-form/);
@@ -45,7 +45,7 @@ test("Greenhouse adapter scopes itself to the application form regions", () => {
 });
 
 test("Greenhouse adapter reports field state and policy buckets", () => {
-  const source = readSource("content-scripts/adapters/greenhouse.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/greenhouse.js");
 
   assert.match(source, /Greenhouse application state/);
   assert.match(source, /currentValue: blank/);
@@ -58,7 +58,7 @@ test("Greenhouse adapter reports field state and policy buckets", () => {
 });
 
 test("Greenhouse adapter treats manual cover-letter textarea as text, not upload", () => {
-  const source = readSource("content-scripts/adapters/greenhouse.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/greenhouse.js");
 
   assert.match(source, /function visibleNonFileInput/);
   assert.match(source, /if \(visibleTextInput\) return visibleTextInput/);
@@ -77,7 +77,7 @@ test("Greenhouse adapter treats manual cover-letter textarea as text, not upload
 });
 
 test("Greenhouse adapter exposes a cover-letter connector command through enhanced state", () => {
-  const source = readSource("content-scripts/adapters/greenhouse.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/greenhouse.js");
 
   assert.match(source, /const COVER_LETTER_TARGET_ID/);
   assert.match(source, /GREENHOUSE_COVER_LETTER_HINT/);
@@ -104,7 +104,7 @@ test("Greenhouse adapter exposes a cover-letter connector command through enhanc
 });
 
 test("Greenhouse adapter keeps comboboxes and options deterministic inside the field", () => {
-  const source = readSource("content-scripts/adapters/greenhouse.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/greenhouse.js");
 
   assert.match(source, /function labeledInputForRoot/);
   assert.match(source, /root\.querySelector\(`#\$\{cssEscape\(id\)\}`\)/);
@@ -123,7 +123,7 @@ test("Greenhouse adapter keeps comboboxes and options deterministic inside the f
 });
 
 test("Greenhouse adapter batches connector selects and keeps a combobox fallback", () => {
-  const source = readSource("content-scripts/adapters/greenhouse.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/greenhouse.js");
 
   assert.match(source, /function isBatchableTextField/);
   assert.match(source, /Batch every independent safe Greenhouse fill/);
@@ -158,7 +158,7 @@ test("Greenhouse adapter batches connector selects and keeps a combobox fallback
 });
 
 test("Greenhouse adapter pins combobox openers/options to unique field-scoped selectors", () => {
-  const source = readSource("content-scripts/adapters/greenhouse.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/greenhouse.js");
 
   // Helpers that build a unique, deterministic selector for a combobox control.
   assert.match(source, /function isUniqueSelector/);
@@ -180,7 +180,7 @@ test("Greenhouse adapter pins combobox openers/options to unique field-scoped se
 });
 
 test("Greenhouse adapter exposes a greenhouse_fill_select connector tool (open+search+match+commit in one step)", () => {
-  const source = readSource("content-scripts/adapters/greenhouse.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/greenhouse.js");
 
   // provideTools surfaces the single-step select tool from the same roots as enhanced state.
   assert.match(source, /function provideTools/);
@@ -229,7 +229,7 @@ test("Greenhouse adapter exposes a greenhouse_fill_select connector tool (open+s
 });
 
 test("Greenhouse adapter exposes demographic section selects through the connector", () => {
-  const source = readSource("content-scripts/adapters/greenhouse.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/greenhouse.js");
 
   assert.match(source, /GREENHOUSE_DEMOGRAPHIC_INFERENCE_HINT/);
   assert.match(source, /GREENHOUSE_DEMOGRAPHIC_BATCH_HINT/);
@@ -250,7 +250,7 @@ test("Greenhouse adapter exposes demographic section selects through the connect
 });
 
 test("Greenhouse adapter exposes an EEOC composite connector tool with section hints", () => {
-  const source = readSource("content-scripts/adapters/greenhouse.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/greenhouse.js");
 
   assert.match(source, /const EEOC_FIELD_SPECS/);
   assert.match(source, /fieldKey: "gender"/);
@@ -277,7 +277,7 @@ test("Greenhouse adapter exposes an EEOC composite connector tool with section h
 });
 
 test("Greenhouse adapter marks submit boundaries and uses My Info for EEOC", () => {
-  const source = readSource("content-scripts/adapters/greenhouse.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/greenhouse.js");
 
   assert.match(source, /greenhouse_submit_application_boundary/);
   assert.match(source, /Do not click when USER_GOAL says not to submit/);
@@ -290,7 +290,7 @@ test("Greenhouse adapter marks submit boundaries and uses My Info for EEOC", () 
 });
 
 test("Greenhouse adapter encourages synthesized normal optional answers", () => {
-  const source = readSource("content-scripts/adapters/greenhouse.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/greenhouse.js");
 
   assert.match(source, /GREENHOUSE_APPLICATION_SYNTHESIS_HINT/);
   assert.match(source, /fill every answerable field by default even when optional/);
@@ -312,7 +312,7 @@ test("Greenhouse adapter encourages synthesized normal optional answers", () => 
 });
 
 test("Greenhouse EEOC matching infers Indian as Hispanic No and race Asian", () => {
-  const source = readSource("content-scripts/adapters/greenhouse.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/greenhouse.js");
 
   assert.match(source, /GREENHOUSE_HISPANIC_INDIAN_HINT/);
   assert.match(source, /Indian\/India\/South Asian in runContext\.myInfo directly supports selecting No/);
@@ -327,7 +327,7 @@ test("Greenhouse EEOC matching infers Indian as Hispanic No and race Asian", () 
 });
 
 test("Greenhouse select matching keeps exact and sponsorship-polarity matches safe", () => {
-  const source = readSource("content-scripts/adapters/greenhouse.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/greenhouse.js");
 
   assert.match(source, /function sponsorshipPolarityConflict/);
   assert.match(source, /hasNoSponsorshipIntent/);
@@ -339,7 +339,7 @@ test("Greenhouse select matching keeps exact and sponsorship-polarity matches sa
 });
 
 test("Greenhouse adapter filters long EEOC policy copy from planner state", () => {
-  const source = readSource("content-scripts/adapters/greenhouse.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/greenhouse.js");
 
   assert.match(source, /function isGreenhousePolicyNoiseText/);
   assert.match(source, /vietnam era veterans readjustment assistance act/);

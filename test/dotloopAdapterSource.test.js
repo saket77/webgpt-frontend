@@ -10,7 +10,7 @@ function readSource(relativePath) {
 }
 
 test("Dotloop adapter is injected before state extraction", () => {
-  const source = readSource("background/runtime/browser.js");
+  const source = readSource("packages/page-runtime/src/manifest.js");
 
   assert.match(source, /content-scripts\/adapters\/dotloop\.js/);
   const dotloopIndex = source.indexOf("content-scripts/adapters/dotloop.js");
@@ -20,12 +20,12 @@ test("Dotloop adapter is injected before state extraction", () => {
 });
 
 test("Dotloop document reading does not add Chrome debugger permission", () => {
-  const manifest = JSON.parse(readSource("manifest.json"));
+  const manifest = JSON.parse(readSource("apps/extension-host/src/manifest.json"));
   assert.ok(!manifest.permissions.includes("debugger"));
 });
 
 test("Dotloop adapter exposes connector tools from enhanced document and modal state", () => {
-  const source = readSource("content-scripts/adapters/dotloop.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/dotloop.js");
 
   assert.match(source, /const ADAPTER_ID = "dotloop\.local"/);
   assert.match(source, /function provideTools/);
@@ -45,7 +45,7 @@ test("Dotloop adapter exposes connector tools from enhanced document and modal s
 });
 
 test("Dotloop connector executors reuse existing Dotloop selectors and register with WebGPTConnectorTools", () => {
-  const source = readSource("content-scripts/adapters/dotloop.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/dotloop.js");
 
   assert.match(source, /async function dotloopFillDocumentFields/);
   assert.match(source, /async function dotloopReadDocument/);
@@ -88,7 +88,7 @@ test("Dotloop connector executors reuse existing Dotloop selectors and register 
 });
 
 test("Dotloop hints prefer connector tools and remove stale site-adapter-only guidance", () => {
-  const source = readSource("content-scripts/adapters/dotloop.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/dotloop.js");
 
   assert.doesNotMatch(source, /no Dotloop API or special executor exists/);
   assert.match(source, /Dotloop connector adapter active/);

@@ -1,0 +1,17 @@
+{
+  "name": "webgpt-frontend-workspace",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "apps/extension-host/sidepanel-app"
+  ],
+  "scripts": {
+    "build": "node scripts/build-extension.mjs",
+    "cloud:run": "node apps/browserbase-host/src/cli.js",
+    "test": "node --test",
+    "package:extension": "node scripts/package-extension.mjs",
+    "smoke:extension": "node scripts/smoke-extension.mjs",
+    "smoke:cloud": "node apps/browserbase-host/src/cli.js --dry-run --url https://example.com --goal smoke"
+  }
+}

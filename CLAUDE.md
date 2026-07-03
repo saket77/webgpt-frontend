@@ -7,8 +7,10 @@ sidepanel UX, OAuth, human-in-the-loop) and a **swappable backend owns planning*
 contract. Site adapters only *enrich* extracted state; they never execute actions or call the planner.
 
 ## Two repos
-- **Frontend** (this repo, `webgpt-frontend/`) — Chrome extension, MV3. Service worker at
-  `background/service-worker.js`. Latest work is on branch `develop`.
+- **Frontend** (this repo, `webgpt-frontend/`) — npm workspace for the shared page runtime,
+  host-agnostic controller core, and Chrome extension host. The MV3 service worker source is at
+  `apps/extension-host/src/background/service-worker.js`; the loadable build is
+  `apps/extension-host/dist-extension`.
 - **Backend** (`webgpt-backend/`) — active planner server at
   `web-agent-chrome-extension/BackEnd/planner-server/` (Express 5, OpenAI SDK, CommonJS,
   `node --test`). `web-agent/` there is legacy/archived.
@@ -16,18 +18,19 @@ contract. Site adapters only *enrich* extracted state; they never execute action
 ## Control loop (one run)
 ```
 sidepanel → WEBGPT_START_AGENT(goal, inputValues, myInfo, surface)
-  → background controller startAgent → startAgentFlow (background/controller/flows/runFlow.js)
+  → extension-host controller startAgent → startAgentFlow (packages/controller-core/src/controller/flows/runFlow.js)
     → POST /runs/start-command → { runId, command }
-    → continueRunFlow → driveCommand loop (background/controller/commands/{driver,router}.js):
+    → continueRunFlow → driveCommand loop (packages/controller-core/src/controller/commands/{driver,router}.js):
         extract_state → runtime.extractStateFromTab → POST /runs/{id}/command-result → next command
         run_actions   → runtime.runActionsInTab → settle ~1s → re-extract → command-result → next
         done | ask_human | access_required | wait_for_navigation → terminal / pause
 ```
 - Command types: `extract_state`, `run_actions`, `wait_for_navigation`, `run_google_sheets_commands`,
   `run_microsoft_excel_commands`, `run_replay_batch`, `ask_human`, `done`.
-- `MAX_STEPS = 20`, settle delays in `background/config.js`. Session state in `chrome.storage.session`
-  (`background/state/sessionStore.js`). Sidepanel↔background IPC via `chrome.runtime.sendMessage`
-  message types in `background/messages.js`.
+- `MAX_STEPS = 20`, settle delays in `packages/controller-core/src/config.js`, configured by the
+  extension host. Session state uses `chrome.storage.session`
+  (`apps/extension-host/src/background/state/sessionStore.js`). Sidepanel↔background IPC via
+  `chrome.runtime.sendMessage` message types in `apps/extension-host/src/background/messages.js`.
 
 ## Action schema (ground truth — targetId-based, NOT selectors)
 The planner returns actions that reference the synthetic control id, not a CSS selector:
@@ -38,23 +41,26 @@ The planner returns actions that reference the synthetic control id, not a CSS s
 Types: `click`, `fill` (value), `scroll`, `press`, `wait` (ms), `goto` (url), `extract`.
 
 ## Content scripts (the deterministic executors)
-- **Injected programmatically** (NOT declared in `manifest.json`) from `background/runtime/browser.js`
-  (`CONTENT_SCRIPT_FILES`, `injectContentScripts`), file-by-file in dependency order, into all frames.
+- **Injected programmatically** (NOT declared in `manifest.json`) from
+  `apps/extension-host/src/background/runtime/browser.js`, file-by-file in dependency order, into all frames.
+  The canonical order lives in `packages/page-runtime/src/manifest.js`.
   Modules are IIFEs on `globalThis.WebGPTExtractStateModules` / `window.WebGPTRunnerModules` — **order
   matters**; keep new files in the right place in that list.
-- **Bridge**: `content-scripts/agent.js` (`chrome.runtime.onMessage`): `WEBGPT_EXTRACT_STATE`,
+- **Bridge**: `apps/extension-host/src/content-scripts/agent.js` (`chrome.runtime.onMessage`): `WEBGPT_EXTRACT_STATE`,
   `WEBGPT_RUN_ACTIONS`, `WEBGPT_RUN_REPLAY`, `PING_WEBGPT`.
-- **Extract**: `extractState.js` → `extract-state/controlBuilders.js` `buildControls()` assigns
+- **Extract**: `packages/page-runtime/src/content-scripts/extractState.js` →
+  `extract-state/controlBuilders.js` `buildControls()` assigns
   synthetic `el_*` ids + a best-effort stable `selector` + rich descriptor + bounds. The same `state`
   is sent back with the planner's actions so the runner can resolve `targetId`s.
-- **Execute**: `runner/actions.js` → `resolver.js` **re-resolves** the live element at act-time:
+- **Execute**: `packages/page-runtime/src/content-scripts/runner/actions.js` → `resolver.js`
+  **re-resolves** the live element at act-time:
   stable-selector → semantic score (`controlScoring.js`, threshold ~35) → recorded bounds →
   brittle-selector fallback (survives DOM churn between extract and act). DOM ops in `primitives.js`
   (synthetic pointer/mouse sequence for click; native value setter + input/change for fill; special
   handling for `<select>` and rich-text editors).
 
 ## Site adapters — enrich only
-`content-scripts/adapters/registry.js` contract: `{ id, match({url,document}), priority, enhanceState({state,document,url}) }`.
+`packages/page-runtime/src/content-scripts/adapters/registry.js` contract: `{ id, match({url,document}), priority, enhanceState({state,document,url}) }`.
 Priority-sorted (higher first), composable (each gets the previous adapter's output), errors caught
 per-adapter. Adapters **annotate existing `el_*` controls** via `enhanceControls(...)` and add
 `siteAdapter` / `groups` / `plannerContext`; they must **not** mint new click/fill targets (the runner
@@ -78,16 +84,18 @@ ATS adapters**, and a **`role="option"` combobox extraction** fix in `controlBui
 each visible dropdown option an individually targetable control.
 
 ## Run / build / test
-- Sidepanel: `cd sidepanel-app && npm install && npm run build` → load the repo root as an unpacked
-  extension at `chrome://extensions` (Developer mode). Lint: `npm run lint`.
+- Frontend: `npm install && npm run build` → load `apps/extension-host/dist-extension` as an unpacked
+  extension at `chrome://extensions` (Developer mode). Smoke: `npm run smoke:extension`. Tests: `npm test`.
+- Sidepanel lint: `cd apps/extension-host/sidepanel-app && npm run lint`.
 - Backend (local): `cd ../webgpt-backend/web-agent-chrome-extension/BackEnd/planner-server && npm start`
   (needs `OPENAI_API_KEY`); point the sidepanel Backend card at `http://localhost:3000`. Tests: `npm test`.
-- Frontend tests: in `test/` (run with `node --test`).
+- Frontend tests: in `test/` (run with `npm test` or `node --test`).
 
 ## Conventions
 - Reuse the existing mechanisms — the command/router loop, the `el_*` extract → resolver targeting
   model, and the adapter `registry` pattern — rather than introducing new ones.
-- New content-script files must be added to `CONTENT_SCRIPT_FILES` in `background/runtime/browser.js`
+- New page-runtime content-script files must be added to `PAGE_RUNTIME_SCRIPT_FILES` in
+  `packages/page-runtime/src/manifest.js`
   in correct dependency order.
 - Known leftover to clean up eventually: a `console.log("yes this one")` / `SYSENG-118923` debug check
-  in `content-scripts/extract-state/controlBuilders.js` ships in the injected script.
+  in `packages/page-runtime/src/content-scripts/extract-state/controlBuilders.js` ships in the injected script.
