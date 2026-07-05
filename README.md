@@ -2,15 +2,15 @@
 
 ![WebGPT icon](./apps/extension-host/src/icons/icon-128.png)
 
-WebGPT is an open-source Chrome runtime for AI browser agents.
+WebGPT is an open-source browser-agent runtime for AI browser agents.
 
-It lets an AI planner observe the current browser tab, extract structured page or runtime state, execute browser actions, pause for human confirmation, and replay successful workflows across multiple inputs.
+It lets an AI planner observe a real browser page, extract structured page or runtime state, execute actions, pause for human confirmation, and replay successful workflows across multiple inputs.
 
-Think of this repo as the browser-side runtime: sidepanel UI, tab/session orchestration, DOM extraction, runtime surfaces, action execution, replay support, and the HTTP adapter contract that lets planner backends plug in cleanly.
+Think of this repo as the frontend runtime system: shared in-page JavaScript, a host-agnostic controller loop, planner HTTP adapters, a Chrome extension host, and a Browserbase cloud-browser host.
 
 Unlike one-off browser agents, WebGPT is built around a clean runtime/planner boundary:
 
-- the Chrome extension owns browser execution
+- a runtime host owns browser execution
 - the backend owns planning
 - site adapters improve reliability on specific websites, including DOM-backed connector tools for high-friction page and document operations
 - runtime adapters support non-DOM surfaces like Google Sheets and Microsoft Excel
@@ -46,8 +46,8 @@ The public Shorts series now shows WebGPT moving from repeatable browser routine
 
 Web automation agents are easiest to iterate on when the browser runtime and planner backend have a crisp boundary. WebGPT keeps that boundary explicit.
 
-- **Browser-native execution**: runs as a Chrome extension, using content scripts to inspect and operate on the current page.
-- **Backend-agnostic planning**: use the hosted WebGPT planner or point the extension at any backend that speaks the documented command contract.
+- **Browser-native execution**: runs in real browsers, including a Chrome extension host and a Browserbase cloud-browser host.
+- **Backend-agnostic planning**: use the hosted WebGPT planner or point a runtime host at any backend that speaks the documented command contract.
 - **Structured state**: extracts frames, controls, labels, scroll containers, URLs, titles, site-adapter hints, and runtime-specific state for planner use.
 - **Connector-enabled adapters**: lets selected site adapters expose bounded page tools, such as multi-step select filling or document-field completion, without turning the site into a separate runtime.
 - **Runtime surfaces**: can route non-DOM products such as Google Sheets and Microsoft Excel through dedicated runtime clients while preserving the same planner loop.
@@ -59,9 +59,9 @@ Web automation agents are easiest to iterate on when the browser runtime and pla
 
 Most browser agents combine planning, browser execution, and app-specific logic into one loop. WebGPT separates those concerns.
 
-### Browser runtime, not planner lock-in
+### Runtime hosts, not planner lock-in
 
-The extension is responsible for browser state extraction, action execution, navigation handling, sidepanel UX, runtime auth, and human confirmation.
+Runtime hosts are responsible for browser state extraction, action execution, navigation handling, host-specific UX, runtime auth, and human confirmation.
 
 The planner backend is swappable as long as it speaks the documented HTTP contract.
 
@@ -92,16 +92,33 @@ WebGPT is designed to turn successful browser runs into reusable execution patte
 ## How It Works
 
 ```text
-User goal
-  -> sidepanel UI
-  -> background controller
-  -> runtime state extraction
+User goal or CLI goal
+  -> runtime host
+  -> controller-core
+  -> page/runtime state extraction
   -> planner backend
   -> frontend command
-  -> runtime executor
+  -> host runtime executor
   -> post-action state extraction
   -> next planner turn
 ```
+
+The shared runtime packages are:
+
+```text
+@webgpt/page-runtime          In-page extractor, runner, site adapters, connector tools
+@webgpt/controller-core       Host-agnostic planner command loop
+@webgpt/planner-http-adapter  Default HTTP contract for compatible planner backends
+```
+
+The current hosts are:
+
+```text
+@webgpt/extension-host        Chrome extension, sidepanel, Chrome APIs, Sheets/Excel runtimes
+@webgpt/browserbase-host      Local Node CLI/API host for Browserbase cloud browsers
+```
+
+For a deeper architecture map, see [Runtime Hosts](./docs/architecture/runtime-hosts.md).
 
 Backends do not need to know how to click DOM nodes or call browser APIs directly. They return high-level commands such as:
 
@@ -114,7 +131,7 @@ Backends do not need to know how to click DOM nodes or call browser APIs directl
 - `done`
 - `run_replay_batch`
 
-The extension owns browser execution, runtime auth, runtime API calls, and lifecycle details.
+The active host owns browser execution, runtime auth, runtime API calls, and lifecycle details.
 
 ## Quick Start
 
@@ -172,9 +189,19 @@ Use `http://localhost:8787` with the included simple backend.
 
 ## Browserbase Cloud Host
 
-WebGPT also has a local Browserbase host proof of concept in `apps/browserbase-host/`.
+WebGPT also has a local Browserbase host in `apps/browserbase-host/`.
 
-This is not a second planner and it does not use Browserbase Agents or Stagehand. It creates a Browserbase cloud browser, injects the shared `packages/page-runtime` scripts with Playwright, runs the shared `packages/controller-core` planner loop, and talks to the same WebGPT backend contract as the Chrome extension.
+This is not a second planner and it does not use Browserbase Agents, Stagehand, or Director. Browserbase provides the cloud browser. WebGPT still owns the page-runtime scripts, state extraction, action runner, connector tools, controller loop, replay flow, and planner backend contract.
+
+The Browserbase host:
+
+1. creates a Browserbase session with `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID`
+2. connects to the cloud browser with Playwright CDP
+3. opens the requested URL
+4. injects the same `@webgpt/page-runtime` scripts used by the extension
+5. calls the same planner backend through `@webgpt/planner-http-adapter`
+6. executes planner commands through `@webgpt/controller-core`
+7. prints a Browserbase Live View URL, planner run ID, final result, and local JSONL event log
 
 Dry-run the CLI wiring without spending Browserbase time:
 
@@ -190,6 +217,18 @@ export BROWSERBASE_PROJECT_ID=your_browserbase_project_id
 npm run cloud:run -- --eprocure --backend http://localhost:3000
 ```
 
+`--eprocure` expands to:
+
+```text
+https://eprocure.gov.in/eprocure/app?page=FrontEndLatestActiveTendersOrgwise&service=page&org=
+```
+
+with the default goal:
+
+```text
+Extract today's active tenders and return title, reference number, closing date, and bid opening date.
+```
+
 Run an arbitrary public page goal:
 
 ```bash
@@ -200,6 +239,10 @@ npm run cloud:run -- \
 ```
 
 The CLI prints the Browserbase session ID, Live View URL when Browserbase returns one, planner run ID, status, final result, and a local JSONL event log path under `.webgpt-cloud-runs/`.
+
+Browserbase host v1 supports public browser DOM runs, page-runtime site adapters, connector tools, replay batches where possible, ask-human pauses, and planner done/success results. It does not yet include scheduled routines, Browserbase Context auth persistence, email summaries, Google Sheets runtime commands, or Microsoft Excel runtime commands.
+
+Because it runs from a CLI, the Browserbase host also acts as a browser-agent bench harness. Codex can run a real website task, inspect `.webgpt-cloud-runs/*.jsonl` plus backend artifacts, and help improve page-runtime or planner behavior without manually reloading the Chrome extension.
 
 ## Run the Simple Backend
 
@@ -276,7 +319,9 @@ Command responses use the standard envelope:
 ```text
 packages/page-runtime/       In-page extractor, runner, connector tools, and site adapters
 packages/controller-core/    Planner command loop and host-agnostic controller ports
+packages/planner-http-adapter/ Shared default WebGPT planner HTTP adapter
 apps/extension-host/         Chrome extension host, service worker, sidepanel, icons, Chrome adapters
+apps/browserbase-host/       Local Browserbase cloud-browser host and CLI bench runner
 docs/                        Planner contracts, OpenAPI spec, adapter docs
 examples/                    Minimal compatible backend examples
 scripts/                     Build, smoke, and packaging scripts
@@ -329,7 +374,14 @@ Frontend workspace:
 npm install
 npm run build
 npm run smoke:extension
+npm run smoke:cloud
 npm test
+```
+
+Browserbase cloud bench:
+
+```bash
+npm run cloud:run -- --eprocure --backend http://localhost:3000
 ```
 
 Sidepanel lint:

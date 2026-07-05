@@ -9,6 +9,13 @@ There are two adapter styles:
 
 State-only adapters are still the default. Connector tools are for page operations where the adapter already understands the live DOM and a single planner action should perform a bounded multi-step interaction, such as opening a custom select, choosing the matching option, or filling a known set of document placeholders.
 
+Adapters live in `@webgpt/page-runtime`. Pure page-runtime adapters are shared by both current hosts:
+
+- the Chrome extension host injects page-runtime through Chrome scripting APIs
+- the Browserbase host injects the same page-runtime scripts through Playwright frame evaluation
+
+This means a Dotloop, Greenhouse, or eProcure adapter added under `packages/page-runtime/src/content-scripts/adapters/` is available to both hosts as long as it is pure page JavaScript. Do not use unguarded `chrome.*` in page-runtime files. Chrome-specific bridge behavior belongs in `apps/extension-host/src/content-scripts/agent.js`.
+
 ## Mental Model
 
 The frontend loop stays generic:
@@ -52,11 +59,12 @@ packages/page-runtime/src/content-scripts/
     dotloop.js
 ```
 
-Adapter scripts are injected before `content-scripts/extractState.js` by the extension host using the canonical page-runtime manifest:
+Adapter scripts are injected before `content-scripts/extractState.js` by the active host using the canonical page-runtime manifest:
 
 ```text
 packages/page-runtime/src/manifest.js
 apps/extension-host/src/background/runtime/browser.js
+apps/browserbase-host/src/browserbaseRuntime.js
 ```
 
 The generic extractor calls the registry from:
@@ -518,7 +526,9 @@ globalThis.WebGPTConnectorTools.register(
 Before opening a PR:
 
 - Run `node --check` on changed content-script files.
-- Build the sidepanel app with `npm run build`.
+- Build the extension with `npm run build`.
+- Run `npm run smoke:extension`.
+- For host-shared adapters, run `npm run smoke:cloud` and at least one relevant Browserbase dry-run or live bench when practical.
 - Load the extension unpacked in Chrome.
 - Confirm the adapter only matches its intended page family.
 - Confirm `siteAdapter.actionHintsByTargetId` keys are real generic control IDs.

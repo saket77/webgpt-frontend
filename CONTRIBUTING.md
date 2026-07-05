@@ -1,6 +1,6 @@
 # Contributing To WebGPT Frontend
 
-This repository is the browser frontend for WebGPT: a Chrome extension host, shared in-page runtime, controller core, sidepanel UI, and planner-backend integration surface.
+This repository is the frontend runtime workspace for WebGPT: shared browser-agent packages, a Chrome extension host, a Browserbase cloud-browser host, sidepanel UI, and planner-backend integration surfaces.
 
 The planner itself is intentionally outside this repository. Contributions should keep the frontend useful with compatible backends without moving planner-specific logic into the browser extension.
 
@@ -13,6 +13,17 @@ The planner itself is intentionally outside this repository. Contributions shoul
 - Put Browserbase cloud host orchestration and Playwright runtime code in `apps/browserbase-host/src/`.
 - Put sidepanel UI changes in `apps/extension-host/sidepanel-app/src/`.
 - Put integration and contributor documentation in `docs/` or this folder.
+
+## Package Boundaries
+
+The host apps should behave like external consumers of the shared packages:
+
+- `apps/extension-host` imports shared WebGPT code through `@webgpt/controller-core`, `@webgpt/page-runtime`, and `@webgpt/planner-http-adapter`.
+- `apps/browserbase-host` imports shared WebGPT code through the same package names.
+- Do not add new `apps/* -> packages/*/src` relative imports in host source.
+- Keep Node-only helpers behind explicit subpaths such as `@webgpt/page-runtime/node`.
+
+The Chrome extension build copies shared package source into `apps/extension-host/dist-extension` and rewrites package imports to local dist paths. Source code should still use package imports.
 
 ## Supported Contribution Paths
 
@@ -71,19 +82,34 @@ The cloud host is a local CLI/API app for proving WebGPT can run inside Browserb
 npm run smoke:cloud
 ```
 
-Live Browserbase runs require `BROWSERBASE_API_KEY`, `BROWSERBASE_PROJECT_ID`, and a compatible backend:
+Live Browserbase runs require `BROWSERBASE_API_KEY`, `BROWSERBASE_PROJECT_ID`, and a compatible backend. The Browserbase host loads ignored `.env.local` files from the repository root and from `apps/browserbase-host/`.
 
 ```bash
 npm run cloud:run -- --eprocure --backend http://localhost:3000
 ```
 
-Keep cloud host changes behind host adapters. The Browserbase host should reuse `packages/page-runtime`, `packages/controller-core`, and `packages/planner-http-adapter`; it should not import Chrome extension settings, sidepanel code, or Chrome APIs.
+Keep cloud host changes behind host adapters. The Browserbase host should reuse `@webgpt/page-runtime`, `@webgpt/controller-core`, and `@webgpt/planner-http-adapter`; it should not import Chrome extension settings, sidepanel code, or Chrome APIs.
+
+Browserbase host v1 supports browser DOM state, page-runtime adapters, connector tools, replay batches where possible, ask-human terminal status, Browserbase Live View, and JSONL logs. Google Sheets, Microsoft Excel, Browserbase Contexts, scheduler, and email summaries are not included in v1.
 
 For backend-related changes, also verify that:
 
 1. the backend configuration UI can point to a compatible backend
 2. the simple backend example in `examples/simple-backend/` still starts
 3. any route or payload changes are reflected in the contract docs and OpenAPI file
+
+## Documentation Impact
+
+Before treating a feature as done, check whether the change affects:
+
+- `README.md` for user-facing workflow, architecture, commands, or project layout
+- `CLAUDE.md` for future-agent operating guidance
+- `docs/planner-adapter-contract.md` or `docs/planner-http-api.openapi.yaml` for backend payloads or command vocabulary
+- `docs/runtime-authoring.md`, `docs/site-adapter-authoring.md`, or `docs/surfaces/*` for runtime/adapter behavior
+- `SECURITY.md` for credentials, cloud execution, host permissions, or sensitive logs
+- user skills under `~/.codex/skills` when the repeatable workflow changed
+
+If no docs update is needed, say why in the final handoff.
 
 ## Keep Changes Focused
 

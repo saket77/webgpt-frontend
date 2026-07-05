@@ -6,7 +6,11 @@ function safeTimestamp() {
   return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
-export async function createCloudEventSink({ logsDir = "", runLabel = "run" } = {}) {
+export async function createCloudEventSink({
+  logsDir = "",
+  runLabel = "run",
+  stream = process.stdout,
+} = {}) {
   const dir = path.resolve(logsDir || defaultLogsDir);
   await fs.mkdir(dir, { recursive: true });
 
@@ -26,11 +30,8 @@ export async function createCloudEventSink({ logsDir = "", runLabel = "run" } = 
 
     const label = enriched.kind || "event";
     const message = enriched.message || enriched.summary || enriched.error || "";
-    if (message) {
-      console.log(`[cloud:${label}] ${message}`);
-    } else {
-      console.log(`[cloud:${label}]`);
-    }
+    const line = message ? `[cloud:${label}] ${message}` : `[cloud:${label}]`;
+    stream.write(`${line}\n`);
 
     return enriched;
   }

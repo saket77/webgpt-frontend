@@ -79,6 +79,7 @@ export async function runCloudWebGpt({
   autoConfirm = true,
   logsDir = "",
   timeoutMs = 120000,
+  logStream = process.stdout,
   onSessionReady,
 } = {}) {
   const browserbase = await createBrowserbaseSession({ projectId });
@@ -102,6 +103,7 @@ export async function runCloudWebGpt({
   const { eventSink, eventLogPath } = await createCloudEventSink({
     logsDir,
     runLabel: "browserbase",
+    stream: logStream,
   });
   const plannerAdapter = createWebGptPlannerAdapter({ baseUrl: backend });
 

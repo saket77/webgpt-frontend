@@ -5,7 +5,10 @@ import {
   createBrowserbaseRuntime,
   getBrowserbasePageRuntimeScriptFiles,
 } from "../apps/browserbase-host/src/browserbaseRuntime.js";
-import { parseArgs } from "../apps/browserbase-host/src/cli.js";
+import {
+  parseArgs,
+  printSessionReady,
+} from "../apps/browserbase-host/src/cli.js";
 import { PAGE_RUNTIME_SCRIPT_FILES } from "@webgpt/page-runtime";
 
 function createFakeFrame(name, url = `https://example.test/${name}`) {
@@ -201,4 +204,27 @@ test("browserbase CLI supports eProcure dry-run defaults", () => {
   assert.equal(options.projectId, "project_123");
   assert.match(options.url, /FrontEndLatestActiveTendersOrgwise/);
   assert.match(options.goal, /today's active tenders/);
+});
+
+test("browserbase CLI prints session URLs through the provided stream", () => {
+  let output = "";
+  const stream = {
+    write(chunk) {
+      output += chunk;
+    },
+  };
+
+  printSessionReady(
+    {
+      browserbaseSessionId: "session_123",
+      liveViewUrl: "https://browserbase.test/live",
+      sessionUrl: "https://browserbase.test/sessions/session_123",
+    },
+    { stream },
+  );
+
+  assert.match(output, /Browserbase session started/);
+  assert.match(output, /Browserbase session: session_123/);
+  assert.match(output, /Live View: https:\/\/browserbase\.test\/live/);
+  assert.match(output, /Session: https:\/\/browserbase\.test\/sessions\/session_123/);
 });

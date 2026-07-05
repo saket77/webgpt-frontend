@@ -123,6 +123,20 @@ function validateOptions(options) {
   }
 }
 
+export function printSessionReady(session, { stream = process.stderr } = {}) {
+  const lines = [
+    "",
+    "Browserbase session started.",
+    `Browserbase session: ${session.browserbaseSessionId || "(none)"}`,
+  ];
+
+  if (session.liveViewUrl) lines.push(`Live View: ${session.liveViewUrl}`);
+  if (session.sessionUrl) lines.push(`Session: ${session.sessionUrl}`);
+  lines.push("");
+
+  stream.write(`${lines.join("\n")}\n`);
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
 
@@ -149,14 +163,9 @@ async function main() {
 
   const result = await runCloudWebGpt({
     ...options,
+    logStream: process.stderr,
     onSessionReady(session) {
-      if (options.json) return;
-
-      console.log("\nBrowserbase session started.");
-      console.log(`Browserbase session: ${session.browserbaseSessionId || "(none)"}`);
-      if (session.liveViewUrl) console.log(`Live View: ${session.liveViewUrl}`);
-      if (session.sessionUrl) console.log(`Session: ${session.sessionUrl}`);
-      console.log("");
+      printSessionReady(session);
     },
   });
 

@@ -4,13 +4,15 @@ info:
   version: 0.2.0
   description: |
     HTTP contract implemented by the default WebGPT planner adapter.
-    The browser extension controller consumes a JavaScript plannerAdapter
+    WebGPT frontend hosts consume a JavaScript plannerAdapter
     interface; this OpenAPI document describes the HTTP routes used by the
     default adapter implementation, including browser DOM, Google Sheets,
     Microsoft Excel runtime surfaces, and connector-enabled site-adapter tools.
 servers:
   - url: https://webgpt-backend-production.up.railway.app
     description: Hosted WebGPT planner
+  - url: http://localhost:3000
+    description: Local full WebGPT planner
   - url: http://localhost:8787
     description: Simple local backend example
 tags:
@@ -136,7 +138,7 @@ paths:
     post:
       tags: [Runs]
       operationId: postCommandResult
-      summary: Submit extension-side progress and receive the next runtime command.
+      summary: Submit frontend-host progress and receive the next runtime command.
       parameters:
         - $ref: "#/components/parameters/RunId"
       requestBody:
@@ -470,6 +472,17 @@ components:
           description: Optional run-scoped profile attachments, currently resume or cover letter files supplied at run start.
           items:
             $ref: "#/components/schemas/ProfileAttachmentInput"
+        myInfo:
+          description: Optional user profile/context supplied by the frontend host for planner use.
+          oneOf:
+            - $ref: "#/components/schemas/AnyObject"
+            - type: "null"
+        attachments:
+          type: array
+          description: Optional host-defined run attachments. Profile attachments should use profileAttachments when possible.
+          items:
+            type: object
+            additionalProperties: true
 
     StartTemplateQueueRequest:
       type: object
@@ -490,6 +503,11 @@ components:
           type: string
           default: ""
           examples: [browser_dom, google_sheets, microsoft_excel]
+        myInfo:
+          description: Optional user profile/context supplied by the frontend host for planner use.
+          oneOf:
+            - $ref: "#/components/schemas/AnyObject"
+            - type: "null"
 
     ProfileAttachmentInput:
       type: object
@@ -1115,7 +1133,7 @@ components:
 
     ExtractedState:
       type: object
-      description: Structured browser or runtime state produced by the extension.
+      description: Structured browser or runtime state produced by a frontend host.
       additionalProperties: true
       properties:
         surface:

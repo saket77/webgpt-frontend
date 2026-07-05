@@ -1,6 +1,6 @@
 # WebGPT Sidepanel App
 
-This is the React sidepanel UI for the WebGPT Chrome extension.
+This is the React sidepanel UI for `@webgpt/extension-host`, the WebGPT Chrome extension host.
 
 It provides:
 
@@ -26,3 +26,5 @@ npm run dev
 
 The extension host copies the built app from this package's `dist/` directory into
 `apps/extension-host/dist-extension/sidepanel-app/dist/`. The `dist/` folder is generated output and is ignored by Git.
+
+The Browserbase host does not use this sidepanel; it exposes a local Node CLI/API workflow instead.
