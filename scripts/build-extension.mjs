@@ -100,14 +100,20 @@ async function main() {
     path.join(distDir, "sidepanel-app", "dist"),
   );
 
-  const plannerAdapterSourceImport =
-    "../../../../../../packages/planner-http-adapter/src/index.js";
-  const plannerAdapterDistImport = "../../planner-http-adapter/index.js";
+  rewriteDistImport("background/controller/index.js", [
+    ["@webgpt/controller-core", "../controller-core/index.js"],
+  ]);
+  rewriteDistImport("background/runtime/browser.js", [
+    ["@webgpt/page-runtime", "../page-runtime/manifest.js"],
+  ]);
+  rewriteDistImport("background/runtime/surfaces.js", [
+    ["@webgpt/controller-core", "../controller-core/index.js"],
+  ]);
   rewriteDistImport("background/adapters/webgpt/api.js", [
-    [plannerAdapterSourceImport, plannerAdapterDistImport],
+    ["@webgpt/planner-http-adapter", "../../planner-http-adapter/index.js"],
   ]);
   rewriteDistImport("background/adapters/webgpt/plannerAdapter.js", [
-    [plannerAdapterSourceImport, plannerAdapterDistImport],
+    ["@webgpt/planner-http-adapter", "../../planner-http-adapter/index.js"],
   ]);
 
   const required = [

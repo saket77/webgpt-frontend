@@ -13,10 +13,10 @@ test("Greenhouse adapter is injected before state extraction", () => {
   const source = readSource("packages/page-runtime/src/manifest.js");
 
   assert.match(source, /content-scripts\/adapters\/greenhouse\.js/);
-  assert.match(
-    source,
-    /content-scripts\/adapters\/greenhouse\.js",\n\s+"content-scripts\/extractState\.js"/,
-  );
+  const greenhouseIndex = source.indexOf("content-scripts/adapters/greenhouse.js");
+  const extractStateIndex = source.indexOf("content-scripts/extractState.js");
+  assert.ok(greenhouseIndex !== -1 && extractStateIndex !== -1);
+  assert.ok(greenhouseIndex < extractStateIndex);
 });
 
 test("Greenhouse adapter scopes itself to the application form regions", () => {

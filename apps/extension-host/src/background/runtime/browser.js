@@ -6,7 +6,7 @@ import {
 } from "./browserControl.js";
 import {
   EXTENSION_CONTENT_SCRIPT_FILES,
-} from "../page-runtime/manifest.js";
+} from "@webgpt/page-runtime";
 
 const CONTENT_SCRIPT_PROTOCOL_REVISION = "connector-tools-2026-07-02";
 const PING_MESSAGE_TYPE = "PING_WEBGPT_CONTENT_SCRIPT";
@@ -819,6 +819,7 @@ export async function runActionsInTab(tabId, state, actions) {
 export function actionsMayCauseNavigation(actions) {
   for (const action of actions || []) {
     if (!action?.type) continue;
+    if (action.mayCauseNavigation || action.navigationAction) return true;
     if (action.executor === "browser") return true;
     if (action.type === "click") return true;
     if (action.type === "press") return true;

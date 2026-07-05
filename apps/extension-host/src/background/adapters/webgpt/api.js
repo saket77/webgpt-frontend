@@ -1,5 +1,5 @@
 import { resolveBackendBaseUrl } from "../../settings/backendConfig.js";
-import { createWebGptApiClient as createSharedWebGptApiClient } from "../../../../../../packages/planner-http-adapter/src/index.js";
+import { createWebGptApiClient as createSharedWebGptApiClient } from "@webgpt/planner-http-adapter";
 
 export function createWebGptApiClient({ baseUrl } = {}) {
   return createSharedWebGptApiClient({

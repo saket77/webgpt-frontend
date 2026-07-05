@@ -3,7 +3,7 @@ import {
   GOOGLE_SHEETS_SURFACE,
   MICROSOFT_EXCEL_SURFACE,
   normalizeSurface,
-} from "../controller-core/runtime/surfaces.js";
+} from "@webgpt/controller-core";
 
 export {
   BROWSER_DOM_SURFACE,

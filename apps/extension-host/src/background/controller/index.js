@@ -1,4 +1,4 @@
-import { createControllerCore } from "../controller-core/index.js";
+import { createControllerCore } from "@webgpt/controller-core";
 import { webgptPlannerAdapter } from "../adapters/webgpt/plannerAdapter.js";
 import { appRuntime } from "../runtime/index.js";
 import * as sessionStore from "../state/sessionStore.js";

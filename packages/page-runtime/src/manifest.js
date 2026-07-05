@@ -13,6 +13,7 @@ export const PAGE_RUNTIME_SCRIPT_FILES = [
   "content-scripts/adapters/dotloop.js",
   "content-scripts/adapters/ashby.js",
   "content-scripts/adapters/greenhouse.js",
+  "content-scripts/adapters/eprocure.js",
   "content-scripts/extractState.js",
   "content-scripts/runner/domUtils.js",
   "content-scripts/runner/elementSnapshot.js",
