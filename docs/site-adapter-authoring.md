@@ -9,6 +9,13 @@ There are two adapter styles:
 
 State-only adapters are still the default. Connector tools are for page operations where the adapter already understands the live DOM and a single planner action should perform a bounded multi-step interaction, such as opening a custom select, choosing the matching option, or filling a known set of document placeholders.
 
+Adapters live in `@webgpt/page-runtime`. Pure page-runtime adapters are shared by both current hosts:
+
+- the Chrome extension host injects page-runtime through Chrome scripting APIs
+- the Browserbase host injects the same page-runtime scripts through Playwright frame evaluation
+
+This means a Dotloop, Greenhouse, or eProcure adapter added under `packages/page-runtime/src/content-scripts/adapters/` is available to both hosts as long as it is pure page JavaScript. Do not use unguarded `chrome.*` in page-runtime files. Chrome-specific bridge behavior belongs in `apps/extension-host/src/content-scripts/agent.js`.
+
 ## Mental Model
 
 The frontend loop stays generic:
@@ -25,29 +32,45 @@ Adapters make page state easier to understand. Connector-enabled adapters can al
 
 If a workflow needs a different state model, auth flow, API executor, or durable non-DOM command vocabulary, use a runtime surface instead. See [Runtime authoring guide](./runtime-authoring.md).
 
+## Connector Build Pipeline
+
+Use this checklist when turning a state-only site adapter into a connector-enabled adapter:
+
+1. Map page regions and stable field keys in `enhanceState()`, using the same DOM helpers the executor will use later.
+2. Separate normal fillable fields, sensitive/compliance fields, file/upload boundaries, and submit/navigation boundaries.
+3. Add compact groups for actionable batches, such as `*_fill_application_fields(fieldValues)` and `*_fill_eeoc(fieldValues)`, instead of exposing long policy or help text.
+4. Set `preferredAction`, `connectorTool`, `connectorArgs`, `batchPlacement`, and `verifyAfterAction` on field groups and relevant control hints.
+5. Expose `provideTools()` only when the current page has the matching live fields, with small schemas keyed by stable field keys.
+6. Register local `WebGPTConnectorTools` executors that reuse the adapter's field model, fill all requested values, return `fieldValues` and `fieldTargets`, and mark partial failures as recoverable when fallback controls can still work.
+7. Filter planner noise from generic `visibleTextSummary` or generic groups when the adapter replaces it with compact actionable facts.
+8. Add source tests that pin injection order, tool schemas, executor registration, batch hints, sensitive-field policy, and state-delta verification keys.
+
 ## Current Files
 
 Adapter code lives in:
 
 ```text
-content-scripts/adapters/
-  registry.js
-  canvasQuiz.js
-  greenhouse.js
-  dotloop.js
+packages/page-runtime/src/content-scripts/
   connectorTools.js
+  adapters/
+    registry.js
+    canvasQuiz.js
+    greenhouse.js
+    dotloop.js
 ```
 
-Adapter scripts are injected before `content-scripts/extractState.js` by:
+Adapter scripts are injected before `content-scripts/extractState.js` by the active host using the canonical page-runtime manifest:
 
 ```text
-background/runtime/browser.js
+packages/page-runtime/src/manifest.js
+apps/extension-host/src/background/runtime/browser.js
+apps/browserbase-host/src/browserbaseRuntime.js
 ```
 
 The generic extractor calls the registry from:
 
 ```text
-content-scripts/extractState.js
+packages/page-runtime/src/content-scripts/extractState.js
 ```
 
 ## Adapter Contract
@@ -284,7 +307,7 @@ If a state-only target cannot be mapped to a generic control, include it as a no
 
 ## Canvas Quiz Adapter
 
-`content-scripts/adapters/canvasQuiz.js` is the first included adapter. It recognizes Canvas-like quiz pages and extracts:
+`packages/page-runtime/src/content-scripts/adapters/canvasQuiz.js` is the first included adapter. It recognizes Canvas-like quiz pages and extracts:
 
 - quiz title and question status
 - current question metadata
@@ -308,7 +331,7 @@ The Canvas adapter is state-only. It does not answer quiz questions. It only mak
 
 ## Connector-Enabled Examples
 
-`content-scripts/adapters/greenhouse.js` and `content-scripts/adapters/dotloop.js` are connector-enabled adapters.
+`packages/page-runtime/src/content-scripts/adapters/greenhouse.js` and `packages/page-runtime/src/content-scripts/adapters/dotloop.js` are connector-enabled adapters.
 
 Greenhouse exposes connector tools for custom select/EEOC flows where the adapter already knows the field roots and React select behavior. Dotloop exposes tools for document-field filling and Add Person modal completion. In both cases, the connector tools reuse the same detection logic as `enhanceState()` so state, planning hints, execution, replay evidence, and action effects describe the same page concepts.
 
@@ -503,7 +526,9 @@ globalThis.WebGPTConnectorTools.register(
 Before opening a PR:
 
 - Run `node --check` on changed content-script files.
-- Build the sidepanel app with `npm run build`.
+- Build the extension with `npm run build`.
+- Run `npm run smoke:extension`.
+- For host-shared adapters, run `npm run smoke:cloud` and at least one relevant Browserbase dry-run or live bench when practical.
 - Load the extension unpacked in Chrome.
 - Confirm the adapter only matches its intended page family.
 - Confirm `siteAdapter.actionHintsByTargetId` keys are real generic control IDs.

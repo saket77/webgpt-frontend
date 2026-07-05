@@ -1,5 +1,12 @@
 .DS_Store
 node_modules/
 dist/
-sidepanel-app/node_modules/
-sidepanel-app/dist/
+.env
+.env.local
+.env.*.local
+apps/extension-host/dist-extension/
+apps/extension-host/sidepanel-app/node_modules/
+apps/extension-host/sidepanel-app/dist/
+apps/browserbase-host/.env
+apps/browserbase-host/.env.local
+.webgpt-cloud-runs/

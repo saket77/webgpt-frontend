@@ -6,21 +6,32 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(scriptDir, "..");
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const extensionRoot = path.join(repoRoot, "apps", "extension-host");
+const distDir = path.join(extensionRoot, "dist-extension");
 
 function readManifest() {
-  return JSON.parse(fs.readFileSync(path.join(repoRoot, "manifest.json"), "utf8"));
+  return JSON.parse(fs.readFileSync(path.join(extensionRoot, "src", "manifest.json"), "utf8"));
+}
+
+function run(command, args, options = {}) {
+  const result = spawnSync(command, args, {
+    stdio: options.capture ? "pipe" : "inherit",
+    encoding: "utf8",
+    ...options,
+  });
+
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status}`);
+  }
+  return result.stdout || "";
 }
 
 function parseArgs(argv) {
   const manifest = readManifest();
   const options = {
-    output: path.resolve(
-      repoRoot,
-      "..",
-      `webgpt-extension-frontend-v${manifest.version}.zip`,
-    ),
+    output: path.resolve(repoRoot, "..", `webgpt-extension-frontend-v${manifest.version}.zip`),
     skipBuild: false,
   };
 
@@ -35,8 +46,6 @@ function parseArgs(argv) {
       index += 1;
     } else if (arg.startsWith("--output=")) {
       options.output = path.resolve(process.cwd(), arg.slice("--output=".length));
-    } else if (arg === "--help" || arg === "-h") {
-      options.help = true;
     } else if (!arg.startsWith("-")) {
       options.output = path.resolve(process.cwd(), arg);
     } else {
@@ -47,75 +56,12 @@ function parseArgs(argv) {
   return options;
 }
 
-function printHelp() {
-  const manifest = readManifest();
-  console.log(`Usage: node scripts/package-extension.mjs [options] [output.zip]
-
-Build and package the loadable WebGPT Chrome extension frontend.
-
-Options:
-  -o, --output <path>   Zip output path. Defaults to ../webgpt-extension-frontend-v${manifest.version}.zip
-      --skip-build      Reuse the existing sidepanel-app/dist build
-  -h, --help            Show this help
-`);
-}
-
-function run(command, args, options = {}) {
-  const result = spawnSync(command, args, {
-    stdio: options.capture ? "pipe" : "inherit",
-    encoding: "utf8",
-    ...options,
-  });
-
-  if (result.error) {
-    throw result.error;
-  }
-  if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status}`);
-  }
-
-  return result.stdout || "";
-}
-
-function assertExists(relativePath) {
-  const absolutePath = path.join(repoRoot, relativePath);
-  if (!fs.existsSync(absolutePath)) {
-    throw new Error(`Required extension file is missing: ${relativePath}`);
-  }
-}
-
 function copyFiltered(source, target) {
   fs.cpSync(source, target, {
     recursive: true,
     force: true,
-    filter: (entry) => {
-      const base = path.basename(entry);
-      return base !== ".DS_Store";
-    },
+    filter: (entry) => path.basename(entry) !== ".DS_Store",
   });
-}
-
-function copyRequiredFiles(stageDir) {
-  const rootFiles = ["manifest.json", "sidepanel.html"];
-  const rootDirs = ["background", "content-scripts", "icons"];
-
-  for (const file of rootFiles) {
-    assertExists(file);
-    fs.copyFileSync(path.join(repoRoot, file), path.join(stageDir, file));
-  }
-
-  for (const dir of rootDirs) {
-    assertExists(dir);
-    copyFiltered(path.join(repoRoot, dir), path.join(stageDir, dir));
-  }
-
-  assertExists("sidepanel-app/dist/assets/index.js");
-  assertExists("sidepanel-app/dist/assets/index.css");
-  fs.mkdirSync(path.join(stageDir, "sidepanel-app"), { recursive: true });
-  copyFiltered(
-    path.join(repoRoot, "sidepanel-app", "dist"),
-    path.join(stageDir, "sidepanel-app", "dist"),
-  );
 }
 
 function verifyZip(outputPath) {
@@ -124,15 +70,22 @@ function verifyZip(outputPath) {
   const requiredEntries = [
     "manifest.json",
     "background/service-worker.js",
+    "background/controller/index.js",
+    "background/controller-core/index.js",
+    "background/planner-http-adapter/index.js",
+    "background/page-runtime/manifest.js",
     "sidepanel.html",
     "sidepanel-app/dist/assets/index.js",
     "sidepanel-app/dist/assets/index.css",
+    "content-scripts/agent.js",
+    "content-scripts/extractState.js",
+    "content-scripts/runner.js",
   ];
   const forbiddenPatterns = [
     /(^|\/)\.git(\/|$)/,
     /(^|\/)node_modules(\/|$)/,
-    /^sidepanel-app\/src\//,
-    /^sidepanel-app\/node_modules\//,
+    /^apps\//,
+    /^packages\//,
     /^test\//,
     /^docs\//,
     /\.DS_Store$/,
@@ -154,28 +107,15 @@ function verifyZip(outputPath) {
   return entries.length;
 }
 
-function formatBytes(bytes) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  if (options.help) {
-    printHelp();
-    return;
-  }
-
   if (!options.skipBuild) {
-    run("npm", ["run", "build"], {
-      cwd: path.join(repoRoot, "sidepanel-app"),
-    });
+    run("npm", ["run", "build"], { cwd: repoRoot });
   }
 
   const stageDir = fs.mkdtempSync(path.join(os.tmpdir(), "webgpt-extension-package-"));
   try {
-    copyRequiredFiles(stageDir);
+    copyFiltered(distDir, stageDir);
 
     fs.mkdirSync(path.dirname(options.output), { recursive: true });
     if (fs.existsSync(options.output)) {
@@ -185,9 +125,8 @@ async function main() {
     run("zip", ["-r", "-q", options.output, "."], { cwd: stageDir });
     const entryCount = verifyZip(options.output);
     const size = fs.statSync(options.output).size;
-
     console.log(`Packaged ${entryCount} files into ${options.output}`);
-    console.log(`Size: ${formatBytes(size)}`);
+    console.log(`Size: ${(size / 1024 / 1024).toFixed(2)} MB`);
   } finally {
     fs.rmSync(stageDir, { recursive: true, force: true });
   }

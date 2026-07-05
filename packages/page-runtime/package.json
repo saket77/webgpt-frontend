@@ -1,0 +1,11 @@
+{
+  "name": "@webgpt/page-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/manifest.js",
+  "exports": {
+    ".": "./src/manifest.js",
+    "./node": "./src/node.js"
+  }
+}

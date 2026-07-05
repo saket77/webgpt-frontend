@@ -1,6 +1,6 @@
 # Simple Backend Example
 
-This is a tiny WebGPT-compatible backend for local testing. The extension defaults to the hosted WebGPT planner; use this example when you want to inspect the contract locally or test frontend changes without a real planner.
+This is a tiny WebGPT-compatible backend for local testing. The extension host defaults to the hosted WebGPT planner; use this example when you want to inspect the contract locally or test frontend changes without a real planner.
 
 This example does not plan, call an LLM, inspect the page, or choose controls. It returns one hardcoded `run_actions` command so frontend contributors can see the backend contract in motion.
 
@@ -19,6 +19,12 @@ Point the extension backend URL at:
 
 ```text
 http://127.0.0.1:8787
+```
+
+Or run the Browserbase host against it:
+
+```bash
+npm run cloud:run -- --url "https://example.com" --goal "Run the simple backend action." --backend http://127.0.0.1:8787
 ```
 
 ## Configure The Demo Action
@@ -42,7 +48,7 @@ Environment variables:
 
 ## What This Proves
 
-Any backend can work with the extension if it speaks the documented planner command contract.
+Any backend can work with a WebGPT frontend host if it speaks the documented planner command contract.
 
 This example implements only the small route subset needed for a one-batch built-in browser action demo. It does not plan connector-tool actions, runtime surface commands, replay artifacts, or navigation handoffs. For the full contract, see:
 

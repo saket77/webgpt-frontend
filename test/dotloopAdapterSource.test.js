@@ -10,7 +10,7 @@ function readSource(relativePath) {
 }
 
 test("Dotloop adapter is injected before state extraction", () => {
-  const source = readSource("background/runtime/browser.js");
+  const source = readSource("packages/page-runtime/src/manifest.js");
 
   assert.match(source, /content-scripts\/adapters\/dotloop\.js/);
   const dotloopIndex = source.indexOf("content-scripts/adapters/dotloop.js");
@@ -20,12 +20,12 @@ test("Dotloop adapter is injected before state extraction", () => {
 });
 
 test("Dotloop document reading does not add Chrome debugger permission", () => {
-  const manifest = JSON.parse(readSource("manifest.json"));
+  const manifest = JSON.parse(readSource("apps/extension-host/src/manifest.json"));
   assert.ok(!manifest.permissions.includes("debugger"));
 });
 
 test("Dotloop adapter exposes connector tools from enhanced document and modal state", () => {
-  const source = readSource("content-scripts/adapters/dotloop.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/dotloop.js");
 
   assert.match(source, /const ADAPTER_ID = "dotloop\.local"/);
   assert.match(source, /function provideTools/);
@@ -33,6 +33,8 @@ test("Dotloop adapter exposes connector tools from enhanced document and modal s
   assert.match(source, /collectAddPersonModal\(state \|\| \{ controls: \[\] \}, doc\)/);
   assert.match(source, /name: "dotloop_fill_document_fields"/);
   assert.match(source, /name: "dotloop_add_person"/);
+  assert.match(source, /name: READ_DOCUMENT_TOOL/);
+  assert.match(source, /dotloop_read_document/);
   assert.match(source, /name: READ_DOCUMENT_TOOL/);
   assert.match(source, /dotloop_read_document/);
   assert.match(source, /fieldValues/);
@@ -45,9 +47,16 @@ test("Dotloop adapter exposes connector tools from enhanced document and modal s
 });
 
 test("Dotloop connector executors reuse existing Dotloop selectors and register with WebGPTConnectorTools", () => {
-  const source = readSource("content-scripts/adapters/dotloop.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/dotloop.js");
 
   assert.match(source, /async function dotloopFillDocumentFields/);
+  assert.match(source, /async function dotloopReadDocument/);
+  assert.match(source, /fetchDocumentRevisionPayload/);
+  assert.match(source, /documentPagesFromDom/);
+  assert.match(source, /documentFieldsFromDom/);
+  assert.match(source, /dotloopDocumentReadRequest/);
+  assert.match(source, /s3ImageUrl/);
+  assert.match(source, /\/my\/rest\/v1_0\/document\//);
   assert.match(source, /async function dotloopReadDocument/);
   assert.match(source, /fetchDocumentRevisionPayload/);
   assert.match(source, /documentPagesFromDom/);
@@ -68,10 +77,22 @@ test("Dotloop connector executors reuse existing Dotloop selectors and register 
   assert.match(source, /visionFieldTargets/);
   assert.match(source, /function editorNavigationGroup/);
   assert.match(source, /dotloop_editor_navigation/);
+  assert.match(source, /function visionFieldTargetForAction/);
+  assert.match(source, /function matchingDocumentFieldItemsByVisionTarget/);
+  assert.match(source, /function scoreFieldMatch/);
+  assert.match(source, /function visionTargetRects/);
+  assert.match(source, /overlapRatio/);
+  assert.match(source, /verticalOverlapRatio/);
+  assert.match(source, /matchMode/);
+  assert.match(source, /fieldTargets/);
+  assert.match(source, /visionFieldTargets/);
+  assert.match(source, /function editorNavigationGroup/);
+  assert.match(source, /dotloop_editor_navigation/);
   assert.match(source, /\.data-item/);
   assert.match(source, /fieldValueFor\(item\)/);
   assert.match(source, /fieldEditability\(item, fieldType, currentValue\)/);
   assert.match(source, /documentFieldActivationTarget/);
+  assert.match(source, /matching placeholder or vision field target not found/);
   assert.match(source, /matching placeholder or vision field target not found/);
   assert.match(source, /async function dotloopAddPerson/);
   assert.match(source, /function findAddPersonModal/);
@@ -85,15 +106,22 @@ test("Dotloop connector executors reuse existing Dotloop selectors and register 
   assert.match(source, /WebGPTConnectorTools\.register\(\s*"dotloop_fill_document_fields"/);
   assert.match(source, /WebGPTConnectorTools\.register\(\s*"dotloop_add_person"/);
   assert.match(source, /WebGPTConnectorTools\.register\(\s*READ_DOCUMENT_TOOL/);
+  assert.match(source, /WebGPTConnectorTools\.register\(\s*READ_DOCUMENT_TOOL/);
 });
 
 test("Dotloop hints prefer connector tools and remove stale site-adapter-only guidance", () => {
-  const source = readSource("content-scripts/adapters/dotloop.js");
+  const source = readSource("packages/page-runtime/src/content-scripts/adapters/dotloop.js");
 
   assert.doesNotMatch(source, /no Dotloop API or special executor exists/);
   assert.match(source, /Dotloop connector adapter active/);
   assert.match(source, /connector action available: dotloop_fill_document_fields\(fieldValues\)/);
   assert.match(source, /connector action available: dotloop_add_person/);
+  assert.match(source, /Read the current Dotloop PDF\/document in ONE action/);
+  assert.match(source, /click the editor back target first, then choose the named document/);
+  assert.match(source, /before asking the user for a URL/);
+  assert.match(source, /run dotloop_read_document to extract visual PDF labels/);
+  assert.match(source, /documents that do not expose machine-readable placeholder keys/);
+  assert.match(source, /vision-mapped fields from dotloop_read_document/);
   assert.match(source, /Read the current Dotloop PDF\/document in ONE action/);
   assert.match(source, /click the editor back target first, then choose the named document/);
   assert.match(source, /before asking the user for a URL/);

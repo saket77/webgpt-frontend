@@ -1,11 +1,11 @@
 # Planner Adapter Contract
 
-This document describes how the WebGPT browser frontend talks to planner-capable backends.
+This document describes how WebGPT frontend hosts talk to planner-capable backends.
 
 There are two related contracts:
 
-- The JavaScript `plannerAdapter` interface consumed by `background/controller/`.
-- The default HTTP API implemented by `background/adapters/webgpt/`, described in [planner-http-api.openapi.yaml](./planner-http-api.openapi.yaml).
+- The JavaScript `plannerAdapter` interface consumed by `packages/controller-core/`.
+- The default HTTP API implemented by `packages/planner-http-adapter/`, described in [planner-http-api.openapi.yaml](./planner-http-api.openapi.yaml).
 
 The extension defaults to the hosted WebGPT planner at:
 
@@ -13,7 +13,7 @@ The extension defaults to the hosted WebGPT planner at:
 https://webgpt-backend-production.up.railway.app
 ```
 
-If your backend already implements the default HTTP API, point the extension at its base URL in the sidepanel Backend card. If your backend uses different routes or payloads, provide a custom JavaScript adapter and pass it to `createController`.
+If your backend already implements the default HTTP API, point the extension host at its base URL in the sidepanel Backend card or pass `--backend` to the Browserbase host CLI. If your backend uses different routes or payloads, provide a custom JavaScript adapter and pass it to `createControllerCore`.
 
 ## Controller-Facing Adapter
 
@@ -39,7 +39,7 @@ type PlannerAdapter = {
 };
 ```
 
-The default implementation is assembled in [`background/adapters/webgpt/plannerAdapter.js`](../background/adapters/webgpt/plannerAdapter.js).
+The shared default implementation lives in [`packages/planner-http-adapter`](../packages/planner-http-adapter). The extension host wraps it in [`apps/extension-host/src/background/adapters/webgpt/plannerAdapter.js`](../apps/extension-host/src/background/adapters/webgpt/plannerAdapter.js) to resolve the sidepanel backend setting; the Browserbase host uses it directly with its CLI `--backend` option.
 
 ## Adapter Responsibilities
 
@@ -151,7 +151,7 @@ Recommended shape:
 
 ## Frontend Result Types
 
-The frontend calls `postCommandResult` after each browser-side event. Compatible backends should understand these `type` values:
+The frontend host calls `postCommandResult` after each browser-side event. Compatible backends should understand these `type` values:
 
 - `replay_preflight_requested`: asks whether a replay batch should run before normal planning.
 - `state_extracted`: sends structured page or runtime state after extraction.
@@ -166,7 +166,7 @@ The exact HTTP request schema is documented in [planner-http-api.openapi.yaml](.
 
 ## Backend Command Vocabulary
 
-Backends respond with command objects consumed by [`background/controller/commands/router.js`](../background/controller/commands/router.js).
+Backends respond with command objects consumed by [`packages/controller-core/src/controller/commands/router.js`](../packages/controller-core/src/controller/commands/router.js).
 
 ### `extract_state`
 
@@ -245,7 +245,7 @@ Connector actions must not perform work across a document navigation boundary. I
 
 ### `run_google_sheets_commands`
 
-Execute curated Google Sheets runtime commands through the extension's Google Sheets runtime.
+Execute curated Google Sheets runtime commands through the extension host's Google Sheets runtime. Browserbase host v1 does not implement this runtime.
 
 ```json
 {
@@ -272,7 +272,7 @@ The current Google Sheets command vocabulary is documented in [Google Sheets sur
 
 ### `run_microsoft_excel_commands`
 
-Execute curated Microsoft Excel runtime commands through the extension's Microsoft Excel runtime.
+Execute curated Microsoft Excel runtime commands through the extension host's Microsoft Excel runtime. Browserbase host v1 does not implement this runtime.
 
 ```json
 {
@@ -393,7 +393,7 @@ Tell the frontend the run appears complete and should enter success confirmation
 
 ## HTTP API
 
-The default adapter in [`background/adapters/webgpt/api.js`](../background/adapters/webgpt/api.js) uses these routes:
+The default adapter in [`packages/planner-http-adapter/src/api.js`](../packages/planner-http-adapter/src/api.js) uses these routes:
 
 - `POST /runs/start-command`
 - `POST /runs/:runId/command-result`
@@ -409,7 +409,7 @@ The default adapter in [`background/adapters/webgpt/api.js`](../background/adapt
 - `POST /save-successful-execution-trace`
 - `POST /save-successful-replay-artifacts`
 
-Use [planner-http-api.openapi.yaml](./planner-http-api.openapi.yaml) as the machine-readable route and payload reference. The OpenAPI file lists both the hosted WebGPT planner and the local simple backend example as servers.
+Use [planner-http-api.openapi.yaml](./planner-http-api.openapi.yaml) as the machine-readable route and payload reference. The OpenAPI file lists the hosted WebGPT planner, a local full planner, and the local simple backend example as servers.
 
 ## Minimal Compatible Loop
 
