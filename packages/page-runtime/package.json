@@ -5,6 +5,7 @@
   "type": "module",
   "main": "src/manifest.js",
   "exports": {
-    ".": "./src/manifest.js"
+    ".": "./src/manifest.js",
+    "./node": "./src/node.js"
   }
 }

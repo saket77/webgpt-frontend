@@ -4,12 +4,17 @@ declare const chrome: any;
 
 export type ProfileAttachmentRole = "resume" | "cover_letter";
 
-export type ProfileAttachmentPayload = {
+export type AttachmentPayload = {
   name: string;
   mimeType: string;
   size: number;
-  role: ProfileAttachmentRole;
+  role?: ProfileAttachmentRole;
+  purpose?: "auto" | "profile";
   contentBase64: string;
+};
+
+export type ProfileAttachmentPayload = AttachmentPayload & {
+  role: ProfileAttachmentRole;
 };
 
 export type StartAgentRequest = {
@@ -19,6 +24,7 @@ export type StartAgentRequest = {
   inputValues?: Record<string, string[]>;
   isTemplate?: boolean;
   surface?: string;
+  attachments?: AttachmentPayload[];
   profileAttachments?: ProfileAttachmentPayload[];
 };
 
@@ -43,6 +49,7 @@ export function useAgentActions() {
       inputValues,
       isTemplate,
       surface,
+      attachments,
       profileAttachments,
     }: StartAgentRequest) => {
       return sendToWorker<{
@@ -56,6 +63,7 @@ export function useAgentActions() {
         inputValues: inputValues || {},
         isTemplate: isTemplate || false,
         surface: surface || "",
+        attachments: attachments || [],
         profileAttachments: profileAttachments || [],
       });
     },

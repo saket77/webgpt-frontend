@@ -7,12 +7,6 @@ export const browserbaseHostRoot = path.resolve(
 );
 
 export const repoRoot = path.resolve(browserbaseHostRoot, "..", "..");
-export const pageRuntimeRoot = path.join(
-  repoRoot,
-  "packages",
-  "page-runtime",
-  "src",
-);
 
 export const defaultLogsDir = path.join(
   repoRoot,

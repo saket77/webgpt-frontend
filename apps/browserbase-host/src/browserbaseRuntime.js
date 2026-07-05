@@ -1,8 +1,7 @@
 import fs from "node:fs/promises";
-import path from "node:path";
-import { PAGE_RUNTIME_SCRIPT_FILES } from "../../../packages/page-runtime/src/manifest.js";
-import { BROWSER_DOM_SURFACE } from "../../../packages/controller-core/src/runtime/surfaces.js";
-import { pageRuntimeRoot } from "./paths.js";
+import { BROWSER_DOM_SURFACE } from "@webgpt/controller-core";
+import { PAGE_RUNTIME_SCRIPT_FILES } from "@webgpt/page-runtime";
+import { resolvePageRuntimeScriptPath } from "@webgpt/page-runtime/node";
 import { CLOUD_TAB_ID } from "./host.js";
 
 const CONTROL_DROP_REEXTRACT_ATTEMPTS = 2;
@@ -182,7 +181,7 @@ export function getBrowserbasePageRuntimeScriptFiles() {
 export function createBrowserbaseRuntime({
   page,
   readScript = async (filePath) => fs.readFile(filePath, "utf8"),
-  runtimeRoot = pageRuntimeRoot,
+  resolveScriptPath = resolvePageRuntimeScriptPath,
   navigationTimeoutMs = 120000,
 } = {}) {
   if (!page) {
@@ -236,7 +235,7 @@ export function createBrowserbaseRuntime({
 
   async function injectRuntimeIntoFrame(frame) {
     for (const relativeFile of PAGE_RUNTIME_SCRIPT_FILES) {
-      const absoluteFile = path.join(runtimeRoot, relativeFile);
+      const absoluteFile = resolveScriptPath(relativeFile);
       const source = await readScript(absoluteFile, relativeFile);
 
       await frame.evaluate(

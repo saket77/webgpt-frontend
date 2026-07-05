@@ -81,6 +81,7 @@ export function registerMessageHandlers() {
           message.surface || "",
           myInfo,
           message.profileAttachments || [],
+          message.attachments || [],
         );
         sendResponse({ ok: true, result });
         return;

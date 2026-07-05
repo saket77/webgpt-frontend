@@ -58,6 +58,7 @@ export function createControllerCore({
     surface = "",
     myInfo = null,
     profileAttachments = [],
+    attachments = [],
   ) =>
     startAgentFlow(
       tabId,
@@ -68,6 +69,7 @@ export function createControllerCore({
       surface,
       myInfo,
       profileAttachments,
+      attachments,
       {
         continueRun,
         plannerAdapter,

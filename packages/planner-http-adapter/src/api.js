@@ -77,6 +77,7 @@ export function createWebGptApiClient({
       artifactFileName = "",
       surface = "",
       myInfo = null,
+      attachments = [],
       profileAttachments = [],
     }) {
       const json = await postJsonToApi(`/runs/start-command`, {
@@ -89,6 +90,7 @@ export function createWebGptApiClient({
         artifactFileName,
         surface,
         myInfo,
+        attachments,
         profileAttachments,
       });
 

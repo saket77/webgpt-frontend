@@ -24,7 +24,7 @@ import {
 } from "react";
 import { useAgentUX } from "../../providers";
 import type {
-  ProfileAttachmentPayload,
+  AttachmentPayload,
   ProfileAttachmentRole,
 } from "../../hooks/useAgentActions";
 
@@ -96,7 +96,7 @@ type AgentChatPanelProps = {
   showEmptySuggestions?: boolean;
   onStart: (
     submittedGoal?: string,
-    profileAttachments?: ProfileAttachmentPayload[],
+    attachments?: AttachmentPayload[],
   ) => void;
   onStop: () => void;
   onReset: () => void;
@@ -120,16 +120,16 @@ type ExtractedItemView = {
   href?: string;
 };
 
-const PROFILE_ATTACHMENT_ACCEPT =
-  ".txt,.md,.pdf,text/plain,text/markdown,text/x-markdown,application/pdf";
-const MAX_PROFILE_ATTACHMENT_BYTES = 4 * 1024 * 1024;
-const MAX_PROFILE_ATTACHMENTS = 4;
+const ATTACHMENT_ACCEPT =
+  ".txt,.md,.pdf,.csv,.tsv,.xls,.xlsx,text/plain,text/markdown,text/x-markdown,application/pdf,text/csv,text/tab-separated-values,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const MAX_ATTACHMENTS = 8;
 
-type LocalProfileAttachment = ProfileAttachmentPayload & {
+type LocalAttachment = AttachmentPayload & {
   localId: string;
 };
 
-function isAcceptedProfileAttachment(file: File) {
+function isProfileLikeAttachment(file: File) {
   const name = file.name.toLowerCase();
   const type = file.type.toLowerCase();
   return (
@@ -140,6 +140,22 @@ function isAcceptedProfileAttachment(file: File) {
     type === "text/markdown" ||
     type === "text/x-markdown" ||
     type === "application/pdf"
+  );
+}
+
+function isAcceptedAttachment(file: File) {
+  const name = file.name.toLowerCase();
+  const type = file.type.toLowerCase();
+  return (
+    isProfileLikeAttachment(file) ||
+    name.endsWith(".csv") ||
+    name.endsWith(".tsv") ||
+    name.endsWith(".xls") ||
+    name.endsWith(".xlsx") ||
+    type === "text/csv" ||
+    type === "text/tab-separated-values" ||
+    type === "application/vnd.ms-excel" ||
+    type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
   );
 }
 
@@ -589,7 +605,7 @@ export function AgentChatPanel({
   const [submittedGoal, setSubmittedGoal] = useState("");
   const [draft, setDraft] = useState("");
   const [profileAttachments, setProfileAttachments] = useState<
-    LocalProfileAttachment[]
+    LocalAttachment[]
   >([]);
   const [profileAttachmentError, setProfileAttachmentError] = useState("");
   const groupedEvents = useMemo(() => groupEvents(eventLog), [eventLog]);
@@ -659,24 +675,24 @@ export function AgentChatPanel({
     const errors: string[] = [];
 
     for (const file of files) {
-      if (!isAcceptedProfileAttachment(file)) {
-        errors.push(`${file.name} must be .txt, .md, or .pdf.`);
+      if (!isAcceptedAttachment(file)) {
+        errors.push(`${file.name} must be .txt, .md, .pdf, .csv, .tsv, .xls, or .xlsx.`);
         continue;
       }
 
-      if (file.size > MAX_PROFILE_ATTACHMENT_BYTES) {
-        errors.push(`${file.name} must be 4 MB or smaller.`);
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        errors.push(`${file.name} must be 10 MB or smaller.`);
         continue;
       }
 
       acceptedFiles.push(file);
     }
 
-    const openSlots = Math.max(0, MAX_PROFILE_ATTACHMENTS - profileAttachments.length);
+    const openSlots = Math.max(0, MAX_ATTACHMENTS - profileAttachments.length);
     const selectedFiles = acceptedFiles.slice(0, openSlots);
 
     if (acceptedFiles.length > openSlots) {
-      errors.push(`You can attach up to ${MAX_PROFILE_ATTACHMENTS} files.`);
+      errors.push(`You can attach up to ${MAX_ATTACHMENTS} files.`);
     }
 
     if (!selectedFiles.length) {
@@ -691,7 +707,10 @@ export function AgentChatPanel({
           name: file.name,
           mimeType: file.type || "",
           size: file.size,
-          role: inferProfileAttachmentRole(file),
+          role: isProfileLikeAttachment(file)
+            ? inferProfileAttachmentRole(file)
+            : undefined,
+          purpose: "auto" as const,
           contentBase64: arrayBufferToBase64(await file.arrayBuffer()),
         })),
       );
@@ -711,12 +730,13 @@ export function AgentChatPanel({
     );
   };
 
-  const startProfileAttachmentPayload: ProfileAttachmentPayload[] =
+  const startAttachmentPayload: AttachmentPayload[] =
     profileAttachments.map((attachment) => ({
       name: attachment.name,
       mimeType: attachment.mimeType,
       size: attachment.size,
       role: attachment.role,
+      purpose: attachment.purpose || "auto",
       contentBase64: attachment.contentBase64,
     }));
 
@@ -733,7 +753,7 @@ export function AgentChatPanel({
 
     const submitted = draft.trim() || goal.trim();
     setSubmittedGoal(submitted);
-    onStart(submitted, startProfileAttachmentPayload);
+    onStart(submitted, startAttachmentPayload);
     setDraft("");
     setGoal("");
     setProfileAttachments([]);
@@ -754,7 +774,7 @@ export function AgentChatPanel({
     if (canStart) {
       const submitted = draft.trim() || goal.trim();
       setSubmittedGoal(submitted);
-      onStart(submitted, startProfileAttachmentPayload);
+      onStart(submitted, startAttachmentPayload);
       setDraft("");
       setGoal("");
       setProfileAttachments([]);
@@ -912,7 +932,7 @@ export function AgentChatPanel({
             ref={profileAttachmentInputRef}
             className="profile-attachment-input"
             type="file"
-            accept={PROFILE_ATTACHMENT_ACCEPT}
+            accept={ATTACHMENT_ACCEPT}
             multiple
             onChange={(event) => void handleProfileAttachmentChange(event)}
           />

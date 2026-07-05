@@ -1,4 +1,4 @@
-import { getEmptySession } from "../../../packages/controller-core/src/state/sessionStore.js";
+import { getEmptySession } from "@webgpt/controller-core";
 
 function key(id) {
   return String(id);

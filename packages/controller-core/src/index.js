@@ -10,3 +10,4 @@ export {
   MICROSOFT_EXCEL_SURFACE,
   normalizeSurface,
 } from "./runtime/surfaces.js";
+export { getEmptySession } from "./state/sessionStore.js";

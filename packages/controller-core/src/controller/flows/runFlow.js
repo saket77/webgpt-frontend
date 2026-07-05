@@ -231,6 +231,7 @@ export async function startAgentFlow(
   surface = "",
   myInfo = null,
   profileAttachments = [],
+  attachments = [],
   { continueRun, plannerAdapter, runtime } = {},
 ) {
   const resumeRun =
@@ -272,6 +273,7 @@ export async function startAgentFlow(
     artifactFileName: session.artifactFileName,
     surface: session.surface,
     myInfo,
+    attachments,
     profileAttachments,
   });
 
