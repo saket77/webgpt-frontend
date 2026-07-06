@@ -154,6 +154,11 @@ test("cloud service config keeps tokenless local dev on loopback and requires to
   assert.equal(tokened.host, "0.0.0.0");
   assert.equal(tokened.adminToken, "secret");
 
+  const railwayPort = readCloudServiceConfig({
+    PORT: "8080",
+  });
+  assert.equal(railwayPort.port, 8080);
+
   const resendLocal = readCloudServiceConfig({
     RESEND_API_KEY: "re_123",
     RESEND_FROM: "WebGPT <onboarding@resend.dev>",

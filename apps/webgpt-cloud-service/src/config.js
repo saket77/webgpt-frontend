@@ -43,7 +43,7 @@ export function readCloudServiceConfig(env = process.env) {
       env.WEBGPT_NOTIFICATION_INTERVAL_MS,
       DEFAULT_NOTIFICATION_INTERVAL_MS,
     ),
-    port: readNumber(env.WEBGPT_CLOUD_PORT, DEFAULT_PORT),
+    port: readNumber(env.WEBGPT_CLOUD_PORT || env.PORT, DEFAULT_PORT),
     projectId: env.BROWSERBASE_PROJECT_ID || "",
     resendApiKey: env.RESEND_API_KEY || "",
     resendTimeoutMs: readNumber(env.RESEND_TIMEOUT_MS, DEFAULT_RESEND_TIMEOUT_MS),

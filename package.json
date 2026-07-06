@@ -7,6 +7,8 @@
     "apps/extension-host/sidepanel-app"
   ],
   "scripts": {
+    "start": "npm run cloud:service",
+    "railway:start": "node apps/webgpt-cloud-service/src/server.js",
     "build": "node scripts/build-extension.mjs",
     "cloud:service": "node apps/webgpt-cloud-service/src/server.js",
     "cloud:run": "node apps/browserbase-host/src/cli.js",
