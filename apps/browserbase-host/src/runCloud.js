@@ -80,6 +80,8 @@ export async function runCloudWebGpt({
   logsDir = "",
   timeoutMs = 120000,
   logStream = process.stdout,
+  onEvent,
+  onEventLogReady,
   onSessionReady,
 } = {}) {
   const browserbase = await createBrowserbaseSession({ projectId });
@@ -104,7 +106,11 @@ export async function runCloudWebGpt({
     logsDir,
     runLabel: "browserbase",
     stream: logStream,
+    onEvent,
   });
+  if (typeof onEventLogReady === "function") {
+    await onEventLogReady({ eventLogPath });
+  }
   const plannerAdapter = createWebGptPlannerAdapter({ baseUrl: backend });
 
   const controller = createControllerCore({

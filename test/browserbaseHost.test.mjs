@@ -1,10 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import {
   createBrowserbaseRuntime,
   getBrowserbasePageRuntimeScriptFiles,
 } from "../apps/browserbase-host/src/browserbaseRuntime.js";
+import { createCloudEventSink } from "../apps/browserbase-host/src/eventSink.js";
 import {
   parseArgs,
   printSessionReady,
@@ -227,4 +231,38 @@ test("browserbase CLI prints session URLs through the provided stream", () => {
   assert.match(output, /Browserbase session: session_123/);
   assert.match(output, /Live View: https:\/\/browserbase\.test\/live/);
   assert.match(output, /Session: https:\/\/browserbase\.test\/sessions\/session_123/);
+});
+
+test("browserbase event sink emits structured progress callbacks while streaming log lines", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "webgpt-cloud-events-"));
+  const events = [];
+  let output = "";
+
+  try {
+    const { eventSink, eventLogPath } = await createCloudEventSink({
+      logsDir: dir,
+      runLabel: "test",
+      stream: {
+        write(chunk) {
+          output += chunk;
+        },
+      },
+      onEvent(event) {
+        events.push(event);
+      },
+    });
+
+    await eventSink.addEvent(1, {
+      kind: "planner_step",
+      message: "Planner selected extract",
+    });
+
+    assert.match(output, /\[cloud:planner_step\] Planner selected extract/);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].kind, "planner_step");
+    assert.equal(events[0].message, "Planner selected extract");
+    assert.equal(fs.existsSync(eventLogPath), true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
