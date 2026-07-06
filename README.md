@@ -20,7 +20,7 @@ Unlike one-off browser agents, WebGPT is built around a clean runtime/planner bo
 
 [![Watch the first WebGPT demo](https://i9.ytimg.com/vi_webp/J1yGDs0M-gA/mq1.webp?sqp=CJjp2M8G-oaymwEmCMACELQB8quKqQMa8AEB-AH-CIAC0AWKAgwIABABGBUgRih_MA8=&rs=AOn4CLCyBim_PHlqGOERym-W9Y5fh5O9YQ)](https://youtu.be/J1yGDs0M-gA)
 
-The public Shorts series has seven demos showing WebGPT moving from repeatable browser routines into real work tools: websites, Microsoft Excel, Google Sheets, spreadsheet-to-browser workflows, Dotloop PDFs, custom planner backends, and connector replay.
+The public Shorts series has seven demos showing WebGPT moving from repeatable browser routines into real work tools: websites, Microsoft Excel, Google Sheets, spreadsheet-to-browser workflows, Dotloop PDFs, guarded job-application drafting, and running the same runtime in a Browserbase cloud browser.
 
 ## Public Demos
 
@@ -31,10 +31,10 @@ The public Shorts series has seven demos showing WebGPT moving from repeatable b
 | [3. WebGPT Works Across Excel And Google Sheets](./docs/demos/demo-3-spreadsheet-runtime.md) | WebGPT handles spreadsheet tasks across Microsoft Excel and Google Sheets after OAuth is connected | One planner loop can work across multiple spreadsheet products |
 | [4. Spreadsheet Rows Become Browser Tasks](./docs/demos/demo-4-replay-workflow.md) | WebGPT reads addresses from a spreadsheet, researches them on Philadelphia's property site, and writes results back | Shows a true cross-surface workflow: spreadsheet to browser, browser back to spreadsheet |
 | [5. WebGPT Reads Dotloop PDFs](./docs/demos/demo-5-dotloop-pdf-vision.md) | WebGPT reads rendered Dotloop PDF pages with vision, maps labels to real editable overlay boxes, and fills the correct fields | WebGPT can understand PDF-like document pages without guessing at visual blanks |
-| 6. Custom Backend With The OpenAPI Contract | WebGPT points at a compatible planner backend through the documented HTTP API | The frontend runtime is not locked to one planner implementation |
-| 7. Connector Replay And Navigation Boundaries | WebGPT turns connector-assisted browser work into replayable steps while respecting navigation pauses | Site-specific reliability can still fit inside the general planner loop |
+| [6. WebGPT Drafts Job Applications With Guardrails](./docs/demos/demo-6-job-application-drafting.md) | WebGPT reads an uploaded resume and drafts Ashby and Greenhouse applications, while resume upload and final submit stay blocked | Repetitive fields get faster, but irreversible actions stay human-controlled |
+| [7. WebGPT Runs In A Browserbase Cloud Browser](./docs/demos/demo-7-cloud-browser-runtime.md) | The same runtime that powers the Chrome extension runs a real-website task inside a Browserbase cloud browser from the CLI | The browser is swappable while the planner loop stays the same, enabling real-website bench tests |
 
-Writeups for demos 6 and 7 are pending. The first five demo writeups live under `docs/demos/`.
+All seven demo writeups live under `docs/demos/`.
 
 ## Why WebGPT?
 
@@ -237,6 +237,57 @@ The CLI prints the Browserbase session ID, Live View URL when Browserbase return
 Browserbase host v1 supports public browser DOM runs, page-runtime site adapters, connector tools, replay batches where possible, ask-human pauses, and planner done/success results. It does not yet include scheduled routines, Browserbase Context auth persistence, email summaries, Google Sheets runtime commands, or Microsoft Excel runtime commands.
 
 Because it runs from a CLI, the Browserbase host also acts as a browser-agent bench harness. Codex can run a real website task, inspect `.webgpt-cloud-runs/*.jsonl` plus backend artifacts, and help improve page-runtime or planner behavior without manually reloading the Chrome extension.
+
+## WebGPT Cloud Service
+
+`apps/webgpt-cloud-service` is the hosted run API and routine scheduler. It wraps the Browserbase host with durable SQLite state, progress polling, routines, and optional email notifications.
+
+The built-in `ipo_gmp_daily` routine is deterministic-first: it reads InvestorGain's JSON report endpoint for Mainboard IPOs, keeps only open rows with subscription over `10x` and GMP at least `50%`, and only falls back to a Browserbase WebGPT run if that API path fails.
+
+Start the service from the repo root:
+
+```bash
+npm run cloud:service
+```
+
+Create an async one-off run:
+
+```bash
+curl -X POST http://127.0.0.1:3100/cloud-runs \
+  -H "content-type: application/json" \
+  -d '{
+    "url": "https://www.investorgain.com/report/ipo-gmp-live/331/all/",
+    "goal": "Filter IPOs by open and then extract the subscription and GMP",
+    "mode": "webgpt",
+    "execution": "browserbase"
+  }'
+```
+
+Poll a run:
+
+```bash
+curl http://127.0.0.1:3100/cloud-runs/<cloud_run_id>
+```
+
+The default response includes compact progress events, status, Browserbase URLs, summary, and `finalResult`. Raw planner/debug event payloads stay stored in SQLite and are available only when explicitly requested:
+
+```bash
+curl "http://127.0.0.1:3100/cloud-runs/<cloud_run_id>?events=full"
+curl "http://127.0.0.1:3100/cloud-runs/<cloud_run_id>?events=none"
+curl "http://127.0.0.1:3100/cloud-runs/<cloud_run_id>?eventLimit=5"
+```
+
+For a local fresh-start dry run:
+
+```bash
+npm run cloud:cleanup
+```
+
+To actually wipe local cloud DB/logs, Browserbase JSONL logs, and planner artifacts:
+
+```bash
+npm run cloud:cleanup -- --yes
+```
 
 ## Run the Simple Backend
 

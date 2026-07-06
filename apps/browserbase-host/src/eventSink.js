@@ -10,6 +10,7 @@ export async function createCloudEventSink({
   logsDir = "",
   runLabel = "run",
   stream = process.stdout,
+  onEvent,
 } = {}) {
   const dir = path.resolve(logsDir || defaultLogsDir);
   await fs.mkdir(dir, { recursive: true });
@@ -32,6 +33,10 @@ export async function createCloudEventSink({
     const message = enriched.message || enriched.summary || enriched.error || "";
     const line = message ? `[cloud:${label}] ${message}` : `[cloud:${label}]`;
     stream.write(`${line}\n`);
+
+    if (typeof onEvent === "function") {
+      await onEvent(enriched);
+    }
 
     return enriched;
   }

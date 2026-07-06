@@ -8,7 +8,9 @@
   ],
   "scripts": {
     "build": "node scripts/build-extension.mjs",
+    "cloud:service": "node apps/webgpt-cloud-service/src/server.js",
     "cloud:run": "node apps/browserbase-host/src/cli.js",
+    "cloud:cleanup": "node scripts/cleanup-webgpt-runs.mjs",
     "test": "node --test",
     "package:extension": "node scripts/package-extension.mjs",
     "smoke:extension": "node scripts/smoke-extension.mjs",

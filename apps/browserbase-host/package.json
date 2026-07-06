@@ -6,6 +6,13 @@
   "bin": {
     "webgpt-cloud": "src/cli.js"
   },
+  "exports": {
+    "./runCloud": "./src/runCloud.js",
+    "./env": "./src/env.js",
+    "./cli": "./src/cli.js",
+    "./browserbaseRuntime": "./src/browserbaseRuntime.js",
+    "./package.json": "./package.json"
+  },
   "scripts": {
     "run": "node src/cli.js",
     "smoke": "node src/cli.js --dry-run --url https://example.com --goal smoke"

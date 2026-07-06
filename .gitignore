@@ -10,3 +10,4 @@ apps/extension-host/sidepanel-app/dist/
 apps/browserbase-host/.env
 apps/browserbase-host/.env.local
 .webgpt-cloud-runs/
+apps/webgpt-cloud-service/data/

@@ -4,7 +4,9 @@ import { browserbaseHostRoot, repoRoot } from "./paths.js";
 
 const ENV_FILES = [
   path.join(repoRoot, ".env.local"),
+  path.join(repoRoot, ".env"),
   path.join(browserbaseHostRoot, ".env.local"),
+  path.join(browserbaseHostRoot, ".env"),
 ];
 
 function unquoteEnvValue(value) {
