@@ -19,6 +19,7 @@ Unlike one-off browser agents, WebGPT is built around a clean runtime/planner bo
 ## Featured Demo Series
 
 [![Watch the first WebGPT demo](https://i9.ytimg.com/vi_webp/J1yGDs0M-gA/mq1.webp?sqp=CJjp2M8G-oaymwEmCMACELQB8quKqQMa8AEB-AH-CIAC0AWKAgwIABABGBUgRih_MA8=&rs=AOn4CLCyBim_PHlqGOERym-W9Y5fh5O9YQ)](https://youtu.be/J1yGDs0M-gA)
+[![Watch the first WebGPT demo](https://i9.ytimg.com/vi_webp/J1yGDs0M-gA/mq1.webp?sqp=CJjp2M8G-oaymwEmCMACELQB8quKqQMa8AEB-AH-CIAC0AWKAgwIABABGBUgRih_MA8=&rs=AOn4CLCyBim_PHlqGOERym-W9Y5fh5O9YQ)](https://youtu.be/J1yGDs0M-gA)
 
 The public Shorts series has seven demos showing WebGPT moving from repeatable browser routines into real work tools: websites, Microsoft Excel, Google Sheets, spreadsheet-to-browser workflows, Dotloop PDFs, guarded job-application drafting, and running the same runtime in a Browserbase cloud browser.
 
