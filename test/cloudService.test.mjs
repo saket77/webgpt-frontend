@@ -167,6 +167,31 @@ test("cloud service config keeps tokenless local dev on loopback and requires to
   assert.equal(resendLocal.resendApiKey, "re_123");
   assert.equal(resendLocal.emailFrom, "WebGPT <onboarding@resend.dev>");
 
+  const smtpLocal = readCloudServiceConfig({
+    WEBGPT_EMAIL_PROVIDER: "smtp",
+    SMTP_HOST: "smtp.gmail.com",
+    SMTP_PORT: "465",
+    SMTP_SECURE: "true",
+    SMTP_USER: "saketmundhada7@gmail.com",
+    SMTP_PASS: "app-password",
+  });
+  assert.equal(smtpLocal.emailProvider, "smtp");
+  assert.equal(smtpLocal.smtpHost, "smtp.gmail.com");
+  assert.equal(smtpLocal.smtpPort, 465);
+  assert.equal(smtpLocal.smtpSecure, true);
+  assert.equal(smtpLocal.smtpUser, "saketmundhada7@gmail.com");
+  assert.equal(smtpLocal.smtpPass, "app-password");
+  assert.equal(smtpLocal.emailFrom, "saketmundhada7@gmail.com");
+
+  const smtpWithFrom = readCloudServiceConfig({
+    WEBGPT_EMAIL_PROVIDER: "smtp",
+    WEBGPT_EMAIL_FROM: "Saket Mundhada <saketmundhada7@gmail.com>",
+    SMTP_HOST: "smtp.gmail.com",
+    SMTP_USER: "saketmundhada7@gmail.com",
+    SMTP_PASS: "app-password",
+  });
+  assert.equal(smtpWithFrom.emailFrom, "Saket Mundhada <saketmundhada7@gmail.com>");
+
   assert.throws(
     () => readCloudServiceConfig({ NODE_ENV: "production" }),
     /WEBGPT_CLOUD_ADMIN_TOKEN is required/,
@@ -992,7 +1017,78 @@ test("notification dispatcher waits for running runs and sends console email aft
   }
 });
 
-test("notification dispatcher sends failure email body and marks missing resend config failed", async () => {
+test("notification dispatcher sends email through mocked SMTP transport", async () => {
+  const { store, cleanup } = createTempStore();
+  const smtpMessages = [];
+
+  try {
+    const routine = store.createRoutine(
+      createRoutinePayload({
+        notification: {
+          type: "email",
+          to: ["mom@example.com"],
+        },
+      }),
+    );
+    const triggered = store.triggerRoutine(routine.id);
+    store.markCompleted(triggered.cloudRun.id, {
+      ok: true,
+      summary: "IPO summary",
+      finalResult: {},
+    });
+
+    const dispatcher = createNotificationDispatcher({
+      store,
+      config: {
+        emailProvider: "smtp",
+        emailFrom: "Saket Mundhada <saketmundhada7@gmail.com>",
+        smtpHost: "smtp.gmail.com",
+        smtpPort: 465,
+        smtpSecure: true,
+        smtpUser: "saketmundhada7@gmail.com",
+        smtpPass: "app-password",
+      },
+      createSmtpTransport(options) {
+        assert.deepEqual(options, {
+          host: "smtp.gmail.com",
+          port: 465,
+          secure: true,
+          auth: {
+            user: "saketmundhada7@gmail.com",
+            pass: "app-password",
+          },
+        });
+        return {
+          async sendMail(message) {
+            smtpMessages.push(message);
+            return { messageId: "smtp-message-1" };
+          },
+        };
+      },
+      logStream: { write() {} },
+    });
+
+    await dispatcher.tick();
+
+    assert.equal(smtpMessages.length, 1);
+    assert.equal(smtpMessages[0].from, "Saket Mundhada <saketmundhada7@gmail.com>");
+    assert.deepEqual(smtpMessages[0].to, ["mom@example.com"]);
+    assert.match(smtpMessages[0].subject, /Test routine completed/);
+    assert.match(smtpMessages[0].text, /IPO summary/);
+    assert.match(smtpMessages[0].html, /IPO summary/);
+    assert.equal(store.listPendingNotifications().length, 0);
+    assert.equal(
+      store
+        .getRunForApi(triggered.cloudRun.id)
+        .progress.events.some((event) => event.kind === "notification_sent"),
+      true,
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("notification dispatcher sends failure email body and marks missing provider config failed", async () => {
   const { store, cleanup } = createTempStore();
   const sent = [];
 
@@ -1044,6 +1140,31 @@ test("notification dispatcher sends failure email body and marks missing resend 
     assert.equal(
       store
         .getRunForApi(resendTrigger.cloudRun.id)
+        .progress.events.some((event) => event.kind === "notification_failed"),
+      true,
+    );
+
+    const smtpTrigger = store.triggerRoutine(routine.id);
+    store.markCompleted(smtpTrigger.cloudRun.id, {
+      ok: true,
+      summary: "Done",
+      finalResult: {},
+    });
+    const brokenSmtp = createNotificationDispatcher({
+      store,
+      config: {
+        emailProvider: "smtp",
+        smtpHost: "smtp.gmail.com",
+        smtpUser: "",
+        smtpPass: "",
+      },
+      logStream: { write() {} },
+    });
+    await brokenSmtp.tick();
+
+    assert.equal(
+      store
+        .getRunForApi(smtpTrigger.cloudRun.id)
         .progress.events.some((event) => event.kind === "notification_failed"),
       true,
     );

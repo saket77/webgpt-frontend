@@ -1,3 +1,5 @@
+import nodemailer from "nodemailer";
+
 function truncateJson(value, maxLength = 4000) {
   const text = JSON.stringify(value ?? null, null, 2);
   if (text.length <= maxLength) return text;
@@ -181,12 +183,54 @@ async function sendViaResend({ to, subject, bodyText, html, config }) {
   };
 }
 
+async function sendViaSmtp({
+  to,
+  subject,
+  bodyText,
+  html,
+  config,
+  createTransport = nodemailer.createTransport,
+}) {
+  if (!config.smtpHost || !config.smtpUser || !config.smtpPass) {
+    throw new Error("SMTP_HOST, SMTP_USER, and SMTP_PASS are required for SMTP email.");
+  }
+
+  const from = config.emailFrom || config.smtpUser;
+  if (!from) {
+    throw new Error("WEBGPT_EMAIL_FROM or SMTP_USER is required for SMTP email.");
+  }
+
+  const transport = createTransport({
+    host: config.smtpHost,
+    port: config.smtpPort || 465,
+    secure: Boolean(config.smtpSecure),
+    auth: {
+      user: config.smtpUser,
+      pass: config.smtpPass,
+    },
+  });
+
+  const result = await transport.sendMail({
+    from,
+    to,
+    subject,
+    text: bodyText,
+    html,
+  });
+
+  return {
+    provider: "smtp",
+    providerId: result?.messageId || "",
+  };
+}
+
 export function createNotificationDispatcher({
   store,
   config,
   intervalMs = 15000,
   logStream = process.stderr,
   sendEmail,
+  createSmtpTransport,
 } = {}) {
   if (!store) throw new Error("createNotificationDispatcher requires store.");
 
@@ -232,6 +276,15 @@ export function createNotificationDispatcher({
           bodyText: email.bodyText,
           html: email.html,
           config,
+        });
+      } else if (config.emailProvider === "smtp") {
+        await sendViaSmtp({
+          to: notification.to,
+          subject: email.subject,
+          bodyText: email.bodyText,
+          html: email.html,
+          config,
+          createTransport: createSmtpTransport,
         });
       } else {
         throw new Error(`Unsupported email provider: ${String(config.emailProvider)}.`);

@@ -142,19 +142,34 @@ Inspect routine history:
 curl http://127.0.0.1:3100/routines/<routine_id>/triggers
 ```
 
-Email notifications are routine-only in V0. The local behavior mirrors the POC
-Biotech Resend setup:
+Email notifications are routine-only in V0. Supported providers:
 
-- If `RESEND_API_KEY` is present, the service sends real email through Resend.
-- If `RESEND_API_KEY` is missing, the service logs the email payload locally.
-- The sender comes from `WEBGPT_EMAIL_FROM`, then `RESEND_FROM`, then defaults
-  to `WebGPT <onboarding@resend.dev>`.
+- `console`: logs the email payload locally.
+- `resend`: sends through Resend when `RESEND_API_KEY` is present.
+- `smtp`: sends through an SMTP server such as Gmail with an app password.
 
-Local real-email test:
+Provider selection uses `WEBGPT_EMAIL_PROVIDER` when set. Otherwise it uses
+`resend` when `RESEND_API_KEY` is present, `smtp` when SMTP credentials are
+present, and `console` as the fallback.
+
+Resend test:
 
 ```bash
 RESEND_API_KEY=... \
 RESEND_FROM='WebGPT <onboarding@resend.dev>' \
+npm run cloud:service
+```
+
+Gmail SMTP test:
+
+```bash
+WEBGPT_EMAIL_PROVIDER=smtp \
+SMTP_HOST=smtp.gmail.com \
+SMTP_PORT=465 \
+SMTP_SECURE=true \
+SMTP_USER=saketmundhada7@gmail.com \
+SMTP_PASS='gmail-app-password' \
+WEBGPT_EMAIL_FROM='Saket Mundhada <saketmundhada7@gmail.com>' \
 npm run cloud:service
 ```
 

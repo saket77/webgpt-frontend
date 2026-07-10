@@ -6,11 +6,27 @@ const DEFAULT_TIMEOUT_MS = 120000;
 const DEFAULT_ROUTINE_SCHEDULER_INTERVAL_MS = 60000;
 const DEFAULT_NOTIFICATION_INTERVAL_MS = 15000;
 const DEFAULT_RESEND_TIMEOUT_MS = 15000;
+const DEFAULT_SMTP_PORT = 465;
 
 function readNumber(value, fallback) {
   if (value === undefined || value === null || value === "") return fallback;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function readBoolean(value, fallback = false) {
+  if (value === undefined || value === null || value === "") return fallback;
+  const normalized = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+}
+
+function readEmailProvider(env) {
+  if (env.WEBGPT_EMAIL_PROVIDER) return String(env.WEBGPT_EMAIL_PROVIDER).trim();
+  if (env.RESEND_API_KEY) return "resend";
+  if (env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS) return "smtp";
+  return "console";
 }
 
 export function readCloudServiceConfig(env = process.env) {
@@ -25,17 +41,21 @@ export function readCloudServiceConfig(env = process.env) {
 
   const host =
     env.WEBGPT_CLOUD_HOST || (adminToken ? "0.0.0.0" : "127.0.0.1");
+  const emailProvider = readEmailProvider(env);
+  const smtpPort = readNumber(env.SMTP_PORT, DEFAULT_SMTP_PORT);
+  const emailFrom =
+    emailProvider === "smtp"
+      ? env.WEBGPT_EMAIL_FROM || env.SMTP_USER || ""
+      : env.WEBGPT_EMAIL_FROM ||
+        env.RESEND_FROM ||
+        "WebGPT <onboarding@resend.dev>";
 
   return {
     adminToken,
     backend: env.WEBGPT_BACKEND_URL || DEFAULT_BACKEND_URL,
     dbPath: env.WEBGPT_CLOUD_DB_PATH || defaultDatabasePath,
-    emailFrom:
-      env.WEBGPT_EMAIL_FROM ||
-      env.RESEND_FROM ||
-      "WebGPT <onboarding@resend.dev>",
-    emailProvider:
-      env.WEBGPT_EMAIL_PROVIDER || (env.RESEND_API_KEY ? "resend" : "console"),
+    emailFrom,
+    emailProvider,
     host,
     logsDir: env.WEBGPT_CLOUD_LOGS_DIR || "",
     nodeEnv,
@@ -47,6 +67,11 @@ export function readCloudServiceConfig(env = process.env) {
     projectId: env.BROWSERBASE_PROJECT_ID || "",
     resendApiKey: env.RESEND_API_KEY || "",
     resendTimeoutMs: readNumber(env.RESEND_TIMEOUT_MS, DEFAULT_RESEND_TIMEOUT_MS),
+    smtpHost: env.SMTP_HOST || "",
+    smtpPass: env.SMTP_PASS || "",
+    smtpPort,
+    smtpSecure: readBoolean(env.SMTP_SECURE, smtpPort === 465),
+    smtpUser: env.SMTP_USER || "",
     routineSchedulerIntervalMs: readNumber(
       env.WEBGPT_ROUTINE_SCHEDULER_INTERVAL_MS,
       DEFAULT_ROUTINE_SCHEDULER_INTERVAL_MS,
