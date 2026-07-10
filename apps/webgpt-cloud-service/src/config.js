@@ -7,6 +7,7 @@ const DEFAULT_ROUTINE_SCHEDULER_INTERVAL_MS = 60000;
 const DEFAULT_NOTIFICATION_INTERVAL_MS = 15000;
 const DEFAULT_RESEND_TIMEOUT_MS = 15000;
 const DEFAULT_SMTP_PORT = 465;
+const DEFAULT_SMTP_TIMEOUT_MS = 15000;
 
 function readNumber(value, fallback) {
   if (value === undefined || value === null || value === "") return fallback;
@@ -71,6 +72,7 @@ export function readCloudServiceConfig(env = process.env) {
     smtpPass: env.SMTP_PASS || "",
     smtpPort,
     smtpSecure: readBoolean(env.SMTP_SECURE, smtpPort === 465),
+    smtpTimeoutMs: readNumber(env.SMTP_TIMEOUT_MS, DEFAULT_SMTP_TIMEOUT_MS),
     smtpUser: env.SMTP_USER || "",
     routineSchedulerIntervalMs: readNumber(
       env.WEBGPT_ROUTINE_SCHEDULER_INTERVAL_MS,

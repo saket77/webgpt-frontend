@@ -179,6 +179,7 @@ test("cloud service config keeps tokenless local dev on loopback and requires to
   assert.equal(smtpLocal.smtpHost, "smtp.gmail.com");
   assert.equal(smtpLocal.smtpPort, 465);
   assert.equal(smtpLocal.smtpSecure, true);
+  assert.equal(smtpLocal.smtpTimeoutMs, 15000);
   assert.equal(smtpLocal.smtpUser, "saketmundhada7@gmail.com");
   assert.equal(smtpLocal.smtpPass, "app-password");
   assert.equal(smtpLocal.emailFrom, "saketmundhada7@gmail.com");
@@ -1045,6 +1046,7 @@ test("notification dispatcher sends email through mocked SMTP transport", async 
         smtpHost: "smtp.gmail.com",
         smtpPort: 465,
         smtpSecure: true,
+        smtpTimeoutMs: 15000,
         smtpUser: "saketmundhada7@gmail.com",
         smtpPass: "app-password",
       },
@@ -1053,6 +1055,9 @@ test("notification dispatcher sends email through mocked SMTP transport", async 
           host: "smtp.gmail.com",
           port: 465,
           secure: true,
+          connectionTimeout: 15000,
+          greetingTimeout: 15000,
+          socketTimeout: 15000,
           auth: {
             user: "saketmundhada7@gmail.com",
             pass: "app-password",

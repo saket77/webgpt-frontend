@@ -204,6 +204,9 @@ async function sendViaSmtp({
     host: config.smtpHost,
     port: config.smtpPort || 465,
     secure: Boolean(config.smtpSecure),
+    connectionTimeout: config.smtpTimeoutMs || 15000,
+    greetingTimeout: config.smtpTimeoutMs || 15000,
+    socketTimeout: config.smtpTimeoutMs || 15000,
     auth: {
       user: config.smtpUser,
       pass: config.smtpPass,
