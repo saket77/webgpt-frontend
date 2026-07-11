@@ -12,6 +12,7 @@ import { createCloudRunQueue } from "../apps/webgpt-cloud-service/src/queue.js";
 import { createRoutineScheduler } from "../apps/webgpt-cloud-service/src/routineScheduler.js";
 import { createNotificationDispatcher } from "../apps/webgpt-cloud-service/src/notificationDispatcher.js";
 import { runIpoGmpDailyDeterministic } from "../apps/webgpt-cloud-service/src/deterministic/ipoGmpDaily.js";
+import { runEprocureHospitalDailyDeterministic } from "../apps/webgpt-cloud-service/src/deterministic/eprocureHospitalDaily.js";
 import {
   CloudRunStore,
   rowToCloudRun,
@@ -90,6 +91,52 @@ function investorGainRow(overrides = {}) {
     "~ipo_name": "Kratikal Tech",
     ...overrides,
   };
+}
+
+function eprocureRowHtml({
+  serial = "1.",
+  published = "11-Jul-2026 01:00 PM",
+  closing = "01-Aug-2026 05:00 PM",
+  opening = "03-Aug-2026 03:00 PM",
+  title = "Tender for Hospital equipment",
+  referenceNo = "24/Hospital/2026",
+  tenderId = "2026_IMSR_917008_1",
+  organisation = "All India Institute of Medical Sciences||Hospital Stores",
+  detailSp = "Sabc",
+} = {}) {
+  return `
+    <tr class="even" id="informal">
+      <td align="left">${serial}</td>
+      <td align="left">${published}</td>
+      <td align="left">${closing}</td>
+      <td align="left">${opening}</td>
+      <td align="left"><a href="/eprocure/app?component=%24DirectLink&amp;page=FrontEndLatestActiveTendersOrgwise&amp;service=direct&amp;session=T&amp;sp=${detailSp}">[${title}]</a><br />&nbsp;[${referenceNo}][${tenderId}]</td>
+      <td align="left">${organisation}</td>
+    </tr>
+  `;
+}
+
+function eprocurePageHtml({ rows = [], nextPage = "" } = {}) {
+  return `
+    <form id="LatestActiveTenders">
+      <table id="table" class="list_table">
+        <tr class="list_header">
+          <td>S.No</td>
+          <td>e-Published Date</td>
+          <td>Bid Submission Closing Date</td>
+          <td>Tender Opening Date</td>
+          <td>Title and Ref.No./Tender ID</td>
+          <td>Organisation Chain</td>
+        </tr>
+        ${rows.join("\n")}
+        <tr class="list_footer">
+          <td colspan="6">
+            ${nextPage ? `<a id="linkFwd" href="${nextPage}">&gt;</a>` : ""}
+          </td>
+        </tr>
+      </table>
+    </form>
+  `;
 }
 
 async function waitFor(predicate, { timeoutMs = 1000 } = {}) {
@@ -514,6 +561,75 @@ test("IPO deterministic workflow reads InvestorGain API rows and applies mom's t
   assert.match(result.summary, /Found 1 open Mainboard IPO/);
 });
 
+test("eProcure deterministic workflow paginates until older date and matches Hospital tenders", async () => {
+  const requested = [];
+  const page1 = eprocurePageHtml({
+    rows: [
+      eprocureRowHtml({
+        title: "Tender for Procurement of Hand Instruments",
+        referenceNo: "24/Neurosurgery/ Hand instruments / 888/ 2026-RISH (ADMN)",
+        tenderId: "2026_IMSR_917008_1",
+        organisation:
+          "All India Institute of Medical Sciences-Rishikesh||Hospital - AIIMS Rishikesh||Hospital Stores - AIIMS Rishikesh",
+      }),
+      eprocureRowHtml({
+        serial: "2.",
+        title: "Water proofing treatment",
+        referenceNo: "09/NIT/2026",
+        tenderId: "2026_BSF_917016_1",
+        organisation: "DG,BSF",
+        detailSp: "Sdef",
+      }),
+    ],
+    nextPage:
+      "/eprocure/app?component=%24TablePages.linkFwd&page=FrontEndLatestActiveTendersOrgwise&service=direct&session=T&sp=AFrontEndLatestActiveTendersOrgwise%2Ctable&sp=2",
+  });
+  const page2 = eprocurePageHtml({
+    rows: [
+      eprocureRowHtml({
+        serial: "3.",
+        published: "10-Jul-2026 05:00 PM",
+        title: "Older Hospital tender",
+        referenceNo: "old-ref",
+        tenderId: "2026_OLD_1_1",
+        organisation: "Older Hospital",
+        detailSp: "Sold",
+      }),
+    ],
+  });
+
+  const fetchImpl = async (url, request = {}) => {
+    requested.push({ url, request });
+    return {
+      ok: true,
+      status: 200,
+      headers: {
+        getSetCookie() {
+          return requested.length === 1 ? ["JSESSIONID=session-123; Path=/eprocure"] : [];
+        },
+      },
+      async text() {
+        return requested.length === 1 ? page1 : page2;
+      },
+    };
+  };
+
+  const result = await runEprocureHospitalDailyDeterministic({
+    fetchImpl,
+    now: new Date("2026-07-11T12:00:00.000Z"),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(requested.length, 2);
+  assert.match(requested[1].request.headers.Cookie, /JSESSIONID=session-123/);
+  assert.equal(result.finalResult.pagesRead, 2);
+  assert.equal(result.finalResult.totalRowsRead, 3);
+  assert.equal(result.finalResult.matchedRows, 1);
+  assert.equal(result.finalResult.rows[0].kind, "eprocure_tender");
+  assert.equal(result.finalResult.rows[0].tenderId, "2026_IMSR_917008_1");
+  assert.match(result.summary, /Found 1 eProcure tender/);
+});
+
 test("cloud run queue completes IPO supported workflow deterministically before Browserbase", async () => {
   const { store, cleanup } = createTempStore();
   let browserbaseCalls = 0;
@@ -569,6 +685,69 @@ test("cloud run queue completes IPO supported workflow deterministically before 
     assert.equal(browserbaseCalls, 0);
     assert.equal(completed.summary, "deterministic done");
     assert.equal(completed.finalResult.rows[0].name, "Kratikal Tech");
+    assert.equal(
+      completed.progress.events.some((event) => event.kind === "deterministic_completed"),
+      true,
+    );
+    queue.close();
+  } finally {
+    cleanup();
+  }
+});
+
+test("cloud run queue treats eProcure no-match deterministic result as completed", async () => {
+  const { store, cleanup } = createTempStore();
+  let browserbaseCalls = 0;
+
+  try {
+    const run = store.createRun({
+      type: "supported_workflow",
+      templateId: "eprocure_hospital_daily",
+      strategy: "deterministic_then_browserbase",
+      url: "https://eprocure.gov.in/eprocure/app?page=FrontEndLatestActiveTendersOrgwise&service=page&org=",
+      goal: "Find Hospital tenders",
+      mode: "webgpt",
+      execution: "browserbase",
+      timeoutMs: 1000,
+      autoConfirm: true,
+      filters: {
+        keyword: "Hospital",
+      },
+    });
+
+    const queue = createCloudRunQueue({
+      store,
+      runner: async () => {
+        browserbaseCalls += 1;
+        return { ok: true, summary: "browserbase fallback" };
+      },
+      config: {
+        backend: "http://localhost:3000",
+        logsDir: "",
+        projectId: "project_123",
+        timeoutMs: 120000,
+      },
+      deterministicRunners: {
+        eprocure_hospital_daily: async () => ({
+          ok: true,
+          summary: "No eProcure tenders published today matched keyword Hospital.",
+          finalResult: {
+            summary: "No eProcure tenders published today matched keyword Hospital.",
+            matchedRows: 0,
+            totalRowsRead: 40,
+            rows: [],
+          },
+        }),
+      },
+      logStream: { write() {} },
+    });
+
+    queue.start();
+    await waitFor(() => rowToCloudRun(store.getRun(run.id)).status === "completed");
+
+    const completed = store.getRunForApi(run.id);
+    assert.equal(browserbaseCalls, 0);
+    assert.equal(completed.finalResult.matchedRows, 0);
     assert.equal(
       completed.progress.events.some((event) => event.kind === "deterministic_completed"),
       true,
@@ -762,6 +941,10 @@ test("routine API exposes templates and creates routines from templates or custo
     });
     assert.equal(templates.statusCode, 200);
     assert.equal(templates.body.templates[0].id, "ipo_gmp_daily");
+    assert.equal(
+      templates.body.templates.some((template) => template.id === "eprocure_hospital_daily"),
+      true,
+    );
 
     const fromTemplate = await invokeJson(handler, {
       method: "POST",
@@ -792,6 +975,32 @@ test("routine API exposes templates and creates routines from templates or custo
     assert.equal(fromTemplate.body.routine.workflow.filters.minGmpPercent, 50);
     assert.equal(fromTemplate.body.routine.notification.to[0], "mom@example.com");
     assert.ok(fromTemplate.body.routine.nextRunAt);
+
+    const dadTenderRoutine = await invokeJson(handler, {
+      method: "POST",
+      pathname: "/routines",
+      token: "secret",
+      body: {
+        templateId: "eprocure_hospital_daily",
+        name: "Dad's tender tracker routine",
+        schedule: {
+          type: "daily",
+          time: "17:00",
+          timezone: "Asia/Kolkata",
+        },
+        notification: {
+          type: "email",
+          to: ["dad@example.com"],
+        },
+      },
+    });
+    assert.equal(dadTenderRoutine.statusCode, 201);
+    assert.equal(dadTenderRoutine.body.routine.templateId, "eprocure_hospital_daily");
+    assert.equal(dadTenderRoutine.body.routine.workflow.strategy, "deterministic_then_browserbase");
+    assert.match(dadTenderRoutine.body.routine.workflow.url, /FrontEndLatestActiveTendersOrgwise/);
+    assert.match(dadTenderRoutine.body.routine.workflow.goal, /Hospital/);
+    assert.equal(dadTenderRoutine.body.routine.workflow.filters.keyword, "Hospital");
+    assert.equal(dadTenderRoutine.body.routine.schedule.time, "17:00");
 
     const custom = await invokeJson(handler, {
       method: "POST",
@@ -1008,6 +1217,72 @@ test("notification dispatcher waits for running runs and sends console email aft
         .progress.events.some((event) => event.kind === "notification_sent"),
       true,
     );
+  } finally {
+    cleanup();
+  }
+});
+
+test("notification dispatcher formats eProcure tender rows", async () => {
+  const { store, cleanup } = createTempStore();
+  const sent = [];
+
+  try {
+    const routine = store.createRoutine(
+      createRoutinePayload({
+        name: "Dad's tender tracker routine",
+        workflow: {
+          type: "supported_workflow",
+          templateId: "eprocure_hospital_daily",
+          strategy: "deterministic_then_browserbase",
+          url: "https://eprocure.gov.in/eprocure/app?page=FrontEndLatestActiveTendersOrgwise&service=page&org=",
+          goal: "Find Hospital tenders",
+          mode: "webgpt",
+          execution: "browserbase",
+        },
+        notification: {
+          type: "email",
+          to: ["dad@example.com"],
+        },
+      }),
+    );
+    const triggered = store.triggerRoutine(routine.id);
+    store.markCompleted(triggered.cloudRun.id, {
+      ok: true,
+      summary: "Found 1 eProcure tender matching Hospital.",
+      finalResult: {
+        rows: [
+          {
+            kind: "eprocure_tender",
+            title: "Tender for Procurement of Hand Instruments",
+            tenderId: "2026_IMSR_917008_1",
+            referenceNo: "24/Neurosurgery/ Hand instruments / 888/ 2026-RISH (ADMN)",
+            organisationChain:
+              "All India Institute of Medical Sciences-Rishikesh||Hospital Stores",
+            published: "11-Jul-2026 01:00 PM",
+            closing: "01-Aug-2026 05:00 PM",
+            opening: "03-Aug-2026 03:00 PM",
+            detailUrl: "https://eprocure.gov.in/eprocure/app?component=%24DirectLink",
+          },
+        ],
+      },
+    });
+
+    const dispatcher = createNotificationDispatcher({
+      store,
+      config: { emailProvider: "console" },
+      sendEmail(email) {
+        sent.push(email);
+      },
+      logStream: { write() {} },
+    });
+    await dispatcher.tick();
+
+    assert.equal(sent.length, 1);
+    assert.match(sent[0].bodyText, /Tender ID: 2026_IMSR_917008_1/);
+    assert.match(sent[0].bodyText, /Reference: 24\/Neurosurgery/);
+    assert.match(sent[0].html, /Tender ID/);
+    assert.match(sent[0].html, /2026_IMSR_917008_1/);
+    assert.doesNotMatch(sent[0].html, /Subscription/);
   } finally {
     cleanup();
   }

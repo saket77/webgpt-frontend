@@ -2,6 +2,11 @@ import { validateCreateCloudRunRequest } from "./validation.js";
 import { getRoutineTemplate } from "./templates.js";
 import { computeNextDailyRunAt, validateDailySchedule } from "./schedule.js";
 
+const SUPPORTED_WORKFLOW_TEMPLATE_IDS = new Set([
+  "ipo_gmp_daily",
+  "eprocure_hospital_daily",
+]);
+
 function nonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -30,7 +35,7 @@ function normalizeWorkflow(workflow) {
     const templateId = String(workflow.templateId || "").trim();
     const strategy = String(workflow.strategy || "").trim();
 
-    if (templateId !== "ipo_gmp_daily") {
+    if (!SUPPORTED_WORKFLOW_TEMPLATE_IDS.has(templateId)) {
       return {
         ok: false,
         error: `Unsupported supported_workflow templateId: ${templateId || "(missing)"}.`,

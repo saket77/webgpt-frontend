@@ -26,6 +26,30 @@ export const ROUTINE_TEMPLATES = [
       fallbackExecution: "browserbase",
     },
   },
+  {
+    id: "eprocure_hospital_daily",
+    name: "eProcure Hospital Tender Tracker",
+    description: "Email eProcure tenders published today that mention Hospital.",
+    workflow: {
+      type: "supported_workflow",
+      templateId: "eprocure_hospital_daily",
+      strategy: "deterministic_then_browserbase",
+      mode: "webgpt",
+      execution: "browserbase",
+      url: "https://eprocure.gov.in/eprocure/app?page=FrontEndLatestActiveTendersOrgwise&service=page&org=",
+      goal:
+        "On the eProcure Latest Active Tenders organisation-wise page, find active tenders whose visible title, tender reference, tender ID, or organisation chain contains the word Hospital and whose e-Published Date is today's date in Asia/Kolkata. Paginate older result pages until the visible e-Published Date becomes older than today, then stop. Return title, tender reference number, tender ID, organisation chain, e-Published Date, bid submission closing date, tender opening date, and detail URL. If no rows match, say no hospital-related tenders were published today.",
+      filters: {
+        keyword: "Hospital",
+        timezone: "Asia/Kolkata",
+        maxPages: 25,
+      },
+    },
+    strategy: {
+      type: "deterministic_then_browserbase",
+      fallbackExecution: "browserbase",
+    },
+  },
 ];
 
 export function listRoutineTemplates() {

@@ -1,4 +1,5 @@
 import { runIpoGmpDailyDeterministic } from "./deterministic/ipoGmpDaily.js";
+import { runEprocureHospitalDailyDeterministic } from "./deterministic/eprocureHospitalDaily.js";
 
 function parseRequest(row) {
   try {
@@ -24,11 +25,11 @@ function progressMessageFromEvent(event = {}) {
   );
 }
 
-function shouldTryIpoGmpDailyDeterministic(request = {}) {
+function shouldTryDeterministic(request = {}, deterministicRunners = {}) {
   return (
     request.type === "supported_workflow" &&
-    request.templateId === "ipo_gmp_daily" &&
-    request.strategy === "deterministic_then_browserbase"
+    request.strategy === "deterministic_then_browserbase" &&
+    typeof deterministicRunners[request.templateId] === "function"
   );
 }
 
@@ -39,6 +40,7 @@ export function createCloudRunQueue({
   logStream = process.stderr,
   deterministicRunners = {
     ipo_gmp_daily: runIpoGmpDailyDeterministic,
+    eprocure_hospital_daily: runEprocureHospitalDailyDeterministic,
   },
 } = {}) {
   if (!store) throw new Error("createCloudRunQueue requires store.");
@@ -54,10 +56,10 @@ export function createCloudRunQueue({
     const request = parseRequest(row);
 
     try {
-      if (shouldTryIpoGmpDailyDeterministic(request)) {
+      if (shouldTryDeterministic(request, deterministicRunners)) {
         store.recordProgressEvent(row.id, {
           kind: "deterministic_starting",
-          message: "Trying deterministic IPO GMP workflow.",
+          message: `Trying deterministic ${request.templateId} workflow.`,
           event: {
             templateId: request.templateId,
             strategy: request.strategy,
@@ -66,7 +68,7 @@ export function createCloudRunQueue({
         });
 
         try {
-          const deterministicResult = await deterministicRunners.ipo_gmp_daily({
+          const deterministicResult = await deterministicRunners[request.templateId]({
             workflow: request,
           });
           if (deterministicResult?.ok) {

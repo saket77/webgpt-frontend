@@ -8,46 +8,72 @@ function resultRows(finalResult) {
   return Array.isArray(finalResult?.rows) ? finalResult.rows : [];
 }
 
+function rowType(row) {
+  if (row?.kind === "eprocure_tender" || row?.tenderId || row?.referenceNo) {
+    return "eprocure_tender";
+  }
+  return "ipo";
+}
+
+function rowFields(row) {
+  if (rowType(row) === "eprocure_tender") {
+    return [
+      ["Title", row.title || row.name || "Tender"],
+      ["Tender ID", row.tenderId || ""],
+      ["Reference", row.referenceNo || ""],
+      ["Organisation", row.organisationChain || ""],
+      ["Published", row.published || ""],
+      ["Closing", row.closing || ""],
+      ["Opening", row.opening || ""],
+      ["Detail", row.detailUrl || ""],
+    ];
+  }
+
+  return [
+    ["Name", row.name || "IPO"],
+    ["Subscription", row.subscription || ""],
+    ["GMP", [row.gmp, row.gmpPercent].filter(Boolean).join(" ")],
+    ["Price", row.price || ""],
+    ["Open", row.open || ""],
+    ["Close", row.close || ""],
+    ["Updated", row.updated || ""],
+    ["Detail", row.detailUrl || ""],
+  ];
+}
+
 function formatRowsText(rows) {
   if (!rows.length) return "";
 
   return rows
-    .map((row, index) =>
-      [
-        `${index + 1}. ${row.name || "IPO"}`,
-        row.subscription ? `Subscription: ${row.subscription}` : "",
-        row.gmp || row.gmpPercent ? `GMP: ${[row.gmp, row.gmpPercent].filter(Boolean).join(" ")}` : "",
-        row.price ? `Price: ${row.price}` : "",
-        row.open ? `Open: ${row.open}` : "",
-        row.close ? `Close: ${row.close}` : "",
-        row.updated ? `Updated: ${row.updated}` : "",
-        row.detailUrl ? `Detail: ${row.detailUrl}` : "",
-      ]
-        .filter(Boolean)
-        .join("; "),
-    )
+    .map((row, index) => {
+      const fields = rowFields(row).filter(([, value]) => value);
+      const [primaryLabel, primaryValue] = fields[0] || ["Row", ""];
+      const rest = fields
+        .slice(1)
+        .map(([label, value]) => `${label}: ${value}`);
+      return [`${index + 1}. ${primaryValue || primaryLabel}`, ...rest].join("; ");
+    })
     .join("\n");
 }
 
 function formatRowsHtml(rows) {
   if (!rows.length) return "";
 
-  const headers = ["Name", "Subscription", "GMP", "Price", "Open", "Close", "Updated"];
+  const type = rowType(rows[0]);
+  const headers =
+    type === "eprocure_tender"
+      ? ["Title", "Tender ID", "Reference", "Organisation", "Published", "Closing", "Opening"]
+      : ["Name", "Subscription", "GMP", "Price", "Open", "Close", "Updated"];
   const head = headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("");
   const body = rows
     .map((row) => {
-      const gmp = [row.gmp, row.gmpPercent].filter(Boolean).join(" ");
-      const cells = [
-        row.detailUrl
-          ? `<a href="${escapeHtml(row.detailUrl)}">${escapeHtml(row.name || "IPO")}</a>`
-          : escapeHtml(row.name || "IPO"),
-        escapeHtml(row.subscription || ""),
-        escapeHtml(gmp),
-        escapeHtml(row.price || ""),
-        escapeHtml(row.open || ""),
-        escapeHtml(row.close || ""),
-        escapeHtml(row.updated || ""),
-      ];
+      const fields = rowFields(row).filter(([label]) => label !== "Detail");
+      const values = headers.map((header) => fields.find(([label]) => label === header)?.[1] || "");
+      const cells = values.map((value, index) =>
+        index === 0 && row.detailUrl
+          ? `<a href="${escapeHtml(row.detailUrl)}">${escapeHtml(value)}</a>`
+          : escapeHtml(value),
+      );
       return `<tr>${cells.map((cell) => `<td>${cell}</td>`).join("")}</tr>`;
     })
     .join("");
