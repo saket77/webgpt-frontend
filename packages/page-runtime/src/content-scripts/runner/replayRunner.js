@@ -103,6 +103,12 @@
       throw new Error("Replay step is missing action.type.");
     }
 
+    if (action.executor === "webmcp") {
+      throw new Error(
+        "WebMCP actions cannot be replayed because their live tool handles and schemas must be re-authorized and re-discovered.",
+      );
+    }
+
     switch (action.type) {
       case "wait": {
         const ms = Number(action.ms || step?.preStepWaitMs || 1000);

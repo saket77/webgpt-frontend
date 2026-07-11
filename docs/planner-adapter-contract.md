@@ -130,6 +130,35 @@ Planner backends should treat connector tools as additional action tools for the
 
 Connector actions are DOM-backed page operations, not runtime surface commands. They run through `run_actions`, execute in the content-script connector registry, and should reuse the same adapter logic that enriched state.
 
+## WebMCP Tools In Browser State
+
+When the browser exposes WebMCP, each frame can include `webMcp: { supported, tools, errors }`. A tool has its page-owned `name`, `origin`, JSON Schema `parameters`, `schemaHash`, and `readOnlyHint` / `untrustedContentHint` annotations. Backends should build model-facing schemas plus a separate private route map; the model must not be allowed to invent the owning frame, origin, page name, or schema hash.
+
+WebMCP remains `browser_dom` work and executes through `run_actions`:
+
+```json
+{
+  "type": "webmcp_f0_getAvailability_0123456789abcdef",
+  "executor": "webmcp",
+  "frameId": 0,
+  "webMcp": {
+    "name": "getAvailability",
+    "origin": "https://example.test",
+    "schemaHash": "0123456789abcdef",
+    "readOnlyHint": true,
+    "untrustedContentHint": true
+  },
+  "arguments": { "startDate": "2026-07-14" },
+  "mayCauseNavigation": false
+}
+```
+
+Only the nested `arguments` object is sent to the website. Executable arguments must be copied exactly within hard JSON/byte limits and rejected, never truncated, when invalid. Planner history and logs are separate compact derivatives and must never replace the executable action.
+
+WebMCP calls participate in the normal ordered `run_actions` batch. Independent same-frame WebMCP, built-in, and connector actions may be mixed when all arguments and targets are already known. Starting the run authorizes all three action kinds within the user goal; WebMCP does not add a second mutation-consent command. Do not batch an action that depends on an earlier result or newly rendered state, and place any navigation-capable action last.
+
+WebMCP results may include bounded `webMcpOutput`, `webMcpOutputMeta`, `navigationStarted`, and a read-only `extractionBatch`. Post-step `stateDelta` and `actionEffect` describe the entire batch; bounded ordered `actionResults` preserve per-action status and output evidence. `actionEffect.verificationScope: "batch"` prevents an observed aggregate delta from being misread as proof of a particular mutation. All website definitions and output are untrusted page content regardless of annotations. The complete contract and safety model are in [WebMCP integration](./webmcp.md).
+
 ## Run Snapshot
 
 The backend `run` object is mostly opaque to the frontend. The controller currently reads:
@@ -198,7 +227,7 @@ Capture current page state after navigation.
 
 ### `run_actions`
 
-Execute browser actions through the content-script runner. Action `type` may be a built-in browser action such as `click` or `fill`, or a connector tool name exposed in the last extracted browser state.
+Execute browser actions through the content-script runner. Action `type` may be a built-in browser action such as `click` or `fill`, a connector tool name, or a generated WebMCP planner name exposed for the last extracted browser state.
 
 ```json
 {
@@ -319,6 +348,8 @@ Replay batches may include:
 - Connector action steps with an `action.type` matching a registered connector tool and `replayTarget.kind = "connector-tool"`.
 - Runtime surface steps with `surface` and `command`.
 
+WebMCP actions are explicitly non-replayable. Replay generation omits them and replay ingestion rejects handcrafted WebMCP steps because a valid future replay would require fresh discovery, authorization, schema validation, and effect verification.
+
 Connector replay is connector-native: the browser DOM runtime re-extracts current page state and calls the same connector executor used during normal `run_actions`. If the required adapter/tool is unavailable on the replay page, replay should fail clearly rather than silently replacing the connector action with unrelated DOM clicks.
 
 Connector replay steps can include nested `inputBindings` so saved artifacts can template connector arguments such as `fieldValues`, `name`, `email`, `phone`, or `role`.
@@ -435,5 +466,6 @@ A compatible backend or adapter should provide:
 - surface-aware routing when it accepts non-DOM states such as `google_sheets` and `microsoft_excel`
 - connector-tool awareness when it accepts browser states with `connectorTools`
 - custom action preservation for connector arguments such as `fieldKey`, `fieldValues`, booleans, and nested input bindings
+- WebMCP route isolation, exact nested execution arguments, bounded result handling, verification-aware effects, and replay rejection when it accepts frames with `webMcp`
 
 Keep backend-specific details out of the generic controller. The adapter boundary is what lets this frontend stay reusable.

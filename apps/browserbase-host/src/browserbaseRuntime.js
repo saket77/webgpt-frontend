@@ -48,6 +48,7 @@ function buildSingleFrameRunnerState({
   }
 
   return {
+    frameId,
     goal: aggregateState?.goal || fallbackGoal || "",
     step: aggregateState?.step || fallbackStep || 1,
     url: frameState.url || "",
@@ -367,12 +368,18 @@ export function createBrowserbaseRuntime({
       for (const { frame, frameId } of frameDescriptors) {
         try {
           const fullState = await frame.evaluate(
-            ({ nextGoal, nextStep, nextMeta }) => {
-              return globalThis.WebGPTExtractState({
+            async ({ nextGoal, nextStep, nextMeta }) => {
+              const state = globalThis.WebGPTExtractState({
                 goal: nextGoal || "",
                 step: nextStep || 1,
                 ...(nextMeta || {}),
               });
+
+              if (typeof globalThis.WebGPTWebMCP?.augmentState === "function") {
+                return globalThis.WebGPTWebMCP.augmentState(state, document);
+              }
+
+              return state;
             },
             {
               nextGoal: goal || "",
@@ -410,76 +417,171 @@ export function createBrowserbaseRuntime({
     },
 
     async runActionsInTab(_tabId, state, actions = []) {
-      const browserActions = actions.filter(
-        (action) => action?.executor === "browser",
-      );
-      if (browserActions.length) {
-        const results = [];
-        for (const action of browserActions) {
-          if (action.type === "return_to_previous_page") {
-            const response = await page.goBack({
-              waitUntil: "domcontentloaded",
-              timeout: navigationTimeoutMs,
-            }).catch((error) => ({ error }));
-            results.push({
-              action,
-              result: response?.error
-                ? {
-                    ok: false,
-                    error: response.error.message || String(response.error),
-                  }
-                : {
-                    ok: true,
-                    detail: "Returned to previous page.",
-                    navigationStarted: true,
-                  },
-            });
-          } else {
-            results.push({
-              action,
-              result: {
-                ok: false,
-                error: `Unsupported browser executor action: ${action.type}`,
-              },
-            });
-          }
-        }
+      const safeActions = Array.isArray(actions) ? actions : [];
+      if (!safeActions.length) {
         return {
-          ok: results.every((item) => item.result.ok),
-          summary: "Browser executor actions completed.",
-          results,
+          ok: true,
+          summary: "No browser actions were provided; nothing was executed.",
+          results: [],
+          noActions: true,
+          tabId: CLOUD_TAB_ID,
         };
       }
 
-      const frameId = resolveExecutionFrameId(state, actions);
-      const frame = frameForId(frameId);
-      await runtime.ensureContentScriptReady(CLOUD_TAB_ID);
+      let activeState = state;
+      let frameId = null;
+      let domBatch = [];
+      const results = [];
 
-      const runnerState = buildSingleFrameRunnerState({
-        aggregateState: state,
-        frameId,
-        fallbackGoal: state?.goal || "",
-        fallbackStep: state?.step || 1,
-      });
-
-      const runnerActions = sanitizeActionsForRunner(actions);
-      const result = await frame.evaluate(
-        ({ nextState, nextActions }) => {
-          return globalThis.WebGPTRunner.runActions(nextState, nextActions);
-        },
-        {
-          nextState: runnerState,
-          nextActions: runnerActions,
-        },
-      );
-
-      if (actions.some(actionMayCauseNavigation)) {
-        await page.waitForLoadState("domcontentloaded", {
-          timeout: 5000,
-        }).catch(() => {});
+      function navigationInterrupted(execution = {}, trailingActions = []) {
+        const skippedActions = [
+          ...(Array.isArray(execution?.skippedActions)
+            ? execution.skippedActions
+            : []),
+          ...(Array.isArray(trailingActions) ? trailingActions : []),
+        ];
+        return {
+          ...execution,
+          ok: true,
+          summary: skippedActions.length
+            ? `Navigation started; ${skippedActions.length} remaining action(s) were skipped.`
+            : execution?.summary || "Navigation started.",
+          results,
+          navigationStarted: true,
+          interruptedByNavigation: true,
+          skippedActionCount: skippedActions.length,
+          skippedActions,
+          frameId,
+          tabId: CLOUD_TAB_ID,
+        };
       }
 
-      return result;
+      async function flushDomBatch(trailingActions = []) {
+        if (!domBatch.length) return null;
+
+        if (
+          !activeState ||
+          typeof activeState !== "object" ||
+          !activeState.frames
+        ) {
+          activeState = await runtime.extractStateFromTab(CLOUD_TAB_ID, {
+            goal: state?.goal || "",
+            step: state?.step || 1,
+            meta: { beforeActionSegment: true },
+          });
+        }
+
+        const batch = domBatch;
+        domBatch = [];
+        frameId = resolveExecutionFrameId(activeState, batch);
+        const frame = frameForId(frameId);
+        await runtime.ensureContentScriptReady(CLOUD_TAB_ID);
+
+        const runnerState = buildSingleFrameRunnerState({
+          aggregateState: activeState,
+          frameId,
+          fallbackGoal: activeState?.goal || "",
+          fallbackStep: activeState?.step || 1,
+        });
+        const runnerActions = sanitizeActionsForRunner(batch);
+        const execution = await frame.evaluate(
+          ({ nextState, nextActions }) => {
+            return globalThis.WebGPTRunner.runActions(nextState, nextActions);
+          },
+          {
+            nextState: runnerState,
+            nextActions: runnerActions,
+          },
+        );
+
+        if (batch.some(actionMayCauseNavigation)) {
+          await page
+            .waitForLoadState("domcontentloaded", { timeout: 5000 })
+            .catch(() => {});
+        }
+
+        if (Array.isArray(execution?.results)) {
+          results.push(...execution.results);
+        }
+        if (!execution?.ok) {
+          return {
+            ...execution,
+            results,
+            frameId,
+            tabId: CLOUD_TAB_ID,
+          };
+        }
+        if (execution?.navigationStarted) {
+          return navigationInterrupted(execution, trailingActions);
+        }
+        return null;
+      }
+
+      for (let index = 0; index < safeActions.length; index += 1) {
+        const action = safeActions[index];
+        if (action?.executor !== "browser") {
+          domBatch.push(action);
+          continue;
+        }
+
+        const terminalDomExecution = await flushDomBatch(
+          safeActions.slice(index),
+        );
+        if (terminalDomExecution) return terminalDomExecution;
+
+        let result = null;
+        if (action.type === "return_to_previous_page") {
+          const response = await page
+            .goBack({
+              waitUntil: "domcontentloaded",
+              timeout: navigationTimeoutMs,
+            })
+            .catch((error) => ({ error }));
+          result = response?.error
+            ? {
+                ok: false,
+                error: response.error.message || String(response.error),
+              }
+            : {
+                ok: true,
+                detail: "Returned to previous page.",
+                navigationStarted: true,
+              };
+        } else {
+          result = {
+            ok: false,
+            error: `Unsupported browser executor action: ${action.type}`,
+          };
+        }
+        results.push({ action, result });
+
+        if (!result.ok) {
+          return {
+            ok: false,
+            summary: "Action execution failed.",
+            error: result.error || "Browser executor action failed.",
+            results,
+            frameId,
+            tabId: CLOUD_TAB_ID,
+          };
+        }
+        if (result.navigationStarted) {
+          return navigationInterrupted({}, safeActions.slice(index + 1));
+        }
+
+        activeState = null;
+      }
+
+      const terminalDomExecution = await flushDomBatch();
+      if (terminalDomExecution) return terminalDomExecution;
+
+      return {
+        ok: true,
+        summary: "All actions executed.",
+        results,
+        frameId,
+        tabId: CLOUD_TAB_ID,
+      };
     },
 
     async runReplayActionsInTab(_tabId, replaySteps = []) {

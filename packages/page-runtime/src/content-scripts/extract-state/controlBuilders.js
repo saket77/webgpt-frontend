@@ -12,10 +12,42 @@
     normalizeText,
     lower,
     truncateWords,
+    canReadElementValue,
     isVisible,
     isEnabled,
     cssEscapeSafe,
   } = ns.domUtils;
+
+  const MAX_CONTROL_VALUE_LENGTH = 300;
+  const MAX_SELECTED_VALUES = 20;
+
+  function boundedControlValue(value) {
+    return normalizeText(value).slice(0, MAX_CONTROL_VALUE_LENGTH);
+  }
+
+  function valuesForControl(el) {
+    if (!el || !(el instanceof Element)) return {};
+
+    if (el instanceof HTMLSelectElement) {
+      const selectedValues = Array.from(el.selectedOptions || [])
+        .map((option) => boundedControlValue(option.textContent || option.value))
+        .filter(Boolean)
+        .slice(0, MAX_SELECTED_VALUES);
+      return {
+        currentValue: selectedValues[0] || boundedControlValue(el.value),
+        selectedValues,
+      };
+    }
+
+    if (
+      (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) &&
+      canReadElementValue(el)
+    ) {
+      return { currentValue: boundedControlValue(el.value) };
+    }
+
+    return {};
+  }
 
   const {
     hasBackgroundImage,
@@ -565,6 +597,7 @@
       const label = truncateWords(labelForControl(el), 100);
       const text = truncateWords(controlTextFor(el), 200);
       const { score, reasons } = scorePromotableContainer(el);
+      const controlValues = valuesForControl(el);
 
       allControls.push({
         id: `el_${idCounter++}`,
@@ -611,6 +644,7 @@
         ariaChecked: normalizeText(el.getAttribute("aria-checked")),
         checked:
           el instanceof HTMLInputElement ? Boolean(el.checked) : undefined,
+        ...controlValues,
       });
     }
 
@@ -632,6 +666,7 @@
     selectorFor,
     dedupeKeyFor,
     collectDirectAndContainerCandidates,
+    valuesForControl,
     buildControls,
   };
 })();

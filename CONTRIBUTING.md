@@ -47,6 +47,8 @@ Contributors can improve how the frontend understands and acts on pages by:
 
 Start with [docs/site-adapter-authoring.md](./docs/site-adapter-authoring.md) before adding an adapter. State-only adapters should enrich extracted state without mutating the page. Connector-enabled adapters may expose narrowly scoped DOM-backed tools through `provideTools()` and `WebGPTConnectorTools`, but those executors must reuse the adapter's page model, avoid hidden planning decisions, and never call planner services directly.
 
+For website-native semantic tools, read [docs/webmcp.md](./docs/webmcp.md). Do not duplicate a site's native WebMCP capability as a connector unless WebMCP is unavailable and the compatibility behavior is intentional.
+
 ## Local Workflow
 
 ### Build The Extension
@@ -73,6 +75,8 @@ Before opening a PR, verify the change in a loaded unpacked extension:
 4. Confirm the behavior you changed still works end to end
 
 Load `apps/extension-host/dist-extension` as the unpacked extension. Run `npm run smoke:extension` before manual verification to catch missing service-worker, sidepanel, icon, or content-script build outputs.
+
+For WebMCP changes, also run `node --test test/webMcpSource.test.js test/controlValueExtraction.test.js test/controllerCore.test.mjs test/browserbaseHost.test.mjs`, then use headed Chrome with WebMCP enabled to verify discovery, read and mutation execution under run-start consent, and fresh-state effect verification.
 
 ### Browserbase Cloud Host Smoke
 
@@ -106,6 +110,7 @@ Before treating a feature as done, check whether the change affects:
 - `CLAUDE.md` for future-agent operating guidance
 - `docs/planner-adapter-contract.md` or `docs/planner-http-api.openapi.yaml` for backend payloads or command vocabulary
 - `docs/runtime-authoring.md`, `docs/site-adapter-authoring.md`, or `docs/surfaces/*` for runtime/adapter behavior
+- `docs/webmcp.md` when semantic page-tool discovery, routing, execution, evidence, limits, or safety changes
 - `SECURITY.md` for credentials, cloud execution, host permissions, or sensitive logs
 - user skills under `~/.codex/skills` when the repeatable workflow changed
 

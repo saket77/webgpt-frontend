@@ -59,12 +59,15 @@ export const attachSessionToTab = defaultController.attachSessionToTab;
 export const confirmSuccess = defaultController.confirmSuccess;
 export const connectGoogleSheets = defaultController.connectGoogleSheets;
 export const connectMicrosoftExcel = defaultController.connectMicrosoftExcel;
+export const connectZohoBooks = defaultController.connectZohoBooks;
 export const continueRun = defaultController.continueRun;
 export const detectSurfaceForTab = defaultController.detectSurfaceForTab;
 export const getGoogleSheetsAuthStatus =
   defaultController.getGoogleSheetsAuthStatus;
 export const getMicrosoftExcelAuthStatus =
   defaultController.getMicrosoftExcelAuthStatus;
+export const getZohoBooksAuthStatus =
+  defaultController.getZohoBooksAuthStatus;
 export const getSessionState = defaultController.getSessionState;
 export const listArtifacts = defaultController.listArtifacts;
 export const pauseForForcedStop = defaultController.pauseForForcedStop;

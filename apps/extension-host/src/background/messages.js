@@ -10,6 +10,11 @@ import {
   setStoredMicrosoftExcelConfig,
 } from "./settings/microsoftExcelConfig.js";
 import {
+  getZohoBooksConfiguration,
+  resetStoredZohoBooksConfig,
+  setStoredZohoBooksConfig,
+} from "./settings/zohoBooksConfig.js";
+import {
   getMyInfoConfiguration,
   getMyInfoRunSnapshot,
   resetStoredMyInfoConfig,
@@ -32,6 +37,8 @@ import {
   connectGoogleSheets,
   getMicrosoftExcelAuthStatus,
   connectMicrosoftExcel,
+  getZohoBooksAuthStatus,
+  connectZohoBooks,
 } from "./controller/index.js";
 
 async function getActiveTabId() {
@@ -176,6 +183,29 @@ export function registerMessageHandlers() {
         return;
       }
 
+      if (message?.type === "WEBGPT_GET_ZOHO_BOOKS_CONFIG") {
+        const config = await getZohoBooksConfiguration();
+        sendResponse({ ok: true, config });
+        return;
+      }
+
+      if (message?.type === "WEBGPT_SET_ZOHO_BOOKS_CONFIG") {
+        const config = await setStoredZohoBooksConfig({
+          dataCenter: message.dataCenter || "in",
+          clientId: message.clientId || "",
+          clientSecret: message.clientSecret || "",
+          scopes: message.scopes || "",
+        });
+        sendResponse({ ok: true, config });
+        return;
+      }
+
+      if (message?.type === "WEBGPT_RESET_ZOHO_BOOKS_CONFIG") {
+        const config = await resetStoredZohoBooksConfig();
+        sendResponse({ ok: true, config });
+        return;
+      }
+
       if (message?.type === "WEBGPT_GET_MY_INFO_CONFIG") {
         const config = await getMyInfoConfiguration();
         sendResponse({ ok: true, config });
@@ -240,6 +270,18 @@ export function registerMessageHandlers() {
 
       if (message?.type === "WEBGPT_CONNECT_MICROSOFT_EXCEL") {
         const result = await connectMicrosoftExcel();
+        sendResponse(result);
+        return;
+      }
+
+      if (message?.type === "WEBGPT_GET_ZOHO_BOOKS_AUTH_STATUS") {
+        const result = await getZohoBooksAuthStatus();
+        sendResponse(result);
+        return;
+      }
+
+      if (message?.type === "WEBGPT_CONNECT_ZOHO_BOOKS") {
+        const result = await connectZohoBooks();
         sendResponse(result);
         return;
       }

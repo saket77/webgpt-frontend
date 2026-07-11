@@ -24,8 +24,22 @@
     return words.slice(0, maxWords).join(" ");
   }
 
+  function canReadElementValue(el) {
+    if (!el || !el.tagName) return false;
+    const tag = lower(el.tagName);
+    if (tag === "textarea" || tag === "select") return true;
+    if (tag !== "input") return false;
+    const type = lower(el.getAttribute?.("type") || el.type || "text");
+    return !["password", "file", "hidden"].includes(type);
+  }
+
   function textContent(el) {
-    return normalizeText(el?.innerText || el?.textContent || el?.value || "");
+    return normalizeText(
+      el?.innerText ||
+        el?.textContent ||
+        (canReadElementValue(el) ? el?.value : "") ||
+        "",
+    );
   }
 
   function isVisible(el) {
@@ -60,6 +74,7 @@
     normalizeText,
     lower,
     truncateWords,
+    canReadElementValue,
     textContent,
     isVisible,
     isEnabled,

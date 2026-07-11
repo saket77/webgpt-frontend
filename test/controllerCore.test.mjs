@@ -66,6 +66,7 @@ function createRuntime(overrides = {}) {
     extractCalls: [],
     actionCalls: [],
     replayCalls: [],
+    sourceProviderCalls: [],
     async detectSurfaceForTab() {
       return { surface: "browser_dom", url: "https://example.test", title: "" };
     },
@@ -101,6 +102,22 @@ function createRuntime(overrides = {}) {
         ok: true,
         summary: "replay ok",
         results: steps.map((step) => ({ step, result: { ok: true } })),
+      };
+    },
+    async runSourceProviderCommands(provider, commands, context = {}) {
+      this.sourceProviderCalls.push({ provider, commands, context });
+      return {
+        ok: true,
+        provider,
+        summary: "source provider ok",
+        results: commands.map((command) => ({ ok: true, command })),
+        snapshots: [
+          {
+            provider,
+            workflowKind: "zoho_books_audit",
+            sheets: [{ kind: "trialBalance", title: "Trial Balance", values: [] }],
+          },
+        ],
       };
     },
     actionsMayCauseNavigation(actions) {
@@ -258,6 +275,220 @@ test("controller-core executes planner actions and posts action results", async 
     plannerAdapter.calls.map((call) => call.type),
     ["state_extracted", "actions_executed"],
   );
+});
+
+test("controller-core runs read-only WebMCP tools under run-start consent", async () => {
+  const action = {
+    type: "webmcp_0_get_availability",
+    executor: "webmcp",
+    frameId: 0,
+    webMcp: {
+      name: "getAvailability",
+      origin: "https://example.test",
+      schemaHash: "0123456789abcdef",
+      readOnlyHint: true,
+      untrustedContentHint: true,
+    },
+    arguments: { date: "2026-07-12" },
+  };
+  const plannerAdapter = createPlannerAdapter({
+    commandsByResultType(args) {
+      if (args.type === "state_extracted") {
+        return {
+          type: "run_actions",
+          runId: args.runId,
+          step: 1,
+          actions: [action],
+        };
+      }
+      return { type: "done", runId: args.runId, step: 2, summary: "read" };
+    },
+  });
+  const runtime = createRuntime();
+  const { controller } = createHarness({ plannerAdapter, runtime });
+
+  const result = await controller.startAgent(1, "Read availability");
+
+  assert.equal(result.reason, "awaiting_success_confirmation");
+  assert.equal(runtime.actionCalls.length, 1);
+  assert.deepEqual(runtime.actionCalls[0].actions, [action]);
+});
+
+test("controller-core runs a batch of read-only WebMCP tools under run-start consent", async () => {
+  const actions = ["availability", "timezone"].map((name, index) => ({
+    type: `webmcp_0_get_${name}`,
+    executor: "webmcp",
+    frameId: 0,
+    webMcp: {
+      name: `get_${name}`,
+      origin: "https://example.test",
+      schemaHash: `read_schema_${index}`,
+      readOnlyHint: true,
+      untrustedContentHint: true,
+    },
+    arguments: { index },
+  }));
+  const plannerAdapter = createPlannerAdapter({
+    commandsByResultType(args) {
+      return args.type === "state_extracted"
+        ? {
+            type: "run_actions",
+            runId: args.runId,
+            step: 1,
+            actions,
+          }
+        : { type: "done", runId: args.runId, step: 2, summary: "read" };
+    },
+  });
+  const runtime = createRuntime();
+  const { controller } = createHarness({ plannerAdapter, runtime });
+
+  const result = await controller.startAgent(1, "Read two semantic sources");
+
+  assert.equal(result.reason, "awaiting_success_confirmation");
+  assert.equal(runtime.actionCalls.length, 1);
+  assert.deepEqual(runtime.actionCalls[0].actions, actions);
+});
+
+test("controller-core executes mutating WebMCP under run-start website consent", async () => {
+  const action = {
+    type: "webmcp_0_book_slot",
+    executor: "webmcp",
+    frameId: 0,
+    webMcp: {
+      name: "bookSlot",
+      origin: "https://example.test",
+      schemaHash: "fedcba9876543210",
+      readOnlyHint: false,
+      untrustedContentHint: true,
+    },
+    arguments: { slotId: "slot-7", attendee: "Saket" },
+  };
+  const plannerAdapter = createPlannerAdapter({
+    commandsByResultType(args) {
+      if (args.type === "state_extracted") {
+        return {
+          type: "run_actions",
+          runId: args.runId,
+          step: 1,
+          actions: [action],
+        };
+      }
+      return { type: "done", runId: args.runId, step: 2, summary: "booked" };
+    },
+  });
+  const runtime = createRuntime();
+  const { controller } = createHarness({ plannerAdapter, runtime });
+
+  const result = await controller.startAgent(1, "Book slot 7");
+
+  assert.equal(result.reason, "awaiting_success_confirmation");
+  assert.equal(runtime.actionCalls.length, 1);
+  assert.deepEqual(runtime.actionCalls[0].actions[0].arguments, {
+    slotId: "slot-7",
+    attendee: "Saket",
+  });
+});
+
+test("controller-core executes an ordered mixed WebMCP batch under run-start consent", async () => {
+  const genericAction = {
+    type: "fill",
+    targetId: "el_1",
+    frameId: 0,
+    value: "before semantic tools",
+  };
+  const mutationActions = Array.from({ length: 5 }, (_, index) => ({
+    type: `webmcp_0_mutate_${index + 1}`,
+    executor: "webmcp",
+    frameId: 0,
+    webMcp: {
+      name: `mutate_${index + 1}`,
+      origin: "https://example.test",
+      schemaHash: `schema_${index + 1}`,
+      readOnlyHint: false,
+      untrustedContentHint: true,
+    },
+    arguments: { index: index + 1 },
+  }));
+  const readOnlyAction = {
+    type: "webmcp_0_read_after_mutations",
+    executor: "webmcp",
+    frameId: 0,
+    webMcp: {
+      name: "read_after_mutations",
+      origin: "https://example.test",
+      schemaHash: "read_schema",
+      readOnlyHint: true,
+      untrustedContentHint: true,
+    },
+    arguments: { include: "summary" },
+  };
+  const actions = [genericAction, ...mutationActions, readOnlyAction];
+  const command = {
+    type: "run_actions",
+    runId: "run_1",
+    step: 1,
+    actions,
+  };
+
+  const plannerAdapter = createPlannerAdapter({
+    commandsByResultType(args) {
+      return args.type === "state_extracted"
+        ? command
+        : { type: "done", runId: args.runId, step: 2, summary: "batched" };
+    },
+  });
+  const runtime = createRuntime();
+  const { controller } = createHarness({ plannerAdapter, runtime });
+
+  const result = await controller.startAgent(1, "Run the mixed batch");
+
+  assert.equal(result.reason, "awaiting_success_confirmation");
+  assert.equal(runtime.actionCalls.length, 1);
+  assert.deepEqual(runtime.actionCalls[0].actions, actions);
+});
+
+test("controller-core executes source provider commands and posts provider results", async () => {
+  const plannerAdapter = createPlannerAdapter({
+    startCommand: {
+      type: "extract_state",
+      runId: "run_1",
+      step: 1,
+      surface: "google_sheets",
+    },
+    commandsByResultType(args) {
+      if (args.type === "state_extracted") {
+        return {
+          type: "run_source_provider_commands",
+          runId: args.runId,
+          step: 1,
+          surface: "google_sheets",
+          provider: "zoho_books",
+          commands: [
+            {
+              name: "fetch_audit_source_snapshot",
+              workflowKind: "zoho_books_audit",
+              period: { startDate: "2025-04-01", endDate: "2026-03-31" },
+            },
+          ],
+        };
+      }
+      return { type: "done", runId: args.runId, step: 2, summary: "fetched" };
+    },
+  });
+  const runtime = createRuntime();
+  const { controller } = createHarness({ plannerAdapter, runtime });
+
+  const result = await controller.startAgent(1, "Run Zoho audit");
+
+  assert.equal(result.reason, "awaiting_success_confirmation");
+  assert.equal(runtime.sourceProviderCalls.length, 1);
+  assert.equal(runtime.sourceProviderCalls[0].provider, "zoho_books");
+  assert.deepEqual(
+    plannerAdapter.calls.map((call) => call.type),
+    ["state_extracted", "source_provider_commands_executed"],
+  );
+  assert.equal(plannerAdapter.calls[1].execution.snapshots[0].provider, "zoho_books");
 });
 
 test("controller-core pauses for human hint after failed action result", async () => {

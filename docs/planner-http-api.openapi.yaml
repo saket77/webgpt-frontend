@@ -1,13 +1,14 @@
 openapi: 3.1.0
 info:
   title: WebGPT Planner HTTP API
-  version: 0.2.0
+  version: 0.3.0
   description: |
     HTTP contract implemented by the default WebGPT planner adapter.
     WebGPT frontend hosts consume a JavaScript plannerAdapter
     interface; this OpenAPI document describes the HTTP routes used by the
     default adapter implementation, including browser DOM, Google Sheets,
-    Microsoft Excel runtime surfaces, and connector-enabled site-adapter tools.
+    Microsoft Excel runtime surfaces, connector-enabled site-adapter tools,
+    and frame-owned WebMCP page tools.
 servers:
   - url: https://webgpt-backend-production.up.railway.app
     description: Hosted WebGPT planner
@@ -1097,7 +1098,7 @@ components:
           type: string
         lastOutcome:
           oneOf:
-            - $ref: "#/components/schemas/AnyObject"
+            - $ref: "#/components/schemas/LastOutcome"
             - type: "null"
         finalResult:
           description: Planner-defined final result shown during success confirmation.
@@ -1193,6 +1194,12 @@ components:
           description: Connector tools hoisted from active browser frames when browser DOM state is active.
           items:
             $ref: "#/components/schemas/ConnectorTool"
+        webMcpTools:
+          type: array
+          description: Planner-normalized WebMCP tools hoisted from browser frames. Each item retains its owning frameId; execution routing metadata is never model-authored.
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/WebMcpDiscoveredTool"
 
     ExtractedFrame:
       type: object
@@ -1215,6 +1222,8 @@ components:
           description: Connector tools exposed by active site adapters for this frame.
           items:
             $ref: "#/components/schemas/ConnectorTool"
+        webMcp:
+          $ref: "#/components/schemas/WebMcpDiscoveredState"
 
     ExtractedControl:
       type: object
@@ -1230,9 +1239,88 @@ components:
           type: string
         selector:
           type: string
+        currentValue:
+          type: string
+          maxLength: 300
+          description: Bounded current value for non-sensitive inputs, textareas, and selects. Password, file, and hidden values are omitted.
+        selectedValues:
+          type: array
+          description: Bounded visible values selected in a select control.
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 300
         adapterHints:
           type: object
           additionalProperties: true
+
+    WebMcpDiscoveredState:
+      type: object
+      description: Serializable snapshot of same-frame WebMCP tools discovered through the page model context.
+      required: [supported, tools, errors]
+      additionalProperties: false
+      properties:
+        supported:
+          type: boolean
+          description: True when this frame exposes a WebMCP model context, even if discovery returned no usable tools.
+        tools:
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/WebMcpDiscoveredTool"
+        errors:
+          type: array
+          description: Bounded discovery or validation failures for page-owned tools that were not exposed to the planner.
+          items:
+            type: string
+
+    WebMcpDiscoveredTool:
+      type: object
+      description: Serializable planning-time view of one page-owned WebMCP tool. The live tool handle is re-discovered and verified before execution.
+      required: [source, name, origin, parameters, annotations, schemaHash]
+      additionalProperties: false
+      properties:
+        frameId:
+          type: integer
+          description: Owning browser frame. Added when frame tools are hoisted into planner state.
+        source:
+          type: string
+          const: webmcp
+        name:
+          type: string
+          maxLength: 128
+          pattern: "^[A-Za-z0-9_.-]+$"
+        title:
+          type: string
+          maxLength: 240
+        description:
+          type: string
+          maxLength: 1200
+        origin:
+          type: string
+          maxLength: 2048
+        parameters:
+          type: object
+          description: Parsed WebMCP inputSchema presented to the planner as JSON Schema.
+          additionalProperties: true
+        annotations:
+          $ref: "#/components/schemas/WebMcpAnnotations"
+        schemaHash:
+          type: string
+          pattern: "^[A-Fa-f0-9]{8,64}$"
+          description: Stable hash used to reject execution when the live input schema changed after planning.
+
+    WebMcpAnnotations:
+      type: object
+      required: [readOnlyHint, untrustedContentHint]
+      additionalProperties: false
+      properties:
+        readOnlyHint:
+          type: boolean
+          description: Site-supplied hint that the tool is read-only. False tools require mutation approval in interactive hosts.
+        untrustedContentHint:
+          type: boolean
+          description: Site-supplied hint only; WebGPT treats all page-returned tool output as untrusted regardless of this value.
 
     SiteAdapterState:
       type: object
@@ -1442,6 +1530,23 @@ components:
               role: Tenant
               sendIntroEmail: true
               addToTeam: false
+        - type: run_actions
+          runId: run_789
+          step: 2
+          summary: Check available booking slots through the page API.
+          actions:
+            - type: webmcp_f0_getAvailability_0123456789abcdef
+              executor: webmcp
+              frameId: 0
+              arguments:
+                date: "2026-07-14"
+              webMcp:
+                name: getAvailability
+                origin: https://example.test
+                schemaHash: 0123456789abcdef
+                readOnlyHint: true
+                untrustedContentHint: true
+              mayCauseNavigation: false
 
     RunGoogleSheetsCommandsCommand:
       allOf:
@@ -1685,8 +1790,12 @@ components:
       properties:
         type:
           type: string
-          description: Built-in browser action type or active connector tool name.
-          examples: [click, fill, press, wait, goto, scroll, dotloop_add_person]
+          description: Built-in browser action type, active connector tool name, or generated WebMCP planner name.
+          examples: [click, fill, press, wait, goto, scroll, dotloop_add_person, webmcp_f0_getAvailability_0123456789abcdef]
+        executor:
+          type: string
+          description: Explicit execution route. WebMCP actions use webmcp; ordinary DOM and connector actions may omit this property.
+          examples: [webmcp, browser]
         targetId:
           type: string
         frameId:
@@ -1714,9 +1823,15 @@ components:
           description: Replay input bindings for templated action arguments, including nested connector args.
           items:
             $ref: "#/components/schemas/ReplayInputBinding"
+        arguments:
+          type: object
+          description: Exact page-tool arguments. For executor=webmcp this nested object alone is serialized for executeTool; it is size-validated but never compacted or truncated on the live execution path.
+          additionalProperties: true
+        webMcp:
+          $ref: "#/components/schemas/WebMcpRouteMetadata"
         mayCauseNavigation:
           type: boolean
-          description: True when a connector or browser action can trigger navigation and must be a batch boundary.
+          description: True when a connector, browser, or mutating WebMCP action can trigger navigation and must be a batch boundary.
         navigationAction:
           type: boolean
           description: Compatibility alias used by adapter hints and some planner outputs.
@@ -1732,6 +1847,32 @@ components:
         sendIntroEmail:
           type: boolean
         addToTeam:
+          type: boolean
+
+    WebMcpRouteMetadata:
+      type: object
+      description: Backend-owned WebMCP route captured from discovery. The planner supplies only the generated tool name and arguments; frameId and these values are attached from a private route map.
+      required: [name, origin, schemaHash, readOnlyHint, untrustedContentHint]
+      additionalProperties: false
+      properties:
+        plannerName:
+          type: string
+          maxLength: 64
+          description: Generated, frame-qualified planner tool name when retained in history or effects.
+        name:
+          type: string
+          maxLength: 128
+          pattern: "^[A-Za-z0-9_.-]+$"
+          description: Original page-owned WebMCP tool name.
+        origin:
+          type: string
+          maxLength: 2048
+        schemaHash:
+          type: string
+          pattern: "^[A-Fa-f0-9]{8,64}$"
+        readOnlyHint:
+          type: boolean
+        untrustedContentHint:
           type: boolean
 
     ReplayInputBinding:
@@ -1831,11 +1972,576 @@ components:
           type: string
         error:
           type: string
+        frameId:
+          type:
+            - integer
+            - "null"
+        tabId:
+          type: integer
+        synthetic:
+          type: boolean
         results:
           type: array
           items:
-            type: object
-            additionalProperties: true
+            $ref: "#/components/schemas/ActionExecutionEntry"
+
+    ActionExecutionEntry:
+      type: object
+      description: Typed browser-action entry. Runtime surfaces may instead return command-specific properties, which remain allowed.
+      additionalProperties: true
+      properties:
+        action:
+          $ref: "#/components/schemas/BrowserAction"
+        result:
+          $ref: "#/components/schemas/ActionExecutionOutcome"
+
+    ActionExecutionOutcome:
+      type: object
+      description: Result returned by a page-runtime action executor. WebMCP output is bounded for transport/history, while the exact nested action arguments are kept separately on the command.
+      additionalProperties: true
+      properties:
+        ok:
+          type: boolean
+        committed:
+          type: boolean
+        detail:
+          type: string
+        error:
+          type: string
+        recoverable:
+          type: boolean
+        continueBatch:
+          type: boolean
+        frameId:
+          type: integer
+        tabId:
+          type: integer
+        navigationStarted:
+          type: boolean
+          description: True when executeTool returned null or another executor reported that navigation began.
+        webMcp:
+          $ref: "#/components/schemas/WebMcpExecutionMetadata"
+        webMcpOutput:
+          description: JSON-safe, transport-bounded page-tool return value. Present for both read-only and mutating WebMCP tools; null is preserved when executeTool starts navigation.
+        webMcpOutputMeta:
+          $ref: "#/components/schemas/WebMcpOutputMetadata"
+        extractionBatch:
+          $ref: "#/components/schemas/ExtractionBatch"
+
+    WebMcpExecutionMetadata:
+      type: object
+      description: Verified execution or history metadata for a WebMCP tool.
+      additionalProperties: false
+      properties:
+        plannerName:
+          type: string
+          maxLength: 64
+        name:
+          type: string
+          maxLength: 128
+        origin:
+          type: string
+          maxLength: 2048
+        schemaHash:
+          type: string
+          pattern: "^[A-Fa-f0-9]{8,64}$"
+        readOnlyHint:
+          type: boolean
+        untrustedContentHint:
+          type: boolean
+        annotations:
+          $ref: "#/components/schemas/WebMcpAnnotations"
+        outputPresent:
+          type: boolean
+        outputKind:
+          type: string
+          examples: [object, array, string, number, boolean, "null"]
+        outputTruncated:
+          type: boolean
+        outputByteLength:
+          type: integer
+          minimum: 0
+
+    WebMcpOutputMetadata:
+      type: object
+      required: [truncated, byteLength]
+      additionalProperties: false
+      properties:
+        truncated:
+          type: boolean
+          description: True when non-JSON values, depth/collection limits, or the 64 KiB output cap required compaction.
+        byteLength:
+          type: integer
+          minimum: 0
+          maximum: 65536
+
+    ExtractionBatch:
+      type: object
+      description: Structured extraction returned by an action. Read-only WebMCP tools emit one untrusted webmcp_tool_result item.
+      additionalProperties: true
+      properties:
+        frameId:
+          type: integer
+        targetId:
+          type: string
+        extractedCount:
+          type: integer
+          minimum: 0
+        context:
+          type: object
+          additionalProperties: true
+          properties:
+            source:
+              type: string
+              examples: [webmcp]
+            plannerName:
+              type: string
+            toolName:
+              type: string
+            origin:
+              type: string
+            untrustedContent:
+              type: boolean
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExtractionItem"
+
+    ExtractionItem:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+        targetId:
+          type: string
+        kind:
+          type: string
+          examples: [webmcp_tool_result]
+        adapterId:
+          type: string
+          examples: [webmcp]
+        preferredAction:
+          type: string
+          examples: [extract]
+        label:
+          type: string
+        text:
+          type: string
+        toolName:
+          type: string
+        origin:
+          type: string
+        untrustedContent:
+          type: boolean
+
+    LastOutcome:
+      type: object
+      description: Backend summary of the latest command. Browser actions include the independently computed state delta and action effect used by the next planner turn.
+      additionalProperties: true
+      properties:
+        ok:
+          type: boolean
+        kind:
+          type: string
+        detail:
+          type: string
+        executionSummary:
+          type: string
+        actionResults:
+          type: array
+          maxItems: 20
+          description: Ordered, prompt-safe evidence for the planned action batch. Exact executable arguments remain in the command and are not reconstructed from this compact view.
+          items:
+            $ref: "#/components/schemas/ActionResultEvidence"
+        actionResultsTruncated:
+          type: boolean
+        stateDelta:
+          oneOf:
+            - $ref: "#/components/schemas/BrowserStateDelta"
+            - type: "null"
+        actionEffect:
+          oneOf:
+            - $ref: "#/components/schemas/BrowserActionEffect"
+            - type: "null"
+
+    BrowserStateDelta:
+      type: object
+      description: Post-action browser state comparison. WebMCP actions also receive targetless value diffs and discovered-tool-set diffs.
+      additionalProperties: true
+      properties:
+        urlChanged:
+          type: boolean
+        titleChanged:
+          type: boolean
+        noveltyScore:
+          type: number
+          minimum: 0
+          maximum: 1
+        scroll:
+          type: object
+          additionalProperties: true
+        controls:
+          $ref: "#/components/schemas/CollectionDelta"
+        groups:
+          $ref: "#/components/schemas/CollectionDelta"
+        webMcpTools:
+          $ref: "#/components/schemas/WebMcpToolSetDelta"
+        fieldUpdates:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldUpdate"
+        untargetedFieldUpdates:
+          type: array
+          description: Value changes detected without a DOM target, primarily after WebMCP execution.
+          items:
+            $ref: "#/components/schemas/UntargetedFieldUpdate"
+        targetControl:
+          type: object
+          additionalProperties: true
+        targetScrollContainer:
+          type: object
+          additionalProperties: true
+        headings:
+          $ref: "#/components/schemas/CollectionDelta"
+        visibleText:
+          $ref: "#/components/schemas/CollectionDelta"
+        overlays:
+          $ref: "#/components/schemas/CollectionDelta"
+        overlaysChanged:
+          type: boolean
+
+    CollectionDelta:
+      type: object
+      additionalProperties: true
+      properties:
+        beforeCount:
+          type: integer
+        afterCount:
+          type: integer
+        deltaCount:
+          type: integer
+        overlapCount:
+          type: integer
+        addedCount:
+          type: integer
+        removedCount:
+          type: integer
+        changedRatio:
+          type: number
+          minimum: 0
+          maximum: 1
+        added:
+          type: array
+          items: {}
+        removed:
+          type: array
+          items: {}
+
+    WebMcpToolSetDelta:
+      type: object
+      additionalProperties: false
+      properties:
+        beforeCount:
+          type: integer
+        afterCount:
+          type: integer
+        addedCount:
+          type: integer
+        removedCount:
+          type: integer
+        changedCount:
+          type: integer
+        totalChanged:
+          type: integer
+        changedRatio:
+          type: number
+          minimum: 0
+          maximum: 1
+        added:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebMcpToolDeltaDescriptor"
+        removed:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebMcpToolDeltaDescriptor"
+        changed:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebMcpToolDeltaDescriptor"
+
+    WebMcpToolDeltaDescriptor:
+      type: object
+      additionalProperties: false
+      properties:
+        plannerName:
+          type: string
+        name:
+          type: string
+        origin:
+          type: string
+        schemaHash:
+          type: string
+        readOnlyHint:
+          type:
+            - boolean
+            - "null"
+        untrustedContentHint:
+          type:
+            - boolean
+            - "null"
+
+    FieldUpdate:
+      type: object
+      additionalProperties: true
+      properties:
+        source:
+          type: string
+        targetId:
+          type: string
+        controlId:
+          type: string
+        groupId:
+          type: string
+        groupTargetId:
+          type: string
+        label:
+          type: string
+        beforeValue:
+          type: string
+        afterValue:
+          type: string
+        expectedValue:
+          type: string
+        changed:
+          type: boolean
+        verified:
+          type: boolean
+        confidence:
+          type: string
+
+    UntargetedFieldUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        source:
+          type: string
+          examples: [control, adapter_group]
+        controlId:
+          type: string
+        groupId:
+          type: string
+        groupTargetId:
+          type: string
+        label:
+          type: string
+        beforeValue:
+          type: string
+        afterValue:
+          type: string
+        changed:
+          type: boolean
+        verification:
+          type: string
+          examples: [observed]
+
+    BrowserActionEffect:
+      type: object
+      description: Aggregate semantic interpretation of the complete ordered action batch, its tool output, and the single independently observed post-state change.
+      additionalProperties: true
+      properties:
+        actionType:
+          type: string
+        effectCategory:
+          type: string
+          examples: [extraction, meaningful_change, reported_change_unverified, execution_failed, navigation]
+        likelySucceeded:
+          type: boolean
+        meaningfulEffect:
+          type: boolean
+        executionSucceeded:
+          type: boolean
+        verification:
+          type: string
+          description: Aggregate verification basis. WebMCP uses tool_output when read results are the batch evidence, observed for independent post-state evidence, reported when a mutation completed without independent evidence, and none on execution failure.
+          examples: [tool_output, observed, reported, none]
+        verificationScope:
+          type: string
+          description: For a batch containing WebMCP, batch means observed state verifies the batch as a whole and does not assign causality to one mutation.
+          examples: [batch]
+        explanation:
+          type: string
+        frameId:
+          type:
+            - integer
+            - "null"
+        signals:
+          $ref: "#/components/schemas/BrowserActionEffectSignals"
+        fieldUpdates:
+          type: array
+          items:
+            $ref: "#/components/schemas/FieldUpdate"
+        webMcp:
+          $ref: "#/components/schemas/WebMcpExecutionMetadata"
+          description: Single-call compatibility metadata; omitted when the batch contains multiple WebMCP actions.
+        webMcpOutputSummary:
+          description: Single-call compatibility output; per-call summaries for mixed or multi-WebMCP batches live in actionResults.
+          oneOf:
+            - $ref: "#/components/schemas/WebMcpOutputSummary"
+            - type: "null"
+        extractedData:
+          oneOf:
+            - $ref: "#/components/schemas/AnyObject"
+            - type: "null"
+
+    BrowserActionEffectSignals:
+      type: object
+      additionalProperties: true
+      properties:
+        webMcp:
+          type: boolean
+        webMcpActionCount:
+          type: integer
+          minimum: 0
+        webMcpExecutedCount:
+          type: integer
+          minimum: 0
+        webMcpSucceededCount:
+          type: integer
+          minimum: 0
+        webMcpFailedCount:
+          type: integer
+          minimum: 0
+        webMcpNotExecutedCount:
+          type: integer
+          minimum: 0
+        webMcpUnknownCount:
+          type: integer
+          minimum: 0
+        webMcpReadOnlyCount:
+          type: integer
+          minimum: 0
+        webMcpMutationCount:
+          type: integer
+          minimum: 0
+        webMcpOutputCount:
+          type: integer
+          minimum: 0
+        plannerName:
+          type: string
+        toolName:
+          type: string
+        origin:
+          type: string
+        readOnlyHint:
+          type:
+            - boolean
+            - "null"
+        untrustedContentHint:
+          type:
+            - boolean
+            - "null"
+        outputPresent:
+          type: boolean
+        outputKind:
+          type: string
+        outputTruncated:
+          type: boolean
+        outputByteLength:
+          type: integer
+          minimum: 0
+        navigationStarted:
+          type: boolean
+        navigationStartedCount:
+          type: integer
+          minimum: 0
+        toolSetChanged:
+          type: boolean
+        toolSetChangeCount:
+          type: integer
+        webMcpToolSetChangeCount:
+          type: integer
+        fieldUpdateCount:
+          type: integer
+        untargetedFieldUpdateCount:
+          type: integer
+        urlChanged:
+          type: boolean
+        titleChanged:
+          type: boolean
+        visibleTextChangedRatio:
+          type: number
+        controlsChangedRatio:
+          type: number
+        groupsChangedRatio:
+          type: number
+        overlaysChanged:
+          type: boolean
+        noveltyScore:
+          type: number
+
+    ActionResultEvidence:
+      type: object
+      description: Bounded evidence for one action at its planner-ordered batch index. WebMCP callbacks are reported per call; observed state deltas remain batch-scoped.
+      additionalProperties: false
+      required: [actionIndex, actionType, status, navigationStarted]
+      properties:
+        actionIndex:
+          type: integer
+          minimum: 0
+        resultIndex:
+          type: integer
+          minimum: 0
+        actionType:
+          type: string
+        executor:
+          type: string
+        status:
+          type: string
+          enum: [succeeded, failed, not_executed, unknown]
+        executionSucceeded:
+          type: boolean
+        detail:
+          type: string
+        error:
+          type: string
+        committed:
+          type: boolean
+        navigationStarted:
+          type: boolean
+        verification:
+          type: string
+          enum: [tool_output, reported, none]
+        webMcp:
+          $ref: "#/components/schemas/WebMcpExecutionMetadata"
+        webMcpOutputSummary:
+          oneOf:
+            - $ref: "#/components/schemas/WebMcpOutputSummary"
+            - type: "null"
+
+    WebMcpOutputSummary:
+      type: object
+      description: Prompt/history-safe summary of a WebMCP result; this is separate from exact execution arguments.
+      additionalProperties: false
+      properties:
+        present:
+          type: boolean
+        kind:
+          type: string
+        truncated:
+          type: boolean
+        preview:
+          description: Depth-, string-, collection-, and key-bounded output preview.
+        byteLength:
+          type: integer
+          minimum: 0
+        itemCount:
+          type: integer
+          minimum: 0
+        keyCount:
+          type: integer
+          minimum: 0
 
     ReplayBatchResult:
       type: object

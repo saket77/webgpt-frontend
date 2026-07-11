@@ -17,7 +17,7 @@ WebGPT started as a Chrome extension. This demo shows the frontend refactored in
 
 Testing a browser-extension agent by hand is a slow feedback loop: reload the extension, open a tab, open the sidepanel, run the task, read the logs. Splitting the frontend into a host-agnostic runtime plus separate extension and cloud hosts turns that into a command you can run and script.
 
-Browserbase here is the cloud browser infrastructure, not the agent. WebGPT still owns state extraction, action execution, the planner loop, replay, site adapters, connector tools, and the backend contract. Because the same runtime now runs headlessly, real-website integration benches become possible, which is where most browser-agent failures actually show up.
+Browserbase here is the cloud browser infrastructure, not the agent. WebGPT still owns state extraction, action execution, the planner loop, replay, site adapters, connector tools, and the backend contract. Because the same runtime now runs in a cloud browser from the CLI, real-website integration benches become possible, which is where most browser-agent failures actually show up.
 
 ## Demo Message
 
@@ -29,4 +29,6 @@ WebGPT is a browser-agnostic runtime: the same agent can run in a Chrome extensi
 2. Start a compatible planner backend, for example on `http://localhost:3000`.
 3. Run `npm run cloud:run -- --eprocure --backend http://localhost:3000`, or pass a custom `--url` and `--goal`.
 4. Open the printed Browserbase Live View URL to watch the cloud browser run the task.
+
+The shared page runtime also contains the WebMCP bridge. Discovery works when the page or Browserbase Chrome environment exposes `document.modelContext` or `navigator.modelContext`; the local Chrome testing flag is not required for pages that already provide compatible WebMCP support. Read and mutation tools use the same run-start consent boundary as other planner-selected actions.
 5. Inspect the JSONL event log under `.webgpt-cloud-runs/` plus backend artifacts to review or improve the run.

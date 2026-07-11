@@ -37,6 +37,18 @@
       throw new Error("Invalid action.");
     }
 
+    // WebMCP tool names are planner-facing aliases, so route on the explicit
+    // executor before the normal action switch or connector-name fallback.
+    if (action.executor === "webmcp") {
+      const webMcp = globalThis.WebGPTWebMCP;
+      if (!webMcp || typeof webMcp.executeAction !== "function") {
+        throw new Error("WebMCP execution bridge is unavailable.");
+      }
+      return webMcp.executeAction(action, document, {
+        frameId: Number.isInteger(state?.frameId) ? state.frameId : null,
+      });
+    }
+
     switch (action.type) {
       case "wait": {
         const ms = action.ms || 1000;
@@ -291,16 +303,64 @@
   }
 
   async function runActions(state, actions) {
+    const batch = Array.isArray(actions) ? actions : [];
     const results = [];
     const recoverableFailures = [];
 
     try {
-      for (const action of actions || []) {
-        const result = await runSingleAction(state, action);
+      for (let index = 0; index < batch.length; index += 1) {
+        const action = batch[index];
+        let result = null;
+        try {
+          result = await runSingleAction(state, action);
+        } catch (error) {
+          const failedResult = {
+            ok: false,
+            error: error?.message || String(error),
+          };
+          results.push({ action, result: failedResult });
+          return {
+            ok: false,
+            error: failedResult.error,
+            results,
+            recoverableFailures,
+          };
+        }
         results.push({ action, result });
-        if (result && result.ok === false) {
-          if (result.recoverable || result.continueBatch) {
-            recoverableFailures.push({ action, result });
+        const actionFailed = Boolean(result && result.ok === false);
+        const recoverableFailure = Boolean(
+          actionFailed && (result.recoverable || result.continueBatch),
+        );
+        if (recoverableFailure) {
+          recoverableFailures.push({ action, result });
+        }
+
+        if (result?.navigationStarted) {
+          const skippedActions = batch.slice(index + 1);
+          return {
+            ok: !actionFailed || recoverableFailure,
+            summary: skippedActions.length
+              ? `Navigation started after ${action.type}; ${skippedActions.length} remaining action(s) were skipped.`
+              : `Navigation started after ${action.type}.`,
+            ...(actionFailed && !recoverableFailure
+              ? {
+                  error:
+                    result.detail ||
+                    result.error ||
+                    `Action ${action.type} reported failure.`,
+                }
+              : {}),
+            results,
+            recoverableFailures,
+            navigationStarted: true,
+            interruptedByNavigation: true,
+            skippedActionCount: skippedActions.length,
+            skippedActions,
+          };
+        }
+
+        if (actionFailed) {
+          if (recoverableFailure) {
             await new Promise((resolve) => setTimeout(resolve, 300));
             continue;
           }
@@ -310,6 +370,7 @@
               `Action ${action.type} reported failure.`,
           );
         }
+
         await new Promise((resolve) => setTimeout(resolve, 300));
       }
 

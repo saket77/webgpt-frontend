@@ -90,6 +90,10 @@ export function PreRunDisclosureModal({
                 only after you start a run.
               </List.Item>
               <List.Item>
+                Executes planner-selected DOM actions, connector tools, and
+                website-provided WebMCP tools that remain within your goal.
+              </List.Item>
+              <List.Item>
                 Injects local extension scripts dynamically for user-initiated
                 runs.
               </List.Item>

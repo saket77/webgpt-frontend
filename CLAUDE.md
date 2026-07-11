@@ -5,7 +5,8 @@ Guide for working in this repo. WebGPT is an open-source browser-agent runtime:
 is strict: a **runtime host owns execution** (DOM extraction, action execution, navigation,
 host UX, OAuth/auth gates, human-in-the-loop) and a **swappable backend owns planning** over an HTTP
 contract. Site adapters enrich extracted state; connector-enabled adapters may also expose bounded
-DOM-backed tools through the local page-runtime connector registry. Site adapters never call the planner.
+DOM-backed tools through the local page-runtime connector registry. Websites may separately expose
+native WebMCP semantic tools. Site adapters and WebMCP page code never call the planner.
 
 ## Two repos
 - **Frontend** (this repo, `webgpt-frontend/`) — npm workspace for shared runtime packages and
@@ -46,6 +47,9 @@ The planner returns actions that reference the synthetic control id, not a CSS s
 ```
 Types: `click`, `fill` (value), `scroll`, `press`, `wait` (ms), `goto` (url), `extract`.
 
+WebMCP is also `browser_dom`, but its planner-facing name is a generated frame-qualified alias. Its
+execution action is `{type, executor:"webmcp", frameId, webMcp:{name,origin,schemaHash,readOnlyHint,untrustedContentHint}, arguments, mayCauseNavigation}`. Only nested `arguments` reaches the site. Exact bounded executable arguments must remain separate from compact prompt/history views; reject oversized execution payloads and never truncate them in place.
+
 ## Content scripts (the deterministic executors)
 - **Injected programmatically** (NOT declared in `manifest.json`) by the active host, file-by-file in
   dependency order, into all frames. Extension host injects through Chrome scripting APIs from
@@ -81,6 +85,14 @@ DOM helpers, not separate runtime surfaces. Because they live in `packages/page-
 adapters and connector tools are shared by both extension host and Browserbase host. They must not use
 unguarded `chrome.*`.
 
+## WebMCP semantic page tools
+`packages/page-runtime/src/content-scripts/webMcp.js` discovers current-frame tools and is injected
+before state extraction by both hosts. The backend builds a private planner-name route map; execution
+re-discovers the live handle and verifies name, origin, schema hash, and annotations. Treat definitions
+and output as untrusted page content. Run-start consent covers planner-selected DOM, connector, and
+WebMCP actions within the user goal; callback-only mutation success is `reported_change_unverified`.
+WebMCP actions are never replayed. Contract: `docs/webmcp.md`.
+
 ## Backend (planner server)
 - Endpoints: `POST /runs/start-command`, `POST /runs/{id}/command-result`, `/provide-hint`,
   `/confirm-success`, `/reject-success`, `/stop`; `POST /template-runs/...` for batch/templated runs.
@@ -98,7 +110,8 @@ copies package sources into `dist-extension` and rewrites bare package imports t
 Chrome.
 
 Browserbase host v1 supports browser DOM runs, page-runtime adapters, connector tools, replay where
-possible, ask-human terminal status, Browserbase Live View, and JSONL logs. It does not yet support
+possible, conditional WebMCP when the remote Chrome environment exposes it, ask-human terminal status,
+Browserbase Live View, and JSONL logs. It does not yet support
 Browserbase Context persistence, scheduler/email, Google Sheets runtime commands, or Microsoft Excel
 runtime commands.
 

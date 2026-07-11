@@ -2,6 +2,9 @@ import { browserRuntime } from "./browser.js";
 import { googleSheetsRuntime } from "./googleSheets.js";
 import { microsoftExcelRuntime } from "./microsoftExcel.js";
 import {
+  zohoBooksSourceProviderRuntime,
+} from "./sourceProviders/zohoBooks.js";
+import {
   BROWSER_DOM_SURFACE,
   GOOGLE_SHEETS_SURFACE,
   MICROSOFT_EXCEL_SURFACE,
@@ -39,10 +42,12 @@ export const appRuntime = {
 
   connectGoogleSheets: googleSheetsRuntime.connectGoogleSheets,
   connectMicrosoftExcel: microsoftExcelRuntime.connectMicrosoftExcel,
+  connectZohoBooks: zohoBooksSourceProviderRuntime.connectZohoBooks,
   detectSurfaceForTab,
   getGoogleSheetsAuthStatus: googleSheetsRuntime.getGoogleSheetsAuthStatus,
   getMicrosoftExcelAuthStatus:
     microsoftExcelRuntime.getMicrosoftExcelAuthStatus,
+  getZohoBooksAuthStatus: zohoBooksSourceProviderRuntime.getZohoBooksAuthStatus,
 
   async extractStateFromTab(tabId, options = {}) {
     const detectedSurface =
@@ -74,6 +79,14 @@ export const appRuntime = {
       tabId,
       state,
       commands,
+    );
+  },
+
+  async runSourceProviderCommands(provider, commands, context = {}) {
+    return zohoBooksSourceProviderRuntime.runSourceProviderCommands(
+      provider,
+      commands,
+      context,
     );
   },
 

@@ -65,6 +65,9 @@ async function maybeAutoConfirm({
 
 function statusForResult(result, session) {
   if (result?.completed) return "completed";
+  if (result?.accessRequired) {
+    return result.reason || "access_required";
+  }
   if (result?.waitingForNavigation) return "waiting_for_navigation";
   if (result?.paused) return session.pausedReason || result.reason || "paused";
   if (result?.stopped) return result.reason || "stopped";
@@ -154,7 +157,7 @@ export async function runCloudWebGpt({
     const session = await sessionStore.getSession(CLOUD_TAB_ID);
 
     return {
-      ok: Boolean(result?.ok),
+      ok: Boolean(result?.ok && !result?.accessRequired),
       status: statusForResult(result, session),
       browserbaseSessionId: browserbase.sessionId,
       sessionUrl: browserbase.sessionUrl,

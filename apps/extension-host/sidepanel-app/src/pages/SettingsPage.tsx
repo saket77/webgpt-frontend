@@ -3,6 +3,7 @@ import {
   BackendConfigCard,
   MicrosoftExcelConfigCard,
   MyInfoCard,
+  ZohoBooksConfigCard,
 } from "../components/agent";
 
 type SettingsPageProps = {
@@ -29,6 +30,7 @@ export default function SettingsPage({ onBack }: SettingsPageProps) {
       <MyInfoCard />
       <BackendConfigCard />
       <MicrosoftExcelConfigCard />
+      <ZohoBooksConfigCard />
     </Stack>
   );
 }

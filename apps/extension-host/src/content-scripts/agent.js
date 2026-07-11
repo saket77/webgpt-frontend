@@ -1,5 +1,5 @@
 (function () {
-  const CONTENT_SCRIPT_PROTOCOL_REVISION = "connector-tools-2026-07-02";
+  const CONTENT_SCRIPT_PROTOCOL_REVISION = "webmcp-tools-2026-07-11";
   const PING_MESSAGE_TYPE = "PING_WEBGPT_CONTENT_SCRIPT";
   const EXTRACT_STATE_MESSAGE_TYPE = "WEBGPT_EXTRACT_STATE_V2";
   const RUN_ACTIONS_MESSAGE_TYPE = "WEBGPT_RUN_ACTIONS_V2";
@@ -45,14 +45,20 @@
     }
   }
 
-  function extractStateFromMessage(message) {
+  async function extractStateFromMessage(message) {
     assertDeps();
 
-    return window.WebGPTExtractState({
+    const state = window.WebGPTExtractState({
       goal: message.goal || "",
       step: message.step || 1,
       ...(message.meta || {}),
     });
+
+    if (typeof window.WebGPTWebMCP?.augmentState === "function") {
+      return window.WebGPTWebMCP.augmentState(state, document);
+    }
+
+    return state;
   }
 
   function runActionsFromMessage(message) {
@@ -96,13 +102,23 @@
     if (message?.type === EXTRACT_STATE_MESSAGE_TYPE) {
       if (!protocolMatches(message)) return false;
       try {
-        const state = extractStateFromMessage(message);
+        extractStateFromMessage(message)
+          .then((state) => {
+            sendResponse({
+              ok: true,
+              protocolRevision: CONTENT_SCRIPT_PROTOCOL_REVISION,
+              state,
+            });
+          })
+          .catch((error) => {
+            sendResponse({
+              ok: false,
+              protocolRevision: CONTENT_SCRIPT_PROTOCOL_REVISION,
+              error: error?.message || String(error),
+            });
+          });
 
-        sendResponse({
-          ok: true,
-          protocolRevision: CONTENT_SCRIPT_PROTOCOL_REVISION,
-          state,
-        });
+        return true;
       } catch (error) {
         sendResponse({
           ok: false,
@@ -115,12 +131,16 @@
 
     if (message?.type === "WEBGPT_EXTRACT_STATE") {
       try {
-        const state = extractStateFromMessage(message);
+        extractStateFromMessage(message)
+          .then((state) => sendResponse({ ok: true, state }))
+          .catch((error) => {
+            sendResponse({
+              ok: false,
+              error: error?.message || String(error),
+            });
+          });
 
-        sendResponse({
-          ok: true,
-          state,
-        });
+        return true;
       } catch (error) {
         sendResponse({
           ok: false,

@@ -8,7 +8,7 @@ import {
   EXTENSION_CONTENT_SCRIPT_FILES,
 } from "@webgpt/page-runtime";
 
-const CONTENT_SCRIPT_PROTOCOL_REVISION = "connector-tools-2026-07-02";
+const CONTENT_SCRIPT_PROTOCOL_REVISION = "webmcp-tools-2026-07-11";
 const PING_MESSAGE_TYPE = "PING_WEBGPT_CONTENT_SCRIPT";
 const EXTRACT_STATE_MESSAGE_TYPE = "WEBGPT_EXTRACT_STATE_V2";
 const RUN_ACTIONS_MESSAGE_TYPE = "WEBGPT_RUN_ACTIONS_V2";
@@ -209,6 +209,7 @@ function buildSingleFrameRunnerState({
   }
 
   return {
+    frameId,
     goal: aggregateState?.goal || fallbackGoal || "",
     step: aggregateState?.step || fallbackStep || 1,
     url: frameState.url || "",
@@ -730,6 +731,36 @@ function buildFailedExecution(results, result, tabId, frameId) {
   };
 }
 
+function buildNavigationInterruptedExecution({
+  execution = {},
+  results,
+  tabId,
+  frameId,
+  trailingActions = [],
+}) {
+  const skippedActions = [
+    ...(Array.isArray(execution?.skippedActions)
+      ? execution.skippedActions
+      : []),
+    ...(Array.isArray(trailingActions) ? trailingActions : []),
+  ];
+
+  return {
+    ...execution,
+    ok: true,
+    summary: skippedActions.length
+      ? `Navigation started; ${skippedActions.length} remaining action(s) were skipped.`
+      : execution?.summary || "Navigation started.",
+    results,
+    navigationStarted: true,
+    interruptedByNavigation: true,
+    skippedActionCount: skippedActions.length,
+    skippedActions,
+    tabId,
+    frameId,
+  };
+}
+
 async function extractStateForActionSegment(tabId, previousState) {
   return extractAggregateStateFromTab(tabId, {
     goal: previousState?.goal || "",
@@ -748,7 +779,7 @@ export async function runActionsInTab(tabId, state, actions) {
   let domBatch = [];
   const results = [];
 
-  async function flushDomBatch() {
+  async function flushDomBatch(trailingActions = []) {
     if (!domBatch.length) return null;
 
     if (!activeState || typeof activeState !== "object" || !activeState.frames) {
@@ -775,13 +806,26 @@ export async function runActionsInTab(tabId, state, actions) {
       };
     }
 
+    if (execution?.navigationStarted) {
+      return buildNavigationInterruptedExecution({
+        execution,
+        results,
+        tabId: activeTabId,
+        frameId,
+        trailingActions,
+      });
+    }
+
     return null;
   }
 
-  for (const action of safeActions) {
+  for (let index = 0; index < safeActions.length; index += 1) {
+    const action = safeActions[index];
     if (isBrowserControlAction(action)) {
-      const failedDomExecution = await flushDomBatch();
-      if (failedDomExecution) return failedDomExecution;
+      const terminalDomExecution = await flushDomBatch(
+        safeActions.slice(index),
+      );
+      if (terminalDomExecution) return terminalDomExecution;
 
       const result = await runBrowserControlAction(activeTabId, action, {
         state: activeState,
@@ -796,6 +840,15 @@ export async function runActionsInTab(tabId, state, actions) {
         return buildFailedExecution(results, result, activeTabId, frameId);
       }
 
+      if (result?.navigationStarted) {
+        return buildNavigationInterruptedExecution({
+          results,
+          tabId: activeTabId,
+          frameId,
+          trailingActions: safeActions.slice(index + 1),
+        });
+      }
+
       activeState = null;
       await sleep(300);
       continue;
@@ -804,8 +857,8 @@ export async function runActionsInTab(tabId, state, actions) {
     domBatch.push(action);
   }
 
-  const failedDomExecution = await flushDomBatch();
-  if (failedDomExecution) return failedDomExecution;
+  const terminalDomExecution = await flushDomBatch();
+  if (terminalDomExecution) return terminalDomExecution;
 
   return {
     ok: true,

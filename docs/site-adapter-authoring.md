@@ -9,6 +9,8 @@ There are two adapter styles:
 
 State-only adapters are still the default. Connector tools are for page operations where the adapter already understands the live DOM and a single planner action should perform a bounded multi-step interaction, such as opening a custom select, choosing the matching option, or filling a known set of document placeholders.
 
+Before adding a connector, check whether the website already exposes the same capability through WebMCP. Native WebMCP tools are website-owned, discovered automatically, and should normally be preferred over duplicating that operation in `WebGPTConnectorTools`. Use a connector as an intentional compatibility path when WebMCP is unavailable or when the required behavior is genuinely WebGPT-specific. See [WebMCP integration](./webmcp.md).
+
 Adapters live in `@webgpt/page-runtime`. Pure page-runtime adapters are shared by both current hosts:
 
 - the Chrome extension host injects page-runtime through Chrome scripting APIs

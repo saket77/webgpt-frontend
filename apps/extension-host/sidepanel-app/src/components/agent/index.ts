@@ -7,4 +7,5 @@ export { RunAgentControlPanel } from "./RunAgentControlPanel";
 export { BackendConfigCard } from "./BackendConfigCard";
 export { MicrosoftExcelConfigCard } from "./MicrosoftExcelConfigCard";
 export { MyInfoCard } from "./MyInfoCard";
+export { ZohoBooksConfigCard } from "./ZohoBooksConfigCard";
 export { AgentChatPanel } from "./AgentChatPanel";

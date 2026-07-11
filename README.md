@@ -13,6 +13,7 @@ Unlike one-off browser agents, WebGPT is built around a clean runtime/planner bo
 - a runtime host owns browser execution
 - the backend owns planning
 - site adapters improve reliability on specific websites, including DOM-backed connector tools for high-friction page and document operations
+- website-native WebMCP tools provide semantic page actions when the browser exposes them
 - runtime adapters support non-DOM surfaces like Google Sheets and Microsoft Excel
 - successful workflows can become replayable routines
 
@@ -45,6 +46,7 @@ Web automation agents are easiest to iterate on when the browser runtime and pla
 - **Backend-agnostic planning**: use the hosted WebGPT planner or point a runtime host at any backend that speaks the documented command contract.
 - **Structured state**: extracts frames, controls, labels, scroll containers, URLs, titles, site-adapter hints, and runtime-specific state for planner use.
 - **Connector-enabled adapters**: lets selected site adapters expose bounded page tools, such as multi-step select filling or document-field completion, without turning the site into a separate runtime.
+- **WebMCP semantic tools**: discovers website-owned tools per frame, routes exact bounded arguments to a revalidated live handle, and verifies the result from fresh state.
 - **Runtime surfaces**: can route non-DOM products such as Google Sheets and Microsoft Excel through dedicated runtime clients while preserving the same planner loop.
 - **Human-in-the-loop recovery**: supports planner pauses, human hints, success confirmation, and rejected-success resume flows.
 - **Navigation-aware loops**: detects likely navigation, waits for the new document, and resumes with fresh state.
@@ -71,6 +73,12 @@ This gives planner backends a cleaner interface than raw DOM dumps or screenshot
 Site adapters add domain-specific state for websites where generic DOM extraction is not enough.
 
 Most adapters are state-only: they enrich controls, groups, and planner hints so the backend can return normal browser actions. Some adapters are connector-enabled: they also expose narrowly scoped DOM-backed tools through `provideTools()` and local content-script executors. Connector tools are for operations where one planner action should reuse the adapter's page model to perform a bounded multi-step page interaction, such as committing a custom select value or filling real editable document overlay fields.
+
+### Website-native semantic tools with WebMCP
+
+When the active browser exposes WebMCP, WebGPT discovers website-owned semantic tools alongside DOM state. The backend gives each tool a private frame/origin/schema route, the page runtime revalidates the live handle before execution, and only the exact nested tool arguments reach the website. Starting a run authorizes planner-selected DOM, connector, and WebMCP actions that remain within the user goal. Mutations are not considered verified until fresh state shows an effect.
+
+WebMCP stays inside `browser_dom`, is distinct from WebGPT connector tools, and is deliberately excluded from replay. See [WebMCP integration](./docs/webmcp.md).
 
 ### Runtime adapters for non-DOM surfaces
 
@@ -101,7 +109,7 @@ User goal or CLI goal
 The shared runtime packages are:
 
 ```text
-@webgpt/page-runtime          In-page extractor, runner, site adapters, connector tools
+@webgpt/page-runtime          In-page extractor, runner, WebMCP bridge, site adapters, connector tools
 @webgpt/controller-core       Host-agnostic planner command loop
 @webgpt/planner-http-adapter  Default HTTP contract for compatible planner backends
 ```
@@ -232,6 +240,8 @@ npm run cloud:run -- \
   --goal "Summarize the visible page state" \
   --backend http://localhost:3000
 ```
+
+WebMCP read and mutation tools use the same run-start consent boundary as DOM and connector actions. Browserbase support depends on its remote Chrome environment exposing the WebMCP browser API.
 
 The CLI prints the Browserbase session ID, Live View URL when Browserbase returns one, planner run ID, status, final result, and a local JSONL event log path under `.webgpt-cloud-runs/`.
 
@@ -409,6 +419,7 @@ Microsoft Excel detects Excel workbooks opened in Microsoft 365 / SharePoint, re
 Start here:
 
 - [Runtime authoring guide](./docs/runtime-authoring.md)
+- [WebMCP integration](./docs/webmcp.md)
 - [Google Sheets surface v0](./docs/surfaces/google-sheets-v0.md)
 - [Microsoft Excel surface v0](./docs/surfaces/microsoft-excel-v0.md)
 

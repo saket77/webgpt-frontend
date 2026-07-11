@@ -33,8 +33,8 @@ test("browser runtime uses revisioned content-script protocol before extraction 
   const browserSource = readSource("apps/extension-host/src/background/runtime/browser.js");
   const agentSource = readSource("apps/extension-host/src/content-scripts/agent.js");
 
-  assert.match(browserSource, /const CONTENT_SCRIPT_PROTOCOL_REVISION = "connector-tools-2026-07-02"/);
-  assert.match(agentSource, /const CONTENT_SCRIPT_PROTOCOL_REVISION = "connector-tools-2026-07-02"/);
+  assert.match(browserSource, /const CONTENT_SCRIPT_PROTOCOL_REVISION = "webmcp-tools-2026-07-11"/);
+  assert.match(agentSource, /const CONTENT_SCRIPT_PROTOCOL_REVISION = "webmcp-tools-2026-07-11"/);
   assert.match(browserSource, /type: PING_MESSAGE_TYPE/);
   assert.match(browserSource, /response\.protocolRevision === CONTENT_SCRIPT_PROTOCOL_REVISION/);
   assert.match(browserSource, /type: EXTRACT_STATE_MESSAGE_TYPE/);

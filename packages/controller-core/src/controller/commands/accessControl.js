@@ -65,6 +65,14 @@ function commandSurface(command, session) {
     return MICROSOFT_EXCEL_SURFACE;
   }
 
+  if (command.type === "run_source_provider_commands") {
+    return (
+      normalizeSurface(command.surface) ||
+      normalizeSurface(session?.surface) ||
+      ""
+    );
+  }
+
   if (command.type === "run_replay_batch") {
     return replayBatchSurface(command.batch?.steps);
   }

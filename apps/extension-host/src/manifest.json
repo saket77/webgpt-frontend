@@ -15,7 +15,23 @@
   "host_permissions": [
     "https://sheets.googleapis.com/*",
     "https://graph.microsoft.com/*",
-    "https://login.microsoftonline.com/*"
+    "https://login.microsoftonline.com/*",
+    "https://accounts.zoho.com/*",
+    "https://accounts.zoho.in/*",
+    "https://accounts.zoho.eu/*",
+    "https://accounts.zoho.com.au/*",
+    "https://accounts.zoho.jp/*",
+    "https://accounts.zoho.ca/*",
+    "https://accounts.zoho.com.cn/*",
+    "https://accounts.zoho.sa/*",
+    "https://www.zohoapis.com/*",
+    "https://www.zohoapis.in/*",
+    "https://www.zohoapis.eu/*",
+    "https://www.zohoapis.com.au/*",
+    "https://www.zohoapis.jp/*",
+    "https://www.zohoapis.ca/*",
+    "https://www.zohoapis.com.cn/*",
+    "https://www.zohoapis.sa/*"
   ],
 
   "optional_host_permissions": [

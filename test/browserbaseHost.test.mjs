@@ -20,6 +20,7 @@ function createFakeFrame(name, url = `https://example.test/${name}`) {
     name,
     injectedFiles: [],
     lastRunActionsArg: null,
+    runActionsArgs: [],
     url() {
       return url;
     },
@@ -64,6 +65,7 @@ function createFakeFrame(name, url = `https://example.test/${name}`) {
 
       if (source.includes("globalThis.WebGPTRunner.runActions")) {
         this.lastRunActionsArg = arg;
+        this.runActionsArgs.push(arg);
         return {
           ok: true,
           summary: "fake actions ok",
@@ -181,11 +183,116 @@ test("browserbase runtime executes planner actions in the selected frame", async
   );
 
   assert.equal(result.ok, true);
+  assert.equal(result.frameId, 1);
   assert.equal(mainFrame.lastRunActionsArg, null);
   assert.deepEqual(childFrame.lastRunActionsArg.nextActions, [
     { type: "click", targetId: "child_button" },
   ]);
   assert.equal(childFrame.lastRunActionsArg.nextState.title, "child");
+  assert.equal(childFrame.lastRunActionsArg.nextState.frameId, 1);
+});
+
+test("browserbase runtime removes only frame routing from WebMCP actions", async () => {
+  const mainFrame = createFakeFrame("main");
+  const runtime = createRuntimeWithFakePage([mainFrame]);
+  const action = {
+    type: "webmcp_example_book",
+    executor: "webmcp",
+    frameId: 0,
+    webMcp: {
+      name: "book",
+      origin: "https://example.test",
+      schemaHash: "0123456789abcdef",
+      readOnlyHint: false,
+      untrustedContentHint: false,
+    },
+    arguments: {
+      note: "  exact text  ",
+      nested: { values: [1, 2, 3] },
+    },
+  };
+
+  await runtime.ensureContentScriptReady(1, { attempts: 1, delayMs: 0 });
+  const result = await runtime.runActionsInTab(
+    1,
+    {
+      goal: "Book",
+      step: 1,
+      frames: {
+        0: {
+          url: "https://example.test",
+          title: "main",
+          controls: [],
+        },
+      },
+    },
+    [action],
+  );
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(mainFrame.lastRunActionsArg.nextActions, [
+    {
+      type: action.type,
+      executor: "webmcp",
+      webMcp: action.webMcp,
+      arguments: action.arguments,
+    },
+  ]);
+});
+
+test("browserbase runtime preserves mixed DOM, connector, WebMCP, and browser action order", async () => {
+  const mainFrame = createFakeFrame("main");
+  const runtime = createRuntimeWithFakePage([mainFrame]);
+  const actions = [
+    { type: "click", targetId: "main_button", frameId: 0 },
+    { type: "connector_fill", frameId: 0, value: "exact" },
+    {
+      type: "webmcp_example_read",
+      executor: "webmcp",
+      frameId: 0,
+      webMcp: {
+        name: "read",
+        origin: "https://example.test",
+        schemaHash: "read_schema",
+        readOnlyHint: true,
+        untrustedContentHint: true,
+      },
+      arguments: { section: "summary" },
+    },
+    { type: "return_to_previous_page", executor: "browser" },
+    { type: "connector_after_navigation", frameId: 0 },
+  ];
+
+  await runtime.ensureContentScriptReady(1, { attempts: 1, delayMs: 0 });
+  const result = await runtime.runActionsInTab(
+    1,
+    {
+      goal: "Run mixed actions",
+      step: 1,
+      frames: {
+        0: {
+          url: "https://example.test",
+          title: "main",
+          controls: [{ id: "main_button", label: "Run" }],
+        },
+      },
+    },
+    actions,
+  );
+
+  assert.equal(result.ok, true);
+  assert.equal(result.navigationStarted, true);
+  assert.equal(result.interruptedByNavigation, true);
+  assert.deepEqual(
+    result.results.map((entry) => entry.action.type),
+    actions.slice(0, 4).map((action) => action.type),
+  );
+  assert.deepEqual(
+    mainFrame.lastRunActionsArg.nextActions.map((action) => action.type),
+    actions.slice(0, 3).map((action) => action.type),
+  );
+  assert.equal(result.skippedActionCount, 1);
+  assert.deepEqual(result.skippedActions, [actions[4]]);
 });
 
 test("browserbase runtime rejects unsupported cloud-only surfaces clearly", async () => {

@@ -6,7 +6,7 @@ The shared packages define what WebGPT is:
 
 ```text
 @webgpt/page-runtime
-  In-page JavaScript: extractor, runner, connector tools, site adapters.
+  In-page JavaScript: extractor, runner, WebMCP bridge, connector tools, site adapters.
 
 @webgpt/controller-core
   Host-agnostic planner command loop: start, extract, act, replay, pause, done.
@@ -101,6 +101,8 @@ These can be supplied through the shell or ignored `.env.local` files at the rep
 | Built-in DOM actions | yes | yes |
 | Page-runtime site adapters | yes | yes |
 | Connector tools | yes | yes |
+| WebMCP discovery/read tools | yes, when Chrome enables WebMCP | yes, when remote Chrome enables WebMCP |
+| WebMCP mutation policy | covered by run-start consent | covered by run-start consent |
 | Replay batches | yes | partial |
 | Human hint / ask-human pause | sidepanel UX | terminal status + Live View |
 | Success confirmation | sidepanel UX | auto-confirm by default, configurable |
@@ -117,7 +119,9 @@ These can be supplied through the shell or ignored `.env.local` files at the rep
 
 `@webgpt/page-runtime` is the important shared boundary.
 
-Both hosts inject the same canonical `PAGE_RUNTIME_SCRIPT_FILES` order. That means a site adapter or connector tool added under `packages/page-runtime/src/content-scripts/adapters/` is available in both hosts as long as it is pure page JavaScript.
+Both hosts inject the same canonical `PAGE_RUNTIME_SCRIPT_FILES` order. That means the WebMCP bridge and any site adapter or connector tool added under `packages/page-runtime/src/content-scripts/adapters/` are available in both hosts as long as they are pure page JavaScript.
+
+`content-scripts/webMcp.js` discovers only tools owned by the current frame and re-discovers the live handle before invocation. The extension and Browserbase hosts assign numeric frame IDs and remove only that host routing field before page execution; WebMCP `executor`, route metadata, and exact nested `arguments` remain intact. Browserbase support depends on the remote browser exposing `document.modelContext`.
 
 Page-runtime files must not rely on unguarded `chrome.*`. Chrome-specific bridge behavior belongs in `apps/extension-host/src/content-scripts/agent.js`.
 

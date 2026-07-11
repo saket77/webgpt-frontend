@@ -1,4 +1,5 @@
 export const PAGE_RUNTIME_SCRIPT_FILES = [
+  "content-scripts/webMcp.js",
   "content-scripts/connectorTools.js",
   "content-scripts/extract-state/domUtils.js",
   "content-scripts/extract-state/elementMetadata.js",
