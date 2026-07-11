@@ -145,30 +145,18 @@ curl http://127.0.0.1:3100/routines/<routine_id>/triggers
 Email notifications are routine-only in V0. Supported providers:
 
 - `console`: logs the email payload locally.
-- `resend`: sends through Resend when `RESEND_API_KEY` is present.
-- `smtp`: sends through an SMTP server such as Gmail with an app password.
+- `gmail_api`: sends through Gmail API over HTTPS with an OAuth refresh token.
 
 Provider selection uses `WEBGPT_EMAIL_PROVIDER` when set. Otherwise it uses
-`resend` when `RESEND_API_KEY` is present, `smtp` when SMTP credentials are
-present, and `console` as the fallback.
+`gmail_api` when Gmail credentials are present, and `console` as the fallback.
 
-Resend test:
-
-```bash
-RESEND_API_KEY=... \
-RESEND_FROM='WebGPT <onboarding@resend.dev>' \
-npm run cloud:service
-```
-
-Gmail SMTP test:
+Gmail API test:
 
 ```bash
-WEBGPT_EMAIL_PROVIDER=smtp \
-SMTP_HOST=smtp.gmail.com \
-SMTP_PORT=465 \
-SMTP_SECURE=true \
-SMTP_USER=saketmundhada7@gmail.com \
-SMTP_PASS='gmail-app-password' \
+WEBGPT_EMAIL_PROVIDER=gmail_api \
+GMAIL_CLIENT_ID='...' \
+GMAIL_CLIENT_SECRET='...' \
+GMAIL_REFRESH_TOKEN='...' \
 WEBGPT_EMAIL_FROM='Saket Mundhada <saketmundhada7@gmail.com>' \
 npm run cloud:service
 ```

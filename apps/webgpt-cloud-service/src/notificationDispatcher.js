@@ -1,5 +1,3 @@
-import nodemailer from "nodemailer";
-
 function truncateJson(value, maxLength = 4000) {
   const text = JSON.stringify(value ?? null, null, 2);
   if (text.length <= maxLength) return text;
@@ -143,87 +141,174 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-async function sendViaResend({ to, subject, bodyText, html, config }) {
-  if (!config.resendApiKey || !config.emailFrom) {
-    throw new Error("RESEND_API_KEY and WEBGPT_EMAIL_FROM or RESEND_FROM are required for Resend email.");
-  }
+function sanitizeHeader(value) {
+  return String(value || "")
+    .replace(/[\r\n]+/g, " ")
+    .trim();
+}
 
+function encodeHeader(value) {
+  const sanitized = sanitizeHeader(value);
+  if (/^[\x20-\x7E]*$/.test(sanitized)) return sanitized;
+  return `=?UTF-8?B?${Buffer.from(sanitized, "utf8").toString("base64")}?=`;
+}
+
+function normalizeBody(value) {
+  return String(value || "").replace(/\r?\n/g, "\r\n");
+}
+
+function normalizeRecipients(to) {
+  return (Array.isArray(to) ? to : [to]).map(sanitizeHeader).filter(Boolean);
+}
+
+function base64UrlEncode(value) {
+  return Buffer.from(value, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function buildMimeMessage({ from, to, subject, bodyText, html }) {
+  const recipients = normalizeRecipients(to);
+  if (!from) throw new Error("WEBGPT_EMAIL_FROM or GMAIL_FROM is required for Gmail API email.");
+  if (recipients.length === 0) throw new Error("At least one email recipient is required.");
+
+  const boundary = `webgpt_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  return [
+    `From: ${sanitizeHeader(from)}`,
+    `To: ${recipients.join(", ")}`,
+    `Subject: ${encodeHeader(subject)}`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    normalizeBody(bodyText),
+    `--${boundary}`,
+    'Content-Type: text/html; charset="UTF-8"',
+    "Content-Transfer-Encoding: 8bit",
+    "",
+    normalizeBody(html),
+    `--${boundary}--`,
+    "",
+  ].join("\r\n");
+}
+
+async function fetchJsonWithTimeout({
+  fetchImpl,
+  url,
+  timeoutMs,
+  request,
+  timeoutMessage,
+}) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.resendTimeoutMs || 15000);
-  let response;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs || 15000);
 
   try {
-    response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
+    const response = await fetchImpl(url, {
+      ...request,
       signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${config.resendApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: config.emailFrom,
-        to,
-        subject,
-        text: bodyText,
-        html,
-      }),
     });
+    const data = await response.json().catch(() => ({}));
+    return { response, data };
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error(timeoutMessage || "Gmail API request timed out.");
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
-
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data.message || data.error || `Resend email failed with HTTP ${response.status}.`);
-  }
-
-  return {
-    provider: "resend",
-    providerId: data.id || "",
-  };
 }
 
-async function sendViaSmtp({
+async function getGmailAccessToken({ config, fetchImpl }) {
+  if (!config.gmailClientId || !config.gmailClientSecret || !config.gmailRefreshToken) {
+    throw new Error("GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN are required for Gmail API email.");
+  }
+
+  const body = new URLSearchParams({
+    client_id: config.gmailClientId,
+    client_secret: config.gmailClientSecret,
+    refresh_token: config.gmailRefreshToken,
+    grant_type: "refresh_token",
+  });
+  const { response, data } = await fetchJsonWithTimeout({
+    fetchImpl,
+    url: config.gmailTokenUrl,
+    timeoutMs: config.gmailTimeoutMs,
+    timeoutMessage: "Gmail OAuth token request timed out.",
+    request: {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(data.error_description || data.error || `Gmail OAuth token request failed with HTTP ${response.status}.`);
+  }
+  if (!data.access_token) {
+    throw new Error("Gmail OAuth token response did not include access_token.");
+  }
+
+  return data.access_token;
+}
+
+async function sendViaGmailApi({
   to,
   subject,
   bodyText,
   html,
   config,
-  createTransport = nodemailer.createTransport,
+  fetchImpl = globalThis.fetch,
 }) {
-  if (!config.smtpHost || !config.smtpUser || !config.smtpPass) {
-    throw new Error("SMTP_HOST, SMTP_USER, and SMTP_PASS are required for SMTP email.");
+  if (typeof fetchImpl !== "function") {
+    throw new Error("No fetch implementation available for Gmail API email.");
   }
 
-  const from = config.emailFrom || config.smtpUser;
-  if (!from) {
-    throw new Error("WEBGPT_EMAIL_FROM or SMTP_USER is required for SMTP email.");
-  }
-
-  const transport = createTransport({
-    host: config.smtpHost,
-    port: config.smtpPort || 465,
-    secure: Boolean(config.smtpSecure),
-    connectionTimeout: config.smtpTimeoutMs || 15000,
-    greetingTimeout: config.smtpTimeoutMs || 15000,
-    socketTimeout: config.smtpTimeoutMs || 15000,
-    auth: {
-      user: config.smtpUser,
-      pass: config.smtpPass,
-    },
-  });
-
-  const result = await transport.sendMail({
-    from,
+  const accessToken = await getGmailAccessToken({ config, fetchImpl });
+  const mimeMessage = buildMimeMessage({
+    from: config.emailFrom,
     to,
     subject,
-    text: bodyText,
+    bodyText,
     html,
   });
 
+  const { response, data } = await fetchJsonWithTimeout({
+    fetchImpl,
+    url: config.gmailSendUrl,
+    timeoutMs: config.gmailTimeoutMs,
+    timeoutMessage: "Gmail send request timed out.",
+    request: {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        raw: base64UrlEncode(mimeMessage),
+      }),
+    },
+  });
+
+  if (!response.ok) {
+    const errorMessage =
+      data.error?.message ||
+      data.error_description ||
+      data.error ||
+      `Gmail send request failed with HTTP ${response.status}.`;
+    throw new Error(errorMessage);
+  }
+
   return {
-    provider: "smtp",
-    providerId: result?.messageId || "",
+    provider: "gmail_api",
+    providerId: data.id || "",
   };
 }
 
@@ -233,7 +318,7 @@ export function createNotificationDispatcher({
   intervalMs = 15000,
   logStream = process.stderr,
   sendEmail,
-  createSmtpTransport,
+  fetchImpl = globalThis.fetch,
 } = {}) {
   if (!store) throw new Error("createNotificationDispatcher requires store.");
 
@@ -272,22 +357,14 @@ export function createNotificationDispatcher({
         logStream.write(
           `[routine-email] to=${notification.to.join(",")} subject=${email.subject}\n${email.bodyText}\n`,
         );
-      } else if (config.emailProvider === "resend") {
-        await sendViaResend({
+      } else if (config.emailProvider === "gmail_api") {
+        await sendViaGmailApi({
           to: notification.to,
           subject: email.subject,
           bodyText: email.bodyText,
           html: email.html,
           config,
-        });
-      } else if (config.emailProvider === "smtp") {
-        await sendViaSmtp({
-          to: notification.to,
-          subject: email.subject,
-          bodyText: email.bodyText,
-          html: email.html,
-          config,
-          createTransport: createSmtpTransport,
+          fetchImpl,
         });
       } else {
         throw new Error(`Unsupported email provider: ${String(config.emailProvider)}.`);

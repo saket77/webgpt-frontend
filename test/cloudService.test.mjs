@@ -159,39 +159,34 @@ test("cloud service config keeps tokenless local dev on loopback and requires to
   });
   assert.equal(railwayPort.port, 8080);
 
-  const resendLocal = readCloudServiceConfig({
-    RESEND_API_KEY: "re_123",
-    RESEND_FROM: "WebGPT <onboarding@resend.dev>",
-  });
-  assert.equal(resendLocal.emailProvider, "resend");
-  assert.equal(resendLocal.resendApiKey, "re_123");
-  assert.equal(resendLocal.emailFrom, "WebGPT <onboarding@resend.dev>");
-
-  const smtpLocal = readCloudServiceConfig({
-    WEBGPT_EMAIL_PROVIDER: "smtp",
-    SMTP_HOST: "smtp.gmail.com",
-    SMTP_PORT: "465",
-    SMTP_SECURE: "true",
-    SMTP_USER: "saketmundhada7@gmail.com",
-    SMTP_PASS: "app-password",
-  });
-  assert.equal(smtpLocal.emailProvider, "smtp");
-  assert.equal(smtpLocal.smtpHost, "smtp.gmail.com");
-  assert.equal(smtpLocal.smtpPort, 465);
-  assert.equal(smtpLocal.smtpSecure, true);
-  assert.equal(smtpLocal.smtpTimeoutMs, 15000);
-  assert.equal(smtpLocal.smtpUser, "saketmundhada7@gmail.com");
-  assert.equal(smtpLocal.smtpPass, "app-password");
-  assert.equal(smtpLocal.emailFrom, "saketmundhada7@gmail.com");
-
-  const smtpWithFrom = readCloudServiceConfig({
-    WEBGPT_EMAIL_PROVIDER: "smtp",
+  const gmailLocal = readCloudServiceConfig({
+    WEBGPT_EMAIL_PROVIDER: "gmail_api",
+    GMAIL_CLIENT_ID: "gmail-client-id",
+    GMAIL_CLIENT_SECRET: "gmail-client-secret",
+    GMAIL_REFRESH_TOKEN: "gmail-refresh-token",
+    GMAIL_TOKEN_URL: "https://oauth2.example.test/token",
+    GMAIL_SEND_URL: "https://gmail.example.test/send",
+    GMAIL_TIMEOUT_MS: "5000",
     WEBGPT_EMAIL_FROM: "Saket Mundhada <saketmundhada7@gmail.com>",
-    SMTP_HOST: "smtp.gmail.com",
-    SMTP_USER: "saketmundhada7@gmail.com",
-    SMTP_PASS: "app-password",
   });
-  assert.equal(smtpWithFrom.emailFrom, "Saket Mundhada <saketmundhada7@gmail.com>");
+  assert.equal(gmailLocal.emailProvider, "gmail_api");
+  assert.equal(gmailLocal.gmailClientId, "gmail-client-id");
+  assert.equal(gmailLocal.gmailClientSecret, "gmail-client-secret");
+  assert.equal(gmailLocal.gmailRefreshToken, "gmail-refresh-token");
+  assert.equal(gmailLocal.gmailTokenUrl, "https://oauth2.example.test/token");
+  assert.equal(gmailLocal.gmailSendUrl, "https://gmail.example.test/send");
+  assert.equal(gmailLocal.gmailTimeoutMs, 5000);
+  assert.equal(gmailLocal.emailFrom, "Saket Mundhada <saketmundhada7@gmail.com>");
+
+  const gmailAutoSelected = readCloudServiceConfig({
+    GMAIL_CLIENT_ID: "gmail-client-id",
+    GMAIL_CLIENT_SECRET: "gmail-client-secret",
+    GMAIL_REFRESH_TOKEN: "gmail-refresh-token",
+    GMAIL_FROM: "saketmundhada7@gmail.com",
+  });
+  assert.equal(gmailAutoSelected.emailProvider, "gmail_api");
+  assert.equal(gmailAutoSelected.emailFrom, "saketmundhada7@gmail.com");
+  assert.equal(gmailAutoSelected.gmailTimeoutMs, 15000);
 
   assert.throws(
     () => readCloudServiceConfig({ NODE_ENV: "production" }),
@@ -1018,9 +1013,9 @@ test("notification dispatcher waits for running runs and sends console email aft
   }
 });
 
-test("notification dispatcher sends email through mocked SMTP transport", async () => {
+test("notification dispatcher sends email through mocked Gmail API", async () => {
   const { store, cleanup } = createTempStore();
-  const smtpMessages = [];
+  const gmailRequests = [];
 
   try {
     const routine = store.createRoutine(
@@ -1041,32 +1036,42 @@ test("notification dispatcher sends email through mocked SMTP transport", async 
     const dispatcher = createNotificationDispatcher({
       store,
       config: {
-        emailProvider: "smtp",
+        emailProvider: "gmail_api",
         emailFrom: "Saket Mundhada <saketmundhada7@gmail.com>",
-        smtpHost: "smtp.gmail.com",
-        smtpPort: 465,
-        smtpSecure: true,
-        smtpTimeoutMs: 15000,
-        smtpUser: "saketmundhada7@gmail.com",
-        smtpPass: "app-password",
+        gmailClientId: "gmail-client-id",
+        gmailClientSecret: "gmail-client-secret",
+        gmailRefreshToken: "gmail-refresh-token",
+        gmailTokenUrl: "https://oauth2.example.test/token",
+        gmailSendUrl: "https://gmail.example.test/send",
+        gmailTimeoutMs: 15000,
       },
-      createSmtpTransport(options) {
-        assert.deepEqual(options, {
-          host: "smtp.gmail.com",
-          port: 465,
-          secure: true,
-          connectionTimeout: 15000,
-          greetingTimeout: 15000,
-          socketTimeout: 15000,
-          auth: {
-            user: "saketmundhada7@gmail.com",
-            pass: "app-password",
-          },
-        });
+      async fetchImpl(url, request) {
+        gmailRequests.push({ url, request });
+        if (url === "https://oauth2.example.test/token") {
+          assert.equal(request.method, "POST");
+          assert.equal(request.headers["Content-Type"], "application/x-www-form-urlencoded");
+          assert.equal(request.body.get("client_id"), "gmail-client-id");
+          assert.equal(request.body.get("client_secret"), "gmail-client-secret");
+          assert.equal(request.body.get("refresh_token"), "gmail-refresh-token");
+          assert.equal(request.body.get("grant_type"), "refresh_token");
+          return {
+            ok: true,
+            status: 200,
+            async json() {
+              return { access_token: "gmail-access-token" };
+            },
+          };
+        }
+
+        assert.equal(url, "https://gmail.example.test/send");
+        assert.equal(request.method, "POST");
+        assert.equal(request.headers.Authorization, "Bearer gmail-access-token");
+        assert.equal(request.headers["Content-Type"], "application/json");
         return {
-          async sendMail(message) {
-            smtpMessages.push(message);
-            return { messageId: "smtp-message-1" };
+          ok: true,
+          status: 200,
+          async json() {
+            return { id: "gmail-message-1" };
           },
         };
       },
@@ -1075,12 +1080,17 @@ test("notification dispatcher sends email through mocked SMTP transport", async 
 
     await dispatcher.tick();
 
-    assert.equal(smtpMessages.length, 1);
-    assert.equal(smtpMessages[0].from, "Saket Mundhada <saketmundhada7@gmail.com>");
-    assert.deepEqual(smtpMessages[0].to, ["mom@example.com"]);
-    assert.match(smtpMessages[0].subject, /Test routine completed/);
-    assert.match(smtpMessages[0].text, /IPO summary/);
-    assert.match(smtpMessages[0].html, /IPO summary/);
+    assert.equal(gmailRequests.length, 2);
+    const raw = JSON.parse(gmailRequests[1].request.body).raw;
+    const paddedRaw = `${raw}${"=".repeat((4 - (raw.length % 4)) % 4)}`;
+    const mime = Buffer.from(
+      paddedRaw.replace(/-/g, "+").replace(/_/g, "/"),
+      "base64",
+    ).toString("utf8");
+    assert.match(mime, /From: Saket Mundhada <saketmundhada7@gmail\.com>/);
+    assert.match(mime, /To: mom@example\.com/);
+    assert.match(mime, /Subject: \[WebGPT\] Test routine completed/);
+    assert.match(mime, /IPO summary/);
     assert.equal(store.listPendingNotifications().length, 0);
     assert.equal(
       store
@@ -1121,55 +1131,32 @@ test("notification dispatcher sends failure email body and marks missing provide
     assert.equal(sent.length, 1);
     assert.match(sent[0].bodyText, /Browser crashed/);
 
-    const resendTrigger = store.triggerRoutine(routine.id);
-    store.markCompleted(resendTrigger.cloudRun.id, {
+    const gmailTrigger = store.triggerRoutine(routine.id);
+    store.markCompleted(gmailTrigger.cloudRun.id, {
       ok: true,
       summary: "Done",
       finalResult: {},
     });
-    const brokenResend = createNotificationDispatcher({
+    const brokenGmail = createNotificationDispatcher({
       store,
       config: {
-        emailProvider: "resend",
-        resendApiKey: "",
+        emailProvider: "gmail_api",
+        gmailClientId: "",
+        gmailClientSecret: "",
+        gmailRefreshToken: "",
         emailFrom: "",
       },
       logStream: { write() {} },
     });
-    await brokenResend.tick();
+    await brokenGmail.tick();
 
     const failedNotification = store
       .listPendingNotifications()
-      .find((notification) => notification.cloudRunId === resendTrigger.cloudRun.id);
+      .find((notification) => notification.cloudRunId === gmailTrigger.cloudRun.id);
     assert.equal(failedNotification, undefined);
     assert.equal(
       store
-        .getRunForApi(resendTrigger.cloudRun.id)
-        .progress.events.some((event) => event.kind === "notification_failed"),
-      true,
-    );
-
-    const smtpTrigger = store.triggerRoutine(routine.id);
-    store.markCompleted(smtpTrigger.cloudRun.id, {
-      ok: true,
-      summary: "Done",
-      finalResult: {},
-    });
-    const brokenSmtp = createNotificationDispatcher({
-      store,
-      config: {
-        emailProvider: "smtp",
-        smtpHost: "smtp.gmail.com",
-        smtpUser: "",
-        smtpPass: "",
-      },
-      logStream: { write() {} },
-    });
-    await brokenSmtp.tick();
-
-    assert.equal(
-      store
-        .getRunForApi(smtpTrigger.cloudRun.id)
+        .getRunForApi(gmailTrigger.cloudRun.id)
         .progress.events.some((event) => event.kind === "notification_failed"),
       true,
     );
