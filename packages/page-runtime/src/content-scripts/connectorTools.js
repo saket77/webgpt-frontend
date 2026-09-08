@@ -15,29 +15,71 @@
   }
 
   const handlers = new Map();
+  const guardedHandlers = new Set();
 
-  function register(name, execute) {
+  function register(name, execute, options = {}) {
     const key = typeof name === "string" ? name.trim() : "";
     if (!key || typeof execute !== "function") return;
     handlers.set(key, execute);
+    if (options.requiresAuthorization === true) guardedHandlers.add(key);
+    else guardedHandlers.delete(key);
   }
 
   function has(name) {
     return handlers.has(typeof name === "string" ? name.trim() : "");
   }
 
+  function privateRoute(name) {
+    try {
+      return globalThis.WebGPTContentAdapters?.getPrivateToolRoutes?.()?.[name] || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function authorizedAction(name, action) {
+    const route = privateRoute(name);
+    if (!guardedHandlers.has(name) && !route?.requiresAuthorization) return action || {};
+    if (!route?.requiresAuthorization) return null;
+
+    const token = action?.__webgptAuthorizationToken;
+    const consume = globalThis.WebGPTContentAdapters?.consumePrivateToolAuthorization;
+    if (typeof consume !== "function" || !consume(name, token)) return null;
+
+    const sanitized = { ...(action || {}) };
+    delete sanitized.__webgptAuthorizationToken;
+    return sanitized;
+  }
+
   async function run(name, action, ctx) {
-    const execute = handlers.get(typeof name === "string" ? name.trim() : "");
+    const key = typeof name === "string" ? name.trim() : "";
+    const execute = handlers.get(key);
     if (!execute) {
       return { ok: false, detail: `No connector tool registered for ${name}` };
     }
-    return execute(action || {}, ctx || {});
+    const authorized = authorizedAction(key, action);
+    if (!authorized) {
+      return {
+        ok: false,
+        detail: `Connector tool ${key} requires one-use host authorization.`,
+      };
+    }
+    return execute(authorized, ctx || {});
+  }
+
+  async function runPrivileged(name, action, ctx, authorizationToken) {
+    return run(
+      name,
+      { ...(action || {}), __webgptAuthorizationToken: authorizationToken },
+      ctx,
+    );
   }
 
   globalThis.WebGPTConnectorTools = {
     register,
     has,
     run,
+    runPrivileged,
     list() {
       return Array.from(handlers.keys());
     },

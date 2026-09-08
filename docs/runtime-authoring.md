@@ -17,7 +17,7 @@ The frontend loop stays the same:
 7. The host extracts fresh state and posts the result back.
 8. Replay, templates, extracted data, and success confirmation keep using the normal backend contract.
 
-This is different from a connector-enabled site adapter. A site adapter still starts from browser DOM state and page-local interactions. A connector-enabled adapter can expose a bounded DOM-backed tool for a specific page operation, but it still lives inside `run_actions` and the content-script runner. A runtime can have its own state shape, auth, API calls, replay steps, and command vocabulary.
+This is different from a connector-enabled site adapter. A site adapter still starts from browser DOM state and page-local interactions. Most connector tools are bounded DOM-backed operations inside `run_actions` and the content-script runner. An adapter may also describe an exact host-routed browser operation, such as a native file chooser, when the host advertises that capability; the adapter owns DOM discovery while the host intercepts privileged arguments before page execution. A runtime can have its own state shape, auth, API calls, replay steps, and command vocabulary.
 
 ## Current Files
 

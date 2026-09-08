@@ -9,14 +9,19 @@ function readSource(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), "utf8");
 }
 
-test("eProcure adapter is injected before state extraction", () => {
-  const source = readSource("packages/page-runtime/src/manifest.js");
-
-  assert.match(source, /content-scripts\/adapters\/eprocure\.js/);
-  assert.match(
-    source,
-    /content-scripts\/adapters\/eprocure\.js",\n\s+"content-scripts\/extractState\.js"/,
+test("eProcure adapter is injected before state extraction", async () => {
+  const { PAGE_RUNTIME_SCRIPT_FILES } = await import(
+    "../packages/page-runtime/src/manifest.js",
   );
+  const adapterIndex = PAGE_RUNTIME_SCRIPT_FILES.indexOf(
+    "content-scripts/adapters/eprocure.js",
+  );
+  const extractStateIndex = PAGE_RUNTIME_SCRIPT_FILES.indexOf(
+    "content-scripts/extractState.js",
+  );
+
+  assert.ok(adapterIndex !== -1 && extractStateIndex !== -1);
+  assert.ok(adapterIndex < extractStateIndex);
 });
 
 test("eProcure adapter scopes itself to the latest active tenders table", () => {

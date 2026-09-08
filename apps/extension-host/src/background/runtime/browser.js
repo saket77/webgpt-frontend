@@ -4,11 +4,9 @@ import {
   isBrowserControlAction,
   runBrowserControlAction,
 } from "./browserControl.js";
-import {
-  EXTENSION_CONTENT_SCRIPT_FILES,
-} from "@webgpt/page-runtime";
+import { EXTENSION_CONTENT_SCRIPT_FILES } from "./contentScriptFiles.js";
 
-const CONTENT_SCRIPT_PROTOCOL_REVISION = "webmcp-tools-2026-07-11";
+const CONTENT_SCRIPT_PROTOCOL_REVISION = "webgpt-content-runtime-v1";
 const PING_MESSAGE_TYPE = "PING_WEBGPT_CONTENT_SCRIPT";
 const EXTRACT_STATE_MESSAGE_TYPE = "WEBGPT_EXTRACT_STATE_V2";
 const RUN_ACTIONS_MESSAGE_TYPE = "WEBGPT_RUN_ACTIONS_V2";

@@ -1,11 +1,38 @@
 {
   "name": "@webgpt/page-runtime",
-  "version": "1.0.0",
-  "private": true,
+  "version": "1.0.0-rc.1",
+  "description": "Integrity-checked, adapter-selective WebGPT page extraction and execution runtime",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/saket77/webgpt-frontend.git",
+    "directory": "packages/page-runtime"
+  },
   "main": "src/manifest.js",
   "exports": {
     ".": "./src/manifest.js",
-    "./node": "./src/node.js"
+    "./catalog": "./src/catalog.js",
+    "./layers": "./src/layers.js",
+    "./node": "./src/node.js",
+    "./manifest": "./dist/manifest.json"
+  },
+  "files": [
+    "dist/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "test": "node --test ./test/*.test.mjs",
+    "verify": "npm run test",
+    "prepack": "npm run build && npm run verify"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

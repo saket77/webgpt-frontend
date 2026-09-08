@@ -17,8 +17,15 @@
     "cloud:run": "node apps/browserbase-host/src/cli.js",
     "cloud:cleanup": "node scripts/cleanup-webgpt-runs.mjs",
     "test": "node --test",
+    "build:page-runtime": "npm run build --workspace @webgpt/page-runtime",
+    "test:page-runtime": "npm run test --workspace @webgpt/page-runtime",
+    "test:page-runtime:tarball": "node scripts/verify-page-runtime-tarball.mjs",
+    "pack:page-runtime": "npm pack --workspace @webgpt/page-runtime",
     "package:extension": "node scripts/package-extension.mjs",
     "smoke:extension": "node scripts/smoke-extension.mjs",
     "smoke:cloud": "node apps/browserbase-host/src/cli.js --dry-run --url https://example.com --goal smoke"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0"
   }
 }

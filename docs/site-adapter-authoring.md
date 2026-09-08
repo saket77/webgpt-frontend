@@ -34,18 +34,22 @@ Adapters make page state easier to understand. Connector-enabled adapters can al
 
 If a workflow needs a different state model, auth flow, API executor, or durable non-DOM command vocabulary, use a runtime surface instead. See [Runtime authoring guide](./runtime-authoring.md).
 
+### Workflow-policy boundary
+
+An application adapter may detect field identity, required state, live option text, file targets, submit targets, and committed page state. Its connector accepts exact caller-provided values keyed by those live fields and leaves omitted fields unchanged. The adapter must not read a user profile, infer work-authorization or EEOC answers, translate persona shorthand into application answers, synthesize prose from a résumé or job description, or decide which fields a workflow should fill. Those decisions belong to the calling skill or trusted host before it invokes the page adapter.
+
 ## Connector Build Pipeline
 
 Use this checklist when turning a state-only site adapter into a connector-enabled adapter:
 
 1. Map page regions and stable field keys in `enhanceState()`, using the same DOM helpers the executor will use later.
-2. Separate normal fillable fields, sensitive/compliance fields, file/upload boundaries, and submit/navigation boundaries.
+2. Detect normal fillable fields, sensitive/compliance fields, file/upload boundaries, and submit/navigation boundaries without deciding their answers.
 3. Add compact groups for actionable batches, such as `*_fill_application_fields(fieldValues)` and `*_fill_eeoc(fieldValues)`, instead of exposing long policy or help text.
 4. Set `preferredAction`, `connectorTool`, `connectorArgs`, `batchPlacement`, and `verifyAfterAction` on field groups and relevant control hints.
 5. Expose `provideTools()` only when the current page has the matching live fields, with small schemas keyed by stable field keys.
 6. Register local `WebGPTConnectorTools` executors that reuse the adapter's field model, fill all requested values, return `fieldValues` and `fieldTargets`, and mark partial failures as recoverable when fallback controls can still work.
 7. Filter planner noise from generic `visibleTextSummary` or generic groups when the adapter replaces it with compact actionable facts.
-8. Add source tests that pin injection order, tool schemas, executor registration, batch hints, sensitive-field policy, and state-delta verification keys.
+8. Add source tests that pin injection order, tool schemas, executor registration, exact-value behavior, factual sensitive-field classification, and state-delta verification keys.
 
 ## Current Files
 
@@ -64,7 +68,7 @@ packages/page-runtime/src/content-scripts/
 Adapter scripts are injected before `content-scripts/extractState.js` by the active host using the canonical page-runtime manifest:
 
 ```text
-packages/page-runtime/src/manifest.js
+packages/page-runtime/src/layers.js
 apps/extension-host/src/background/runtime/browser.js
 apps/browserbase-host/src/browserbaseRuntime.js
 ```
@@ -135,9 +139,13 @@ The adapter should not:
 
 Connector-enabled adapters may mutate the page only inside their registered connector executor, after the planner has returned an action with the connector tool name.
 
-### `provideTools({ state, document, url })`
+### `provideTools({ state, document, url, meta })`
 
-Return function-tool schemas for currently available connector actions. The registry places these schemas on `state.connectorTools`; the backend merges them with the base browser tools for the next planning step.
+Return function-tool schemas for currently available connector actions. The
+registry places only the model-safe schemas on `state.connectorTools`; the
+backend merges them with the base browser tools for the next planning step.
+`meta.capabilities` lets an external host advertise privileged operations that
+the extension and Browserbase hosts do not support by default.
 
 Only expose a tool when the current state is ready for it. For example, a document-field fill tool should only appear on the document editor page, and an add-person tool should only appear when the Add Person modal is open.
 
@@ -157,7 +165,31 @@ Avoid connector tools that:
 - rely on credentials scraped from the page
 - perform work before and after a navigation in one executor
 
-Connector tool schemas may include adapter-owned metadata for the runtime and replay layers. Keep model-facing schemas small and stable.
+Legacy plain schemas remain valid. New tools that need private routing should
+return a descriptor with a model-safe `schema` and a separate `execution`
+record:
+
+```js
+{
+  schema: {
+    type: "function",
+    name: "example_fill_fields",
+    description: "Fill known Example fields visible on the current page.",
+    parameters: { /* bounded JSON Schema */ },
+  },
+  execution: {
+    realm: "page",                 // or "host"
+    capability: null,              // or a gated host capability
+    effect: "write",               // read | write | file-upload | submit
+    sensitiveArguments: [],
+  },
+}
+```
+
+The registry retains `execution` only in
+`WebGPTContentAdapters.getPrivateToolRoutes()`. Selectors, authorization
+tokens, verification details, and host routing must never be copied into
+`state.connectorTools`. Keep model-facing schemas small and stable.
 
 ```js
 function provideTools({ state }) {
@@ -271,6 +303,54 @@ Useful hint fields include:
 - `connectorTool`: connector tool name when the target is best handled by `provideTools()`
 - `verifyAfterAction`: what should change after execution
 
+### Host-delegated file upload targets
+
+When a host must retain local filesystem authority, the adapter still owns DOM
+discovery. For every file boundary that supports a native chooser, emit one
+field group with `uploadBoundary: true`, a single
+`uploadTriggerTargetId`, and `controlIds` containing that target. Also include
+the target in `siteAdapter.uploadTargetIds` and ensure the matching generic
+control has a stable, field-scoped selector (use `selectorOverrides` when the
+generic selector is not sufficiently stable).
+
+Only emit `uploadTriggerTargetId` when the adapter can prove one trigger inside
+that field root. Ambiguous or missing triggers must remain unset so a trusted
+host can fail closed. Extract the committed basename from `input.files` or the
+board's rendered attachment state. The model-facing upload schema may accept a
+local `filePath`, but a trusted host must intercept that argument before page
+execution. Absolute paths must never enter page-runtime state, the CDP/page
+runner payload, receipts, or bench artifacts. The host uses the
+adapter-provided target to open the native chooser and confirms success with a
+complete new extraction.
+
+When the exact target is a clipped or visually hidden native
+`input[type="file"]`, the private route may add
+`activation: { kind: "file-input-picker" }`. Emit this only after mapping the
+field to one unique, enabled file input. A capable host must revalidate both
+the target ID and selector against fresh state, resolve that same input, and
+open its picker as a user gesture; the local path still goes only to the
+host-controlled chooser. Visible custom upload controls omit this activation
+hint and use the host's normal chooser-trigger click.
+
+Advertise such a tool only when
+`meta.capabilities.hostFileUpload === true`. Its private route uses
+`realm: "host"`, `capability: "browser.file-upload"`, and
+`effect: "file-upload"`; no page executor is registered for the upload.
+
+### Guarded final submission
+
+The site adapter owns final-submit discovery, readiness checks, and the exact
+page executor. Advertise the tool only when
+`meta.capabilities.guardedSubmit === true`, exactly one enabled submit target
+exists, and the adapter can freshly determine required-field state. Its private
+route uses `realm: "page"`, `capability: "guarded-submit"`,
+`effect: "submit"`, and one-use authorization.
+
+The host grants the exact destination before forwarding the action. The
+generic runner must reject clicks or Enter presses aimed at an
+adapter-identified final-submit control, so the guarded tool cannot be bypassed
+through a generic action.
+
 ### Control-Level `adapterHints`
 
 For every mapped control, also add compact control-level hints:
@@ -335,7 +415,13 @@ The Canvas adapter is state-only. It does not answer quiz questions. It only mak
 
 `packages/page-runtime/src/content-scripts/adapters/greenhouse.js` and `packages/page-runtime/src/content-scripts/adapters/dotloop.js` are connector-enabled adapters.
 
-Greenhouse exposes connector tools for custom select/EEOC flows where the adapter already knows the field roots and React select behavior. Dotloop exposes tools for document-field filling and Add Person modal completion. In both cases, the connector tools reuse the same detection logic as `enhanceState()` so state, planning hints, execution, replay evidence, and action effects describe the same page concepts.
+Greenhouse exposes a batch application-field connector plus focused
+select/EEOC and manual-cover-letter connectors where the adapter already knows
+the field roots and React select behavior. Dotloop exposes tools for
+document-field filling and Add Person modal completion. In both cases, the
+connector tools reuse the same detection logic as `enhanceState()` so state,
+planning hints, execution, replay evidence, and action effects describe the
+same page concepts.
 
 ## Authoring Workflow
 

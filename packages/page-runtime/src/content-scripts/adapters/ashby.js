@@ -3,6 +3,9 @@
   const APPLICATION_TARGET_ID = `site:${ADAPTER_ID}:application`;
   const APPLICATION_FIELDS_TOOL = "ashby_fill_application_fields";
   const EEOC_TOOL = "ashby_fill_eeoc";
+  const READ_JOB_DESCRIPTION_TOOL = "ashby_read_job_description";
+  const UPLOAD_APPLICATION_FILE_TOOL = "ashby_upload_application_file";
+  const SUBMIT_APPLICATION_TOOL = "ashby_submit_application";
   const EEOC_SECTION_TARGET_ID = `site:${ADAPTER_ID}:section:eeoc`;
   const EEOC_FIELD_SPECS = [
     { fieldKey: "gender", label: "Gender" },
@@ -10,67 +13,6 @@
     { fieldKey: "veteran_status", label: "Veteran Status" },
     { fieldKey: "disability_status", label: "Disability Status" },
   ];
-  const ASHBY_APPLICATION_CONNECTOR_BATCH_HINT =
-    "On an Ashby application form, when both non-file application values and explicit EEOC values are known, emit both connector actions in the same planner step: ashby_fill_application_fields followed by ashby_fill_eeoc. Do not split EEOC into a later step unless a value is genuinely unknown.";
-  const ASHBY_RACE_INDIAN_HINT =
-    "For Ashby's U.S. EEOC Race options, Indian/India/South Asian maps to Asian (Not Hispanic or Latino), not American Indian or Alaska Native.";
-  const ASHBY_APPLICATION_SYNTHESIS_HINT =
-    "For normal non-file, non-EEOC Ashby application questions, fill every answerable field by default. If a value is not explicitly present, synthesize a concise honest answer from runContext.myInfo, resume details, and visible job context; include explicit profile fields and synthesized normal answers in the same connector call instead of splitting them into a later pass. Generated text must use complete sentences and never be truncated mid-word or mid-sentence. Do not synthesize sensitive EEOC answers or file attachments.";
-  const ASHBY_FILL_KNOWN_VALUES_HINT =
-    "Strong batching rule for Ashby: do not stop, ask, or defer the whole form just because a few fields are unknown. Fill every field with a known, visible, My Info-supported, or safely synthesized value in the same connector action/step; omit only genuinely unknown unsafe, sensitive, file, or legal values and summarize those blanks after the known fields are handled.";
-  const US_STATE_NAMES = {
-    al: "Alabama",
-    ak: "Alaska",
-    az: "Arizona",
-    ar: "Arkansas",
-    ca: "California",
-    co: "Colorado",
-    ct: "Connecticut",
-    de: "Delaware",
-    dc: "District of Columbia",
-    fl: "Florida",
-    ga: "Georgia",
-    hi: "Hawaii",
-    id: "Idaho",
-    il: "Illinois",
-    in: "Indiana",
-    ia: "Iowa",
-    ks: "Kansas",
-    ky: "Kentucky",
-    la: "Louisiana",
-    me: "Maine",
-    md: "Maryland",
-    ma: "Massachusetts",
-    mi: "Michigan",
-    mn: "Minnesota",
-    ms: "Mississippi",
-    mo: "Missouri",
-    mt: "Montana",
-    ne: "Nebraska",
-    nv: "Nevada",
-    nh: "New Hampshire",
-    nj: "New Jersey",
-    nm: "New Mexico",
-    ny: "New York",
-    nc: "North Carolina",
-    nd: "North Dakota",
-    oh: "Ohio",
-    ok: "Oklahoma",
-    or: "Oregon",
-    pa: "Pennsylvania",
-    ri: "Rhode Island",
-    sc: "South Carolina",
-    sd: "South Dakota",
-    tn: "Tennessee",
-    tx: "Texas",
-    ut: "Utah",
-    vt: "Vermont",
-    va: "Virginia",
-    wa: "Washington",
-    wv: "West Virginia",
-    wi: "Wisconsin",
-    wy: "Wyoming",
-  };
   const registry = globalThis.WebGPTContentAdapters;
   const extractModules = globalThis.WebGPTExtractStateModules || {};
   const domUtils = extractModules.domUtils || {};
@@ -111,6 +53,47 @@
     const text = normalizeText(value);
     if (text.length <= maxLength) return text;
     return `${text.slice(0, maxLength - 1).trim()}...`;
+  }
+
+  function utf8Bytes(value) {
+    const text = String(value || "");
+    if (typeof globalThis.TextEncoder === "function") {
+      return new globalThis.TextEncoder().encode(text);
+    }
+    const encoded = unescape(encodeURIComponent(text));
+    return Uint8Array.from(encoded, (character) => character.charCodeAt(0));
+  }
+
+  async function committedValueEvidence(value) {
+    const normalizedValue = normalizeText(value);
+    const bytes = utf8Bytes(normalizedValue);
+    if (globalThis.crypto?.subtle?.digest) {
+      try {
+        const hash = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+        return {
+          normalizedLength: normalizedValue.length,
+          utf8ByteLength: bytes.byteLength,
+          digestAlgorithm: "sha256",
+          digest: Array.from(new Uint8Array(hash), (byte) =>
+            byte.toString(16).padStart(2, "0"),
+          ).join(""),
+        };
+      } catch {
+        /* Fall through to a deterministic digest in older page realms. */
+      }
+    }
+
+    let hash = 0xcbf29ce484222325n;
+    for (const byte of bytes) {
+      hash ^= BigInt(byte);
+      hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+    }
+    return {
+      normalizedLength: normalizedValue.length,
+      utf8ByteLength: bytes.byteLength,
+      digestAlgorithm: "fnv1a64",
+      digest: hash.toString(16).padStart(16, "0"),
+    };
   }
 
   function unique(items) {
@@ -195,6 +178,22 @@
     if (title) result.push(`${tag}[title="${cssEscape(title)}"]`);
 
     return result;
+  }
+
+  function isUniqueSelector(selector) {
+    if (!selector) return false;
+    try {
+      return document.querySelectorAll(selector).length === 1;
+    } catch {
+      return false;
+    }
+  }
+
+  function ownStableSelector(el) {
+    for (const candidate of selectorCandidatesFor(el)) {
+      if (isUniqueSelector(candidate)) return candidate;
+    }
+    return "";
   }
 
   function findControlBySelector(controls, selectors, bounds, tag) {
@@ -348,6 +347,219 @@
     );
   }
 
+  function jsonLdItems(value) {
+    if (Array.isArray(value)) return value.flatMap(jsonLdItems);
+    if (!value || typeof value !== "object") return [];
+    return [value, ...jsonLdItems(value["@graph"] || [])];
+  }
+
+  function jsonLdTypeIncludes(value, expected) {
+    const values = Array.isArray(value) ? value : [value];
+    return values.some((item) => lower(item) === lower(expected));
+  }
+
+  function ashbyJobDescriptionText(value, documentRef) {
+    const root = documentRef.createElement("div");
+    root.innerHTML = String(value || "");
+    for (const el of root.querySelectorAll(
+      [
+        "form",
+        ".ashby-application-form-container",
+        ".ashby-survey-form-container",
+        ".ashby-application-form-submit-button",
+        "script",
+        "style",
+        "noscript",
+      ].join(","),
+    )) {
+      el.remove();
+    }
+    const blocks = new Set([
+      "article", "blockquote", "div", "h1", "h2", "h3", "h4", "h5", "h6",
+      "li", "ol", "p", "section", "ul",
+    ]);
+    let result = "";
+    function visit(node) {
+      if (node.nodeType === 3) {
+        result += node.nodeValue || "";
+        return;
+      }
+      if (node.nodeType !== 1) return;
+      const tag = lower(node.tagName);
+      if (tag === "br") {
+        result += "\n";
+        return;
+      }
+      if (blocks.has(tag)) result += "\n";
+      if (tag === "li") result += "- ";
+      for (const child of node.childNodes) visit(child);
+      if (blocks.has(tag)) result += "\n";
+    }
+    visit(root);
+    return result
+      .split(/\n+/)
+      .map(normalizeText)
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+
+  function firstAshbyText(documentRef, selectors) {
+    for (const selector of selectors) {
+      const value = textContent(documentRef.querySelector(selector));
+      if (value) return value;
+    }
+    return "";
+  }
+
+  function ashbyLocationText(jobLocation) {
+    const locations = Array.isArray(jobLocation) ? jobLocation : [jobLocation];
+    return unique(
+      locations.flatMap((locationItem) => {
+        const address = locationItem?.address || {};
+        return [
+          address.addressLocality,
+          address.addressRegion,
+          address.addressCountry,
+          locationItem?.name,
+        ].map(normalizeText);
+      }),
+    ).join(", ");
+  }
+
+  function compactAshbyBaseSalary(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const amount =
+      value.value && typeof value.value === "object" && !Array.isArray(value.value)
+        ? value.value
+        : value;
+    const compactAmount = {};
+    for (const key of ["minValue", "maxValue", "value"]) {
+      const rawValue = amount[key];
+      if (
+        rawValue === null ||
+        rawValue === undefined ||
+        (typeof rawValue === "string" && !rawValue.trim())
+      ) {
+        continue;
+      }
+      const numericValue = Number(rawValue);
+      if (Number.isFinite(numericValue)) compactAmount[key] = numericValue;
+    }
+    const unitText = normalizeText(amount.unitText);
+    if (unitText) compactAmount.unitText = unitText;
+    const currency = normalizeText(value.currency || amount.currency);
+    if (!currency && !Object.keys(compactAmount).length) return null;
+    return {
+      ...(currency ? { currency } : {}),
+      ...(Object.keys(compactAmount).length ? { value: compactAmount } : {}),
+    };
+  }
+
+  function ashbyJobDescriptionContext(documentRef = document) {
+    let structured = null;
+    for (const script of documentRef.querySelectorAll('script[type="application/ld+json"]')) {
+      try {
+        structured = jsonLdItems(JSON.parse(script.textContent || "null")).find((item) =>
+          jsonLdTypeIncludes(item?.["@type"], "JobPosting"),
+        );
+      } catch {
+        structured = null;
+      }
+      if (structured) break;
+    }
+
+    const descriptionRoot = documentRef.querySelector(
+      ".ashby-job-posting-description, .ashby-job-posting-right-pane",
+    );
+    const fullDescription = ashbyJobDescriptionText(
+      structured?.description || descriptionRoot?.innerHTML || "",
+      documentRef,
+    );
+    return { structured, descriptionRoot, fullDescription };
+  }
+
+  function extractAshbyJobPosting(
+    documentRef = document,
+    descriptionContext = ashbyJobDescriptionContext(documentRef),
+  ) {
+    const { structured, fullDescription } = descriptionContext;
+    const description = fullDescription.slice(0, 24000).trim();
+    if (!description) return null;
+
+    const title =
+      normalizeText(structured?.title) ||
+      firstAshbyText(documentRef, [
+        ".ashby-job-posting-heading",
+        ".ashby-job-posting-title",
+        ".ashby-job-posting-right-pane h1",
+        "main h1",
+        "h1",
+      ]);
+    const company =
+      normalizeText(structured?.hiringOrganization?.name) ||
+      firstAshbyText(documentRef, [
+        ".ashby-job-posting-company-name",
+        ".ashby-job-posting-header-company",
+      ]);
+    const locationTextValue =
+      ashbyLocationText(structured?.jobLocation) ||
+      firstAshbyText(documentRef, [
+        ".ashby-job-posting-location",
+        ".ashby-job-posting-heading + div",
+      ]);
+    const canonicalUrl = normalizeText(
+      structured?.url ||
+        documentRef.querySelector("link[rel='canonical']")?.href ||
+        documentRef.location?.href ||
+        location.href,
+    );
+    const posting = {
+      "@type": "JobPosting",
+      source: structured ? "ashby_json_ld" : "ashby_dom",
+      title,
+      company,
+      location: locationTextValue,
+      description,
+      descriptionTruncated: description.length < fullDescription.length,
+      descriptionOriginalCharCount: fullDescription.length,
+      url: canonicalUrl,
+    };
+    if (company) {
+      posting.hiringOrganization = { "@type": "Organization", name: company };
+    }
+    if (locationTextValue) {
+      posting.jobLocation = {
+        "@type": "Place",
+        address: { "@type": "PostalAddress", addressLocality: locationTextValue },
+      };
+    }
+    for (const key of [
+      "datePosted",
+      "validThrough",
+      "employmentType",
+      "jobLocationType",
+    ]) {
+      if (structured?.[key]) posting[key] = structured[key];
+    }
+    const baseSalary = compactAshbyBaseSalary(structured?.baseSalary);
+    if (baseSalary) posting.baseSalary = baseSalary;
+    return posting;
+  }
+
+  function plannerJobPosting(jobPosting) {
+    if (!jobPosting) return null;
+    const description =
+      typeof jobPosting.description === "string" ? jobPosting.description : "";
+    const projected = { ...jobPosting };
+    delete projected.description;
+    return {
+      ...projected,
+      descriptionAvailableViaTool: Boolean(description),
+      descriptionCharCount: description.length,
+    };
+  }
+
   function fieldTargetId(fieldPath) {
     return `site:${ADAPTER_ID}:field:${stableKey(fieldPath, "field")}`;
   }
@@ -433,6 +645,76 @@
     );
   }
 
+  function isRequiredControl(control) {
+    return Boolean(
+      control &&
+        (control.hasAttribute("required") ||
+          lower(control.getAttribute("aria-required")) === "true"),
+    );
+  }
+
+  function normalizedSmsConsentValue(value) {
+    const text = normalizeText(value);
+    const key = lower(text);
+    if (/^yes\b/.test(key) || /\bi consent\b/.test(key)) return "Yes";
+    if (/^no\b/.test(key) || /\b(?:do not|don't) consent\b/.test(key)) return "No";
+    return text;
+  }
+
+  function selectedSmsConsentValue(options) {
+    const selected = (options || []).find((option) => option.selected);
+    return selected ? normalizedSmsConsentValue(selected.optionText) : "";
+  }
+
+  function phoneSmsComposite(root, input, question, fieldPath) {
+    if (!input || lower(input.getAttribute("type")) !== "tel") return null;
+
+    const consentInputs = getElements("input[type='radio']", root);
+    if (consentInputs.length < 2) return null;
+
+    const consentText = lower(
+      consentInputs
+        .map((control) => textContent(labelElementForInput(root, control)))
+        .join(" "),
+    );
+    const rootText = lower(textContent(root));
+    if (
+      !/\b(?:sms|text message|text messages)\b/.test(`${consentText} ${rootText}`) ||
+      !/\b(?:consent|agreement|agree|updates?|communications?)\b/.test(
+        `${consentText} ${rootText}`,
+      )
+    ) {
+      return null;
+    }
+
+    const prompt = getElements(
+      "p, [class*='description'], [class*='helper'], [class*='subtitle']",
+      root,
+    )
+      .map((el) => textContent(el))
+      .find((text) => /\b(?:sms|text message|text messages)\b/i.test(text));
+
+    return {
+      fieldPath,
+      phone: {
+        fieldKey: `${fieldPath}::phone`,
+        logicalKind: "phone",
+        question,
+        input,
+        fieldKind: inputKind(input) || "tel",
+        required: isRequiredControl(input),
+      },
+      smsConsent: {
+        fieldKey: `${fieldPath}::sms_consent`,
+        logicalKind: "sms_consent",
+        question: truncate(prompt || "SMS consent", 220),
+        input: null,
+        fieldKind: "single_select",
+        required: consentInputs.some(isRequiredControl),
+      },
+    };
+  }
+
   function isComboboxInput(input) {
     if (!input || !(input instanceof Element)) return false;
     return (
@@ -501,29 +783,12 @@
     return inputKind(input) || "field";
   }
 
-  function isSensitiveOptionalField(question) {
+  function isSensitiveField(question) {
     const text = lower(question);
     return (
       /\b(current age|gender identity|ethnicity|ethnicities)\b/.test(text) ||
       /which of the following communities do you belong to/.test(text) ||
       /\b(disability|neurodivergent|veteran|refugee|immigrant)\b/.test(text)
-    );
-  }
-
-  function isOptionalProfileField(question) {
-    const text = lower(question);
-    return /\b(linkedin|github|portfolio|personal website|website url|website|phone)\b/.test(
-      text,
-    );
-  }
-
-  function isOneOfThreeAnswerField(question) {
-    const text = lower(question);
-    return (
-      /describe a choice you made when shipping a product/.test(text) ||
-      /describe a time you challenged and changed a product request/.test(text) ||
-      /something.*professional context.*gone deep/.test(text) ||
-      /gone deep on purely because you couldn't let it go/.test(text)
     );
   }
 
@@ -916,6 +1181,21 @@
     return options.slice(0, 40);
   }
 
+  function collectPhoneSmsConsentOptionInfos(root, controls) {
+    const options = [];
+    for (const input of getElements("input[type='radio']", root)) {
+      const wrapper = optionWrapperForInput(input, root);
+      const label = directLabelForInput(root, input) || textContent(wrapper);
+      const labelEl = labelElementForInput(root, input);
+      const control =
+        findControlForElement(controls, input) ||
+        findControlForElement(controls, labelEl) ||
+        findControlForElement(controls, wrapper);
+      addOption(options, wrapper, label, input.checked, control?.id || "");
+    }
+    return options;
+  }
+
   function selectedValueFromOptions(options) {
     return (options || [])
       .filter((option) => option.selected)
@@ -923,12 +1203,16 @@
       .join(", ");
   }
 
-  function textValueForField(root) {
+  function exactTextValueForField(root) {
     const input = root.querySelector(
       "textarea, input:not([type='hidden']):not([type='file']):not([type='radio']):not([type='checkbox'])",
     );
     if (!input) return "";
-    return truncate(input.value || input.getAttribute("value") || "", 360);
+    return normalizeText(input.value ?? input.getAttribute("value") ?? "");
+  }
+
+  function textValueForField(root) {
+    return truncate(exactTextValueForField(root), 360);
   }
 
   function selectValueForField(root) {
@@ -942,11 +1226,84 @@
 
   function fileValueForField(root) {
     const input = root.querySelector("input[type='file']");
-    if (!input) return "";
-    const files = Array.from(input.files || [])
+    const files = Array.from(input?.files || [])
       .map((file) => file.name)
       .filter(Boolean);
-    return files.join(", ");
+    if (files.length) return files.join(", ");
+
+    return normalizeText(
+      root.querySelector(".ashby-application-form-input-file-item-name")
+        ?.textContent || "",
+    );
+  }
+
+  function uploadTriggerInfo(state, root, input) {
+    if (!input || lower(input.getAttribute("type")) !== "file") return null;
+
+    const inputId = normalizeText(input.id);
+    const inputSelector = inputId ? `#${cssEscape(inputId)}` : "";
+    const uploadButtons = getVisibleElements("button, [role='button']", root).filter(
+      (el) => /\b(upload|attach|replace|browse)\b/i.test(textContent(el)),
+    );
+    const inputLabels = inputId
+      ? getVisibleElements(`label[for="${cssEscape(inputId)}"]`, root)
+      : [];
+
+    function provableTriggers(elements) {
+      const candidates = [];
+      const seen = new Set();
+
+      for (const trigger of elements) {
+        if (!(trigger instanceof Element)) continue;
+        const control = findControlForElement(state.controls || [], trigger);
+        if (!control?.id) continue;
+
+        const tag = lower(trigger.tagName);
+        const anchoredSelectors = [];
+        if (inputSelector && isUniqueSelector(inputSelector)) {
+          if (tag === "button" || lower(trigger.getAttribute("role")) === "button") {
+            anchoredSelectors.push(
+              `.ashby-application-form-input-file:has(${inputSelector}) button`,
+              `.ashby-application-form-field-entry:has(${inputSelector}) button`,
+            );
+          }
+          if (tag === "label" && inputId) {
+            anchoredSelectors.push(`label[for="${cssEscape(inputId)}"]`);
+          }
+          if (trigger === input) anchoredSelectors.push(inputSelector);
+        }
+        const selector =
+          anchoredSelectors.find(
+            (candidate) =>
+              isUniqueSelector(candidate) &&
+              document.querySelector(candidate) === trigger,
+          ) || ownStableSelector(trigger);
+        if (!selector) continue;
+
+        const identity = `${control.id}:${selector}`;
+        if (seen.has(identity)) continue;
+        seen.add(identity);
+        candidates.push({ controlId: control.id, selector, trigger });
+      }
+
+      return candidates;
+    }
+
+    // The browser host's native upload contract prefers the actual file input.
+    // Ashby themes may render a nearby "Upload File" button that opens custom
+    // UI without emitting a filechooser event. A file input that the extracted
+    // state can identify exactly remains safe even when visually clipped because
+    // the host activates the native picker only for a verified input[type=file].
+    for (const tier of [[input], uploadButtons, inputLabels]) {
+      const candidates = provableTriggers(tier);
+      if (candidates.length === 1) {
+        const [{ controlId, selector }] = candidates;
+        return { controlId, selector };
+      }
+      if (candidates.length > 1) return null;
+    }
+
+    return null;
   }
 
   function applicationScopes(documentRef) {
@@ -995,26 +1352,42 @@
     return roots;
   }
 
-  function collectField(state, root, index) {
+  function collectField(state, root, index, logical = null) {
     const regionControls = controlsInRegion(state.controls || [], root);
-    const question = questionText(root);
-    const input = findPrimaryInput(root);
-    const hasCombobox = fieldHasCombobox(root, regionControls);
+    const rootQuestion = questionText(root);
+    const rootInput = findPrimaryInput(root);
+    const question = logical?.question || rootQuestion;
+    const input = logical ? logical.input : rootInput;
+    const hasCombobox = logical
+      ? false
+      : fieldHasCombobox(root, regionControls);
     const controls = hasCombobox
       ? regionControls
       : regionControls.filter((control) => !isComboboxPopupControl(control));
-    const fieldPath = fieldPathFor(root, input, question, index);
+    const fieldPath = fieldPathFor(root, rootInput, rootQuestion, index);
     const entryId = fieldEntryIdFor(root);
     const eeocSpec = eeocFieldSpecFor(question, fieldPath);
     const sectionKind = eeocSpec ? "eeoc" : sectionKindForField(question, fieldPath);
-    const options = hasCombobox
-      ? collectComboboxOptionInfos(input, state.controls || [])
-      : collectOptionInfos(root, controls, question);
-    const kind = fieldKind(root, options.length, hasCombobox);
+    const fieldKey = logical?.fieldKey || eeocSpec?.fieldKey || fieldPath;
+    const targetKey = logical?.fieldKey ? fieldKey : fieldPath;
+    const options = logical?.logicalKind === "phone"
+      ? []
+      : logical?.logicalKind === "sms_consent"
+        ? collectPhoneSmsConsentOptionInfos(root, controls)
+        : hasCombobox
+          ? collectComboboxOptionInfos(input, state.controls || [])
+          : collectOptionInfos(root, controls, question);
+    const kind = logical?.fieldKind || fieldKind(root, options.length, hasCombobox);
     const isCombobox = kind === "combobox";
     const uploadBoundary = kind === "file";
-    const selectedValue = isCombobox ? "" : selectedValueFromOptions(options);
-    const textValue = textValueForField(root);
+    const selectedValue = isCombobox
+      ? ""
+      : logical?.logicalKind === "sms_consent"
+        ? selectedSmsConsentValue(options)
+        : selectedValueFromOptions(options);
+    const textValue = logical?.logicalKind === "sms_consent"
+      ? ""
+      : truncate(input?.value ?? input?.getAttribute("value") ?? "", 360);
     const autocompleteOpen = Boolean(
       isCombobox &&
         (isComboboxExpanded(input) || isComboboxLinkedListboxVisible(input)),
@@ -1036,26 +1409,38 @@
     const currentValue =
       rawValue ||
       (options.length ? "unanswered" : "");
+    const optionControlIds = unique(
+      options.flatMap((option) => option.controlIds || []),
+    );
     const fillControl =
       findControlForElement(state.controls || [], input) ||
-      findBestControlInRegion(state.controls || [], root, {
-        preferInput: !options.length || kind === "combobox",
-      });
+      (logical?.logicalKind === "sms_consent"
+        ? controls.find((control) => optionControlIds.includes(control.id)) || null
+        : findBestControlInRegion(state.controls || [], root, {
+            preferInput: !options.length || kind === "combobox",
+          }));
+    const uploadTrigger = uploadBoundary
+      ? uploadTriggerInfo(state, root, input)
+      : null;
     const fieldControlIds = unique(
-      [
-        fillControl?.id,
-        ...controls.map((control) => control.id),
-      ].filter(Boolean),
+      (logical?.logicalKind === "phone"
+        ? [fillControl?.id]
+        : logical?.logicalKind === "sms_consent"
+          ? [fillControl?.id, ...optionControlIds]
+          : uploadBoundary
+            ? [
+                uploadTrigger?.controlId,
+                fillControl?.id,
+                ...controls.map((control) => control.id),
+              ]
+            : [fillControl?.id, ...controls.map((control) => control.id)]
+      ).filter(Boolean),
     );
-    const sensitiveOptional = sectionKind === "eeoc" || isSensitiveOptionalField(question);
-    const optionalProfile = isOptionalProfileField(question);
-    const oneOfThreeAnswer = isOneOfThreeAnswerField(question);
+    const sensitive = sectionKind === "eeoc" || isSensitiveField(question);
     const blankFillable = Boolean(
       !answered &&
         fillControl?.id &&
-        !uploadBoundary &&
-        !sensitiveOptional &&
-        !oneOfThreeAnswer,
+        !uploadBoundary,
     );
     const connectorTool = uploadBoundary
       ? ""
@@ -1066,16 +1451,10 @@
       connectorTool === EEOC_TOOL
         ? { fieldKey: eeocSpec?.fieldKey || fieldPath }
         : connectorTool
-          ? { fieldPath }
+          ? { fieldPath: fieldKey }
           : null;
-    const batchPlacement =
-      connectorTool === EEOC_TOOL
-        ? "can_batch_sensitive_explicit_only"
-        : connectorTool
-          ? "can_batch"
-          : "";
+    const batchPlacement = connectorTool ? "can_batch" : "";
     const verifyAfterAction = connectorTool ? "adapter_group_current_value" : "";
-    const safeMyInfoFill = Boolean(blankFillable && optionalProfile);
     const textFacts = [
       question,
       rawValue ? `current value: ${currentValue}` : "currentValue: blank",
@@ -1083,19 +1462,11 @@
       needsAutocompleteCommit
         ? "autocomplete options visible; click the matching option to commit"
         : "",
-      safeMyInfoFill
-        ? "safe optional profile field; fill from My Info when available"
-        : "",
-      sensitiveOptional
-        ? sectionKind === "eeoc"
-          ? `sensitive optional EEOC field; answer from explicit runContext.myInfo value with ${EEOC_TOOL}, otherwise omit`
-          : "sensitive optional field; leave blank unless explicitly requested"
-        : "",
-      oneOfThreeAnswer
-        ? "1-of-3 answer choice; fill only if USER_GOAL selected this prompt"
+      sensitive
+        ? "sensitive field detected"
         : "",
       connectorTool === APPLICATION_FIELDS_TOOL
-        ? `connector action available: ${APPLICATION_FIELDS_TOOL} with fieldValues.${fieldPath}`
+        ? `connector action available: ${APPLICATION_FIELDS_TOOL} with fieldValues.${fieldKey}`
         : "",
       connectorTool === EEOC_TOOL
         ? `connector action available: ${EEOC_TOOL} with fieldValues.${eeocSpec?.fieldKey || fieldPath}`
@@ -1103,28 +1474,31 @@
     ];
 
     return {
-      id: `ashby_field_${stableKey(fieldPath, `field_${index + 1}`)}`,
+      id: `ashby_field_${stableKey(fieldKey, `field_${index + 1}`)}`,
       kind: "ashby_application_field",
       adapterId: ADAPTER_ID,
-      targetId: fieldTargetId(fieldPath),
+      targetId: fieldTargetId(targetKey),
+      fieldKey,
       fieldPath,
+      targetKey,
+      logicalKind: logical?.logicalKind || "",
       fieldEntryId: entryId,
       eeocFieldKey: eeocSpec?.fieldKey || "",
       sectionKind,
       fieldKind: kind,
-      required: isRequiredField(root),
+      required: logical ? Boolean(logical.required) : isRequiredField(root),
       label: question,
       text: textFacts.filter(Boolean).join(" | "),
       currentValue,
       selectedValue,
       answered,
       blank: !rawValue,
-      sensitiveOptional,
-      optionalProfile,
-      oneOfThreeAnswer,
+      sensitive,
       blankFillable,
-      safeMyInfoFill,
       uploadBoundary,
+      committedFilename: uploadBoundary ? rawValue : "",
+      uploadTriggerTargetId: uploadTrigger?.controlId || "",
+      uploadTriggerSelector: uploadTrigger?.selector || "",
       connectorTool,
       connectorArgs,
       batchPlacement,
@@ -1133,7 +1507,7 @@
       needsAutocompleteCommit,
       fillTargetId: fillControl?.id || "",
       controlIds: fieldControlIds,
-      optionTargets: options.map((option) => optionTargetId(fieldPath, option.optionText)),
+      optionTargets: options.map((option) => optionTargetId(targetKey, option.optionText)),
       optionTexts: options.map((option) => option.optionText),
       options,
       controls,
@@ -1141,16 +1515,29 @@
     };
   }
 
+  function collectFields(state, root, index) {
+    const question = questionText(root);
+    const input = findPrimaryInput(root);
+    const fieldPath = fieldPathFor(root, input, question, index);
+    const composite = phoneSmsComposite(root, input, question, fieldPath);
+    if (!composite) return [collectField(state, root, index)];
+
+    return [
+      collectField(state, root, index, composite.phone),
+      collectField(state, root, index, composite.smsConsent),
+    ];
+  }
+
   function selectedOptionGroups(fields) {
     const groups = [];
 
     for (const field of fields) {
       for (const option of field.options || []) {
-        const targetId = optionTargetId(field.fieldPath, option.optionText);
+        const targetId = optionTargetId(field.targetKey, option.optionText);
         const controlIds = unique(option.controlIds || []);
 
         groups.push({
-          id: `ashby_option_${stableKey(field.fieldPath)}_${stableKey(
+          id: `ashby_option_${stableKey(field.targetKey)}_${stableKey(
             option.optionText,
             "option",
           )}`,
@@ -1158,6 +1545,7 @@
           adapterId: ADAPTER_ID,
           targetId,
           fieldTargetId: field.targetId,
+          fieldKey: field.fieldKey,
           fieldPath: field.fieldPath,
           fieldKind: field.fieldKind,
           label: `${field.label}: ${option.optionText}`,
@@ -1195,8 +1583,9 @@
       kind: field.kind,
       adapterId: field.adapterId,
       targetId: field.targetId,
-      fieldKey: field.sectionKind === "eeoc" ? field.eeocFieldKey || field.fieldPath : field.fieldPath,
+      fieldKey: field.fieldKey,
       fieldPath: field.fieldPath,
+      logicalKind: field.logicalKind,
       fieldEntryId: field.fieldEntryId,
       eeocFieldKey: field.eeocFieldKey,
       sectionKind: field.sectionKind,
@@ -1208,12 +1597,11 @@
       selectedValue: field.selectedValue,
       answered: field.answered,
       blank: field.blank,
-      sensitiveOptional: field.sensitiveOptional,
-      optionalProfile: field.optionalProfile,
-      oneOfThreeAnswer: field.oneOfThreeAnswer,
+      sensitive: field.sensitive,
       blankFillable: field.blankFillable,
-      safeMyInfoFill: field.safeMyInfoFill,
       uploadBoundary: field.uploadBoundary,
+      committedFilename: field.committedFilename,
+      uploadTriggerTargetId: field.uploadTriggerTargetId,
       connectorTool: field.connectorTool,
       connectorArgs: field.connectorArgs,
       batchPlacement: field.batchPlacement,
@@ -1235,7 +1623,7 @@
     );
     if (!fillableFields.length) return [];
 
-    const fieldPaths = fillableFields.map((field) => field.fieldPath);
+    const fieldKeys = fillableFields.map((field) => field.fieldKey);
     const blankLabels = fillableFields
       .filter((field) => !field.answered)
       .map((field) => field.label)
@@ -1255,8 +1643,8 @@
         label: "Ashby Non-File Application Fields",
         text: [
           "Ashby non-file application fields detected",
-          `connector action available: ${APPLICATION_FIELDS_TOOL} with fieldValues for ${fieldPaths.join(", ")}`,
-          `Use this one connector action for profile/contact/text/choice/autocomplete fields. Include all visible blank normal fields in this call. ${ASHBY_APPLICATION_SYNTHESIS_HINT}`,
+          `connector action available: ${APPLICATION_FIELDS_TOOL} with fieldValues for ${fieldKeys.join(", ")}`,
+          "The connector applies only caller-provided exact field-keyed values and leaves omitted fields unchanged",
           blankLabels.length
             ? `blank non-file fields: ${blankLabels.join(" | ")}`
             : "no blank non-file application fields detected",
@@ -1266,7 +1654,7 @@
           .join(" | "),
         preferredAction: APPLICATION_FIELDS_TOOL,
         connectorTool: APPLICATION_FIELDS_TOOL,
-        connectorFieldKeys: fieldPaths,
+        connectorFieldKeys: fieldKeys,
         batchPlacement: "can_batch",
         verifyAfterAction: "adapter_group_current_value",
         currentValue: `${fillableFields.filter((field) => field.answered).length}/${fillableFields.length} answered`,
@@ -1302,8 +1690,7 @@
         text: [
           "Ashby EEOC section detected",
           `connector action available: ${EEOC_TOOL} with fieldValues for ${fieldKeys.join(", ")}`,
-          "Use one ashby_fill_eeoc call for all explicit EEOC values present in runContext.myInfo or USER_GOAL; omit only unknown EEOC fields instead of inventing answers",
-          ASHBY_RACE_INDIAN_HINT,
+          "The connector applies only caller-provided exact field-keyed values and leaves omitted fields unchanged",
           blankLabels.length
             ? `blank sensitive EEOC fields: ${blankLabels.join(" | ")}`
             : "no blank sensitive EEOC fields detected",
@@ -1316,7 +1703,7 @@
         preferredAction: EEOC_TOOL,
         connectorTool: EEOC_TOOL,
         connectorFieldKeys: fieldKeys,
-        batchPlacement: "can_batch_sensitive_explicit_only",
+        batchPlacement: "can_batch",
         verifyAfterAction: "adapter_group_current_value",
         currentValue: `${eeocFields.filter((field) => field.answered).length}/${eeocFields.length} answered`,
         answered: eeocFields.every((field) => field.answered),
@@ -1340,8 +1727,7 @@
         (field) =>
           field.required &&
           !field.answered &&
-          field.fieldKind !== "file" &&
-          !field.sensitiveOptional,
+          field.fieldKind !== "file",
       )
       .map((field) => field.label)
       .slice(0, 12);
@@ -1352,23 +1738,13 @@
       )
       .map((field) => field.label)
       .slice(0, 6);
-    const blankProfileFields = fields
-      .filter((field) => field.safeMyInfoFill)
-      .map((field) => field.label)
-      .slice(0, 12);
     const blankSensitiveFields = fields
-      .filter((field) => field.sensitiveOptional && !field.answered)
-      .map((field) => field.label)
-      .slice(0, 12);
-    const blankOneOfThreeFields = fields
-      .filter((field) => field.oneOfThreeAnswer && !field.answered)
+      .filter((field) => field.sensitive && !field.answered)
       .map((field) => field.label)
       .slice(0, 12);
     const currentValue = missingRequired.length
       ? `missing required: ${missingRequired.join(", ")}`
-      : blankProfileFields.length
-        ? `safe profile fields blank: ${blankProfileFields.join(", ")}`
-        : "required fields handled; sensitive optional or explicitly skipped fields may remain";
+      : "all non-file required fields answered";
 
     return {
       id: "ashby_application_summary",
@@ -1383,14 +1759,8 @@
         missingRequired.length
           ? `missing required or unsupported: ${missingRequired.join(" | ")}`
           : "no required text/choice field is visibly missing",
-        blankProfileFields.length
-          ? `optional non-sensitive profile fields blank and safe to fill from My Info when values are present: ${blankProfileFields.join(" | ")}`
-          : "",
         blankSensitiveFields.length
-          ? `sensitive optional diversity fields blank: ${blankSensitiveFields.join(" | ")}`
-          : "",
-        blankOneOfThreeFields.length
-          ? `1-of-3 answer choice fields blank; fill only the prompt USER_GOAL selected: ${blankOneOfThreeFields.join(" | ")}`
+          ? `sensitive fields blank: ${blankSensitiveFields.join(" | ")}`
           : "",
         requiredUploadBoundaries.length
           ? `required upload/file boundaries present: ${requiredUploadBoundaries.join(" | ")}`
@@ -1442,10 +1812,10 @@
             preferredAction: "extract",
             avoidAction: true,
             stableFieldTargetId: field.targetId,
-            machineKey: field.fieldPath,
+            machineKey: field.fieldKey,
             answerText: field.label,
             instruction:
-              "Ashby resume/file upload control. The browser runtime cannot upload files; if the user said do not upload, leave this alone.",
+              "Ashby file-upload boundary. Use the host-routed upload operation for this exact field.",
           });
         }
         continue;
@@ -1454,8 +1824,8 @@
       if (field.connectorTool) {
         const connectorInstruction =
           field.connectorTool === EEOC_TOOL
-            ? `Prefer connector tool ${EEOC_TOOL} with fieldValues.${field.eeocFieldKey || field.fieldPath} for this Ashby EEOC field. Use only explicit sensitive values from runContext.myInfo or USER_GOAL; omit unknown fields.`
-            : `Prefer connector tool ${APPLICATION_FIELDS_TOOL} with fieldValues.${field.fieldPath} for this Ashby non-file field. It fills text, choices, native selects, and autocomplete/combobox values in one action; batch all answerable non-file values in one call, including concise synthesized answers for normal questions. Do not fill/click this individual Ashby control directly while connector tools are expected.`;
+            ? `Use ${EEOC_TOOL} with an exact caller-provided fieldValues.${field.fieldKey} value for this Ashby EEOC field.`
+            : `Use ${APPLICATION_FIELDS_TOOL} with an exact caller-provided fieldValues.${field.fieldKey} value for this Ashby non-file field. Do not fill or click this connector-managed control directly.`;
         const connectorHint = {
           semanticRole:
             field.connectorTool === EEOC_TOOL
@@ -1470,10 +1840,7 @@
           observeAfterAction: false,
           batchPlacement: field.batchPlacement,
           stableFieldTargetId: field.targetId,
-          machineKey:
-            field.connectorTool === EEOC_TOOL
-              ? field.eeocFieldKey || field.fieldPath
-              : field.fieldPath,
+          machineKey: field.fieldKey,
           answerText: field.label,
           optionTexts: field.optionTexts || [],
           verifyAfterAction: field.verifyAfterAction,
@@ -1492,11 +1859,6 @@
       ) {
         const isCombobox = field.fieldKind === "combobox";
         if (isActionableControl(controlsById.get(field.fillTargetId))) {
-          const textFieldInstruction = field.safeMyInfoFill
-            ? "This optional Ashby profile field is blank and safe to fill from My Info when a value is present. Do not invent missing values."
-            : field.oneOfThreeAnswer
-              ? "This is a 1-of-3 Ashby long-answer prompt. Fill it only if USER_GOAL selected this prompt; otherwise leave it blank."
-              : "Fill this Ashby application field using the user's My Info or explicit goal text. Do not invent missing personal, legal, or sensitive answers.";
           addHint(actionHintsByTargetId, field.fillTargetId, {
             semanticRole: isCombobox
               ? "ashby_autocomplete_combobox"
@@ -1507,11 +1869,11 @@
             observeAfterAction: isCombobox,
             batchPlacement: isCombobox ? "fill_then_observe" : "can_batch",
             stableFieldTargetId: field.targetId,
-            machineKey: field.fieldPath,
+            machineKey: field.fieldKey,
             answerText: field.label,
             instruction: isCombobox
-              ? "This Ashby field is an autocomplete combobox. Fill the city/country search text, observe the listbox, then click the exact matching visible option to commit it. Typing alone or pressing Enter may not commit the answer."
-              : textFieldInstruction,
+              ? "This Ashby field is an autocomplete combobox. Enter an exact caller-provided value, observe the listbox, then click the exact matching visible option to commit it. Typing alone or pressing Enter may not commit the answer."
+              : "Fill this Ashby application field with an exact caller-provided value.",
           });
         }
       }
@@ -1521,14 +1883,12 @@
         const isComboboxOption = field.fieldKind === "combobox";
         const isConnectorManagedOption = Boolean(field.connectorTool && !isComboboxOption);
         const optionInstruction = option.selected
-          ? "This Ashby option is already selected in adapter state; do not click it again unless the user asked to change it."
+          ? "This Ashby option is already selected in adapter state."
           : field.connectorTool === EEOC_TOOL
-            ? `Sensitive optional Ashby EEOC option. Prefer ${EEOC_TOOL}; click only as fallback when this option matches an explicit value.`
+            ? `Ashby EEOC option. Use ${EEOC_TOOL} with this exact visible value.`
             : field.connectorTool === APPLICATION_FIELDS_TOOL
-              ? `Ashby option fallback. Prefer ${APPLICATION_FIELDS_TOOL} with fieldValues.${field.fieldPath}; click only if the connector is unavailable or failed.`
-              : field.sensitiveOptional
-                ? "Sensitive optional Ashby diversity option. Click only if USER_GOAL explicitly asks to answer this survey with this value."
-            : "Click this Ashby option only if it is the desired answer. After one click, observe the next state and do not repeat it if adapter state shows it selected.";
+              ? `Ashby application option. Use ${APPLICATION_FIELDS_TOOL} with this exact visible fieldValues.${field.fieldKey} value.`
+              : "Ashby application option with exact visible text.";
 
         for (const targetId of targetIds) {
           addHint(actionHintsByTargetId, targetId, {
@@ -1553,15 +1913,15 @@
             safeFillTarget: isConnectorManagedOption ? false : undefined,
             avoidAction: isConnectorManagedOption ? true : undefined,
             batchPlacement: isConnectorManagedOption ? field.batchPlacement : undefined,
-            stableFieldTargetId: optionTargetId(field.fieldPath, option.optionText),
-            machineKey: field.fieldPath,
+            stableFieldTargetId: optionTargetId(field.targetKey, option.optionText),
+            machineKey: field.fieldKey,
             checked: isComboboxOption ? undefined : Boolean(option.selected),
             answerText: option.optionText,
             verifyAfterAction: isComboboxOption
               ? "adapter_group_current_value"
               : "adapter_group_selected_value",
             instruction: isComboboxOption
-              ? "Click this visible Ashby autocomplete listbox option if it matches the desired field value. For city/country goals, an option that adds state/province but keeps the same city and country is a valid match. After one click, observe the next state and move on if the field value is filled and the listbox is closed."
+              ? "Use this visible Ashby autocomplete option only when its normalized text exactly matches the caller-provided value, then observe fresh state to verify commitment."
               : optionInstruction,
           });
         }
@@ -1574,17 +1934,18 @@
         preferredAction: "extract",
         avoidAction: true,
         instruction:
-          "Ashby upload control. File upload is unsupported in this runtime; do not click when the goal says not to upload.",
+          "Ashby file-upload boundary. Use the host-routed upload operation for this exact field.",
       });
     }
 
     addHint(actionHintsByTargetId, submitTargetId, {
       semanticRole: "ashby_submit_application_boundary",
+      protectedEffect: "submit",
       preferredAction: "click",
       navigationAction: true,
       avoidAction: true,
       instruction:
-        "Final Submit Application boundary. Do not click when the user says not to submit; for fill/draft-only goals, report done after requested fields are filled and only upload/submit remain.",
+        "Final Submit Application boundary. Generic click and key actions are blocked; use the host-authorized guarded submit operation.",
     });
 
     return actionHintsByTargetId;
@@ -1612,7 +1973,7 @@
         hint.semanticRole ? `role: ${hint.semanticRole}` : "",
         hint.preferredAction ? `preferred action: ${hint.preferredAction}` : "",
         hint.exactValueMode ? `value mode: ${hint.exactValueMode}` : "",
-        hint.avoidAction ? "avoid unless explicitly requested" : "",
+        hint.avoidAction ? "direct control action blocked; use preferred action" : "",
         hint.checked === true ? "state: selected" : "",
         hint.checked === false ? "state: not selected" : "",
         hint.safeFillTarget ? "safe fill target" : "",
@@ -1675,6 +2036,9 @@
   function buildSelectorOverrides(fields) {
     const overrides = {};
     for (const field of fields || []) {
+      if (field.uploadTriggerTargetId && field.uploadTriggerSelector) {
+        overrides[field.uploadTriggerTargetId] = field.uploadTriggerSelector;
+      }
       for (const option of field.options || []) {
         const selector = optionSelectorForField(field, option);
         if (!selector) continue;
@@ -1686,19 +2050,70 @@
     return overrides;
   }
 
-  function findSubmitTargetId(state, documentRef) {
-    const submitEl =
-      documentRef.querySelector(".ashby-application-form-submit-button") ||
-      getVisibleElements("button", documentRef).find((button) =>
-        /^submit application$/i.test(textContent(button)),
-      );
-    return (
-      findControlForElement(state.controls || [], submitEl)?.id ||
-      (state.controls || []).find((control) =>
-        /^submit application$/i.test(control.label || control.text || ""),
-      )?.id ||
-      ""
+  function selectorForExactElement(documentRef, element, candidates) {
+    for (const selector of unique(candidates)) {
+      try {
+        const matches = documentRef.querySelectorAll(selector);
+        if (matches.length === 1 && matches[0] === element) return selector;
+      } catch {
+        // Ignore malformed fallback candidates and fail closed below.
+      }
+    }
+    return "";
+  }
+
+  function submitCandidateElements(documentRef = document) {
+    const root =
+      documentRef.querySelector(".ashby-application-form-container") || documentRef;
+    return unique(
+      getVisibleElements(
+        "button, input[type='submit'], [role='button']",
+        root,
+      ).filter(
+        (element) =>
+          /^submit application$/i.test(
+            textContent(element) || normalizeText(element.value),
+          ),
+      ),
     );
+  }
+
+  function submitBoundaryTargetIds(state, documentRef = document) {
+    return unique(
+      submitCandidateElements(documentRef).map(
+        (element) => findControlForElement(state?.controls || [], element)?.id,
+      ),
+    );
+  }
+
+  function exactSubmitTarget(state, documentRef = document) {
+    const candidates = submitCandidateElements(documentRef);
+    if (candidates.length !== 1) return null;
+
+    const element = candidates[0];
+    const control = findControlForElement(state?.controls || [], element);
+    if (!control?.id) return null;
+    const selector = selectorForExactElement(documentRef, element, [
+      ownStableSelector(element),
+      element.matches(".ashby-application-form-submit-button")
+        ? ".ashby-application-form-submit-button"
+        : "",
+      ".ashby-application-form-container button[type='submit']",
+      ".ashby-application-form-container input[type='submit']",
+    ]);
+    if (!selector) return null;
+
+    return {
+      element,
+      targetId: control.id,
+      selector,
+      enabled:
+        !element.disabled && lower(element.getAttribute("aria-disabled")) !== "true",
+    };
+  }
+
+  function findSubmitTargetId(state, documentRef) {
+    return exactSubmitTarget(state, documentRef)?.targetId || "";
   }
 
   function findUploadTargetIds(state) {
@@ -1733,7 +2148,7 @@
       .filter(Boolean);
   }
 
-  function buildPlannerHints(fields, submitTargetId, uploadTargetIds, pageKind = "") {
+  function buildPlannerHints(fields, submitTargetId, uploadTargetIds) {
     const selected = fields
       .filter((field) => field.selectedValue)
       .map((field) => `${field.label}: ${field.selectedValue}`)
@@ -1743,8 +2158,7 @@
         (field) =>
           field.required &&
           !field.answered &&
-          field.fieldKind !== "file" &&
-          !field.sensitiveOptional,
+          field.fieldKind !== "file",
       )
       .map((field) => field.label)
       .slice(0, 10);
@@ -1755,51 +2169,34 @@
       )
       .map((field) => field.label)
       .slice(0, 6);
-    const blankProfileFields = fields
-      .filter((field) => field.safeMyInfoFill)
-      .map((field) => field.label)
-      .slice(0, 10);
     const blankSensitiveFields = fields
-      .filter((field) => field.sensitiveOptional && !field.answered)
-      .map((field) => field.label)
-      .slice(0, 10);
-    const blankOneOfThreeFields = fields
-      .filter((field) => field.oneOfThreeAnswer && !field.answered)
+      .filter((field) => field.sensitive && !field.answered)
       .map((field) => field.label)
       .slice(0, 10);
 
     return [
       "Ashby adapter active: use Ashby application groups and adapter control labels as high-confidence field state.",
-      pageKind === "application_form" ? ASHBY_APPLICATION_CONNECTOR_BATCH_HINT : "",
-      ASHBY_FILL_KNOWN_VALUES_HINT,
-      `Prefer ${APPLICATION_FIELDS_TOOL}(fieldValues) for all answerable non-file, non-EEOC Ashby fields in one connector action. It can fill text inputs, textareas, native selects, radio/checkbox choices, and Ashby autocomplete/combobox fields including location-style infinite dropdowns. Do not split explicit profile fields and synthesized normal answers across steps. ${ASHBY_APPLICATION_SYNTHESIS_HINT}`,
-      `Prefer ${EEOC_TOOL}(fieldValues) for Ashby EEOC self-identification fields in one connector action. Include every explicit sensitive value available from runContext.myInfo or USER_GOAL in that single call; omit only genuinely unknown fields instead of inventing answers or choosing decline. ${ASHBY_RACE_INDIAN_HINT}`,
-      "Ashby connector-managed fields are not normal fill/click targets. If an Ashby connector tool is missing from the callable tool list, do not directly fill/click those managed controls; report the missing connector tool or ask for review.",
-      "If an Ashby option group/control says state selected or currentValue selected, treat that option as already chosen and do not click it again.",
-      "After clicking an Ashby option, observe the next state; if adapter state shows the option selected, move on instead of extracting or clicking the same tile again.",
+      `${APPLICATION_FIELDS_TOOL}(fieldValues) accepts exact caller-provided values keyed by live non-file, non-EEOC Ashby fieldKey and leaves omitted fields unchanged.`,
+      `${EEOC_TOOL}(fieldValues) accepts exact caller-provided values keyed by live Ashby EEOC fieldKey and leaves omitted fields unchanged.`,
+      "Ashby connector-managed controls execute through their advertised connector tool and are verified from fresh adapter state.",
+      "Selected option state is reported for idempotence; observe fresh state after an option changes.",
       selected.length ? `Currently selected Ashby options: ${selected.join(" | ")}.` : "",
       missingRequired.length
         ? `Ashby required fields still missing or unsupported: ${missingRequired.join(" | ")}.`
-        : "No required Ashby text/choice field is visibly missing. Check optional profile blanks, sensitive optional fields, explicit exclusions, upload, and submit before deciding done.",
-      blankProfileFields.length
-        ? `Optional non-sensitive Ashby profile fields are blank but safe to fill from runContext.myInfo when values are present: ${blankProfileFields.join(" | ")}.`
-        : "",
+        : "No required Ashby text or choice field is visibly missing.",
       blankSensitiveFields.length
-        ? `Sensitive optional Ashby diversity fields are blank: ${blankSensitiveFields.join(" | ")}. Use ${EEOC_TOOL} for EEOC values that are explicitly present; otherwise leave unknown sensitive fields blank and mention them in done summaries.`
-        : "",
-      blankOneOfThreeFields.length
-        ? `Ashby 1-of-3 long-answer choices are blank: ${blankOneOfThreeFields.join(" | ")}. Fill only the one USER_GOAL selected; blank alternates are not blockers.`
+        ? `Ashby sensitive fields currently blank: ${blankSensitiveFields.join(" | ")}.`
         : "",
       requiredUploadBoundaries.length
-        ? `Ashby required upload/file boundaries are present but not normal fill targets: ${requiredUploadBoundaries.join(" | ")}. Treat them according to USER_GOAL and runtime upload support.`
+        ? `Ashby required file-upload boundaries currently blank: ${requiredUploadBoundaries.join(" | ")}.`
         : "",
       uploadTargetIds.length
-        ? "Ashby resume upload/autofill controls are file-upload boundaries. The runtime cannot upload files; leave them alone when the user says do not upload."
+        ? "Ashby file-upload controls require the host-routed upload operation for an exact live field."
         : "",
       submitTargetId
-        ? `Ashby Submit Application target ${submitTargetId} is final submission. If USER_GOAL says do not submit, do not click it; for fill-only goals it is okay to return done once requested non-file fields are handled and intentionally blank optional/sensitive fields are summarized.`
+        ? `Ashby Submit Application target ${submitTargetId} is guarded; generic click and key actions cannot activate it.`
         : "",
-      "Ashby EEOC/policy copy is not actionable for the planner; rely on Ashby field groups, optionTexts, and connector tool schemas for the actual controls.",
+      "Ashby legal and EEOC explanatory copy is filtered from actionable state; field groups and optionTexts remain authoritative.",
     ].filter(Boolean);
   }
 
@@ -1813,8 +2210,7 @@
         (field) =>
           field.required &&
           !field.answered &&
-          field.fieldKind !== "file" &&
-          !field.sensitiveOptional,
+          field.fieldKind !== "file",
       )
       .map((field) => field.label)
       .slice(0, 12);
@@ -1825,34 +2221,19 @@
       )
       .map((field) => field.label)
       .slice(0, 6);
-    const blankProfileFields = fields
-      .filter((field) => field.safeMyInfoFill)
-      .map((field) => field.label)
-      .slice(0, 12);
     const blankSensitiveFields = fields
-      .filter((field) => field.sensitiveOptional && !field.answered)
-      .map((field) => field.label)
-      .slice(0, 12);
-    const blankOneOfThreeFields = fields
-      .filter((field) => field.oneOfThreeAnswer && !field.answered)
+      .filter((field) => field.sensitive && !field.answered)
       .map((field) => field.label)
       .slice(0, 12);
 
     return [
       `Ashby application adapter: ${fields.length} fields detected.`,
-      "Ashby progress rule: unknown fields are not blockers; fill all known/supported/safely synthesized fields first and summarize intentional blanks.",
       selected.length ? `Ashby selected options: ${selected.join(" | ")}` : "",
       missing.length
         ? `Ashby missing required/unsupported fields: ${missing.join(" | ")}`
-        : "Ashby required text/choice fields appear handled; optional profile, sensitive optional, upload, and submit boundaries still need policy-aware review.",
-      blankProfileFields.length
-        ? `Ashby optional profile fields blank and safe from My Info: ${blankProfileFields.join(" | ")}`
-        : "",
+        : "Ashby required text and choice fields appear answered.",
       blankSensitiveFields.length
-        ? `Ashby sensitive optional diversity fields blank: ${blankSensitiveFields.join(" | ")}`
-        : "",
-      blankOneOfThreeFields.length
-        ? `Ashby blank 1-of-3 answer choices: ${blankOneOfThreeFields.join(" | ")}`
+        ? `Ashby sensitive fields blank: ${blankSensitiveFields.join(" | ")}`
         : "",
       requiredUploadBoundaries.length
         ? `Ashby required upload/file boundaries present: ${requiredUploadBoundaries.join(" | ")}`
@@ -1884,15 +2265,89 @@
     );
   }
 
-  function filterPlannerNoiseList(items) {
-    return (items || []).filter((item) => !isAshbyPolicyNoiseText(item));
+  function buildPlannerDescriptionEvidence(descriptionContext) {
+    const fullText = lower(descriptionContext?.fullDescription);
+    const textKeys = new Set();
+    const headingKeys = new Set();
+    const descriptionRoot = descriptionContext?.descriptionRoot;
+    const excludedSelector = [
+      "form",
+      ".ashby-application-form-container",
+      ".ashby-survey-form-container",
+      ".ashby-application-form-submit-button",
+      "script",
+      "style",
+      "noscript",
+    ].join(",");
+
+    for (const line of String(descriptionContext?.fullDescription || "").split(/\n+/)) {
+      const key = lower(line);
+      if (key) textKeys.add(key);
+    }
+
+    if (descriptionRoot) {
+      for (const element of [descriptionRoot, ...descriptionRoot.querySelectorAll("*")]) {
+        if (element !== descriptionRoot && element.closest(excludedSelector)) continue;
+        const key = lower(textContent(element));
+        if (!key) continue;
+        textKeys.add(key);
+        textKeys.add(key.slice(0, 140).trim());
+        textKeys.add(key.slice(0, 180).trim());
+        if (element.matches("h1,h2,h3,h4,h5,h6,[role='heading'],[role='tab']")) {
+          headingKeys.add(key);
+        }
+      }
+    }
+
+    return { fullText, textKeys, headingKeys };
   }
 
-  function filterPlannerNoiseGroups(groups) {
+  function isPlannerDescriptionText(value, evidence) {
+    const text = lower(value);
+    if (!text || !evidence) return false;
+    if (evidence.headingKeys.has(text)) return true;
+    if (text.length < 24) return false;
+    if (evidence.textKeys.has(text) || evidence.fullText.includes(text)) return true;
+
+    if (text.length >= 40) {
+      for (const descriptionText of evidence.textKeys) {
+        if (descriptionText.length >= 40 && text.includes(descriptionText)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function filterPlannerNoiseList(items, descriptionEvidence) {
+    return (items || []).filter(
+      (item) =>
+        !isAshbyPolicyNoiseText(item) &&
+        !isPlannerDescriptionText(item, descriptionEvidence),
+    );
+  }
+
+  function filterPlannerNoiseHeadings(headings, descriptionEvidence) {
+    return (headings || []).filter(
+      (heading) =>
+        !isAshbyPolicyNoiseText(heading) &&
+        !isPlannerDescriptionText(heading, descriptionEvidence),
+    );
+  }
+
+  function filterPlannerNoiseGroups(groups, descriptionEvidence) {
     return (groups || []).filter(
       (group) =>
         !isAshbyPolicyNoiseText(
           [group?.label, group?.text, group?.heading].join(" "),
+        ) &&
+        !isPlannerDescriptionText(group?.text, descriptionEvidence) &&
+        !(
+          !normalizeText(group?.text) &&
+          isPlannerDescriptionText(
+            group?.label || group?.heading,
+            descriptionEvidence,
+          )
         ),
     );
   }
@@ -1914,11 +2369,26 @@
   }
 
   function buildSiteAdapter(state, documentRef, url) {
+    const jobDescriptionContext = ashbyJobDescriptionContext(documentRef);
+    const jobPosting = plannerJobPosting(
+      extractAshbyJobPosting(documentRef, jobDescriptionContext),
+    );
     const fields = collectFieldRoots(documentRef)
-      .map((root, index) => collectField(state, root, index))
+      .flatMap((root, index) => collectFields(state, root, index))
       .filter((field) => field.label);
+    const submitBoundaryIds = submitBoundaryTargetIds(state, documentRef);
     const submitTargetId = findSubmitTargetId(state, documentRef);
-    const uploadTargetIds = findUploadTargetIds(state);
+    const groupedUploadControlIds = new Set(
+      fields
+        .filter((field) => field.fieldKind === "file")
+        .flatMap((field) => field.controlIds || []),
+    );
+    const uploadTargetIds = unique([
+      ...fields.map((field) => field.uploadTriggerTargetId),
+      ...findUploadTargetIds(state).filter(
+        (controlId) => !groupedUploadControlIds.has(controlId),
+      ),
+    ]);
     const controlsById = controlByIdMap(state.controls || []);
     const actionHintsByTargetId = buildActionHints(
       fields,
@@ -1926,9 +2396,17 @@
       uploadTargetIds,
       controlsById,
     );
+    for (const targetId of submitBoundaryIds) {
+      addHint(actionHintsByTargetId, targetId, {
+        semanticRole: "ashby_submit_application_boundary",
+        protectedEffect: "submit",
+        avoidAction: true,
+      });
+    }
     const primaryControlIds = unique([
       ...fields.flatMap((field) => fieldPrimaryControlIds(field, controlsById)),
       ...actionableControlIds(uploadTargetIds, controlsById, 4),
+      ...submitBoundaryIds,
       submitTargetId,
     ]).slice(0, 120);
     const selectorOverrides = buildSelectorOverrides(fields);
@@ -1945,20 +2423,22 @@
         (field) =>
           field.required &&
           !field.answered &&
-          field.fieldKind !== "file" &&
-          !field.sensitiveOptional,
+          field.fieldKind !== "file",
       ).length,
       submitTargetId,
       uploadTargetIds,
       primaryControlIds,
       actionHintsByTargetId,
       selectorOverrides,
+      jobPosting,
+      jobDescriptionEvidence: buildPlannerDescriptionEvidence(
+        jobDescriptionContext,
+      ),
     };
     siteAdapter.plannerHints = buildPlannerHints(
       fields,
       submitTargetId,
       uploadTargetIds,
-      pageKind,
     );
     siteAdapter.groups = [
       applicationGroup(fields, siteAdapter),
@@ -1978,27 +2458,6 @@
   // ---------------------------------------------------------------------------
 
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const SELECT_STOP_WORDS = new Set([
-    "a",
-    "an",
-    "and",
-    "are",
-    "as",
-    "do",
-    "does",
-    "had",
-    "has",
-    "have",
-    "i",
-    "in",
-    "is",
-    "of",
-    "or",
-    "past",
-    "the",
-    "to",
-  ]);
-
   function canonicalSelectText(value) {
     return lower(value)
       .replace(/['’]/g, "")
@@ -2008,289 +2467,102 @@
       .trim();
   }
 
-  function selectTokens(value) {
-    return canonicalSelectText(value)
-      .split(" ")
-      .map((token) => token.trim())
-      .filter((token) => token && !SELECT_STOP_WORDS.has(token));
+  function searchQueriesFor(_fieldKey, value) {
+    const exactValue = normalizeText(value);
+    return exactValue ? [exactValue] : [];
   }
 
-  function isLocationFieldKey(fieldKey = "") {
-    return /location|city|country|state|where/.test(canonicalSelectText(fieldKey));
-  }
-
-  function locationAliasesFor(value) {
-    const key = canonicalSelectText(value);
-    if (!key) return [];
-
-    const aliases = [];
-    if (/\bunited states\b|\busa\b|\bus\b|\bamerica\b/.test(key)) {
-      aliases.push("United States", "USA", "US");
-    }
-    if (/\bindia\b/.test(key)) aliases.push("India");
-
-    const tokens = key.split(" ").filter(Boolean);
-    for (let index = 0; index < tokens.length; index += 1) {
-      const stateName = US_STATE_NAMES[tokens[index]];
-      if (!stateName) continue;
-
-      const before = tokens.slice(0, index).join(" ");
-      const after = tokens.slice(index + 1).join(" ");
-      const expanded = [before, stateName, after].filter(Boolean).join(" ");
-      aliases.push(expanded);
-      if (before) {
-        aliases.push(`${before}, ${stateName}, United States`);
-        aliases.push(`${before} ${stateName} united states`);
-      }
-    }
-
-    return unique(aliases);
-  }
-
-  function fieldValueAliases(fieldKey, value) {
-    const key = canonicalSelectText(value);
-    const aliases = [];
-
-    if (isLocationFieldKey(fieldKey)) {
-      aliases.push(...locationAliasesFor(value));
-    }
-
-    if (/\bvirginia\b/.test(key) && /\btech\b/.test(key)) {
-      aliases.push(
-        "Virginia Tech",
-        "Virginia Polytechnic Institute and State University",
-      );
-    }
-
-    if (/\b(bachelor|bachelors|bs|bsc|science)\b/.test(key)) {
-      aliases.push(
-        "Bachelor's Degree",
-        "Bachelors Degree",
-        "Bachelor of Science",
-        "Bachelor",
-      );
-    }
-
-    if (fieldKey === "gender") {
-      if (/\bmale\b/.test(key) && !/\bfemale\b/.test(key)) aliases.push("Male");
-      if (/\bfemale\b|\bwoman\b/.test(key)) aliases.push("Female");
-      if (/prefer|decline|dont want|do not want|self identify/.test(key)) {
-        aliases.push("Decline to self-identify");
-      }
-    }
-
-    if (fieldKey === "race") {
-      if (/\bhispanic\b|\blatino\b/.test(key)) aliases.push("Hispanic or Latino");
-      if (/\bwhite\b/.test(key)) aliases.push("White (Not Hispanic or Latino)");
-      if (/\bblack\b|\bafrican american\b/.test(key)) {
-        aliases.push("Black or African American (Not Hispanic or Latino)");
-      }
-      if (
-        /\basian\b/.test(key) ||
-        /\bsouth asian\b/.test(key) ||
-        /\basian indian\b/.test(key) ||
-        (/\bindia(?:n)?\b/.test(key) &&
-          !/\b(american indian|native american|alaska native)\b/.test(key))
-      ) {
-        aliases.push("Asian (Not Hispanic or Latino)");
-      }
-      if (/\bnative hawaiian\b|\bpacific islander\b/.test(key)) {
-        aliases.push(
-          "Native Hawaiian or Other Pacific Islander (Not Hispanic or Latino)",
-        );
-      }
-      if (/\bamerican indian\b|\balaska native\b/.test(key)) {
-        aliases.push("American Indian or Alaska Native (Not Hispanic or Latino)");
-      }
-      if (/\btwo\b.*\bmore\b|\bmultiple races\b/.test(key)) {
-        aliases.push("Two or More Races (Not Hispanic or Latino)");
-      }
-      if (/prefer|decline|dont want|do not want|self identify/.test(key)) {
-        aliases.push("Decline to self-identify");
-      }
-    }
-
-    if (fieldKey === "veteran_status") {
-      if (/not.*protected.*veteran|no.*veteran|not.*veteran/.test(key)) {
-        aliases.push("I am not a protected veteran", "Not a protected veteran");
-      } else if (/protected.*veteran/.test(key)) {
-        aliases.push(
-          "I identify as one or more of the classifications of protected veteran listed above",
-          "I identify as one or more of the classifications of protected veteran",
-        );
-      } else if (/prefer|decline|dont want|do not want|self identify/.test(key)) {
-        aliases.push("I decline to self-identify for protected veteran status");
-      }
-    }
-
-    if (fieldKey === "disability_status") {
-      if (/\bno\b/.test(key) && /\bdisab/.test(key)) {
-        aliases.push(
-          "No, I do not have a disability and have not had one in the past",
-          "No disability",
-        );
-      } else if (/\byes\b/.test(key) && /\bdisab/.test(key)) {
-        aliases.push(
-          "Yes, I have a disability, or have had one in the past",
-          "Yes disability",
-        );
-      } else if (/prefer|decline|dont want|do not want/.test(key)) {
-        aliases.push("I do not want to answer");
-      }
-    }
-
-    return unique(aliases);
-  }
-
-  function searchQueriesFor(fieldKey, value) {
-    const queries = [value, ...fieldValueAliases(fieldKey, value)];
-    const tokens = selectTokens(value);
-
-    if (tokens.includes("virginia")) queries.push("Virginia");
-    if (tokens.includes("bachelor") || tokens.includes("bachelors")) {
-      queries.push("Bachelor");
-    }
-    if (fieldKey === "race" && tokens.length) queries.push(tokens[0]);
-    if (fieldKey === "veteran_status" && tokens.includes("veteran")) {
-      queries.push("veteran");
-    }
-    if (fieldKey === "disability_status" && tokens.includes("no")) {
-      queries.push("No");
-    }
-
-    return unique(
-      queries
-        .map((query) => normalizeText(query))
-        .filter(Boolean)
-        .slice(0, 8),
-    );
-  }
-
-  function scoreOptionText(optionText, value, fieldKey = "") {
-    const optionKey = canonicalSelectText(optionText);
-    const wantedKey = canonicalSelectText(value);
-    if (!optionKey || !wantedKey) return 0;
-    if (optionKey === wantedKey) return 1000;
-    if (fieldKey === "gender" && wantedKey === "male") {
-      return optionKey === "male" ? 1000 : 0;
-    }
-    if (isLocationFieldKey(fieldKey)) {
-      const locationAliases = locationAliasesFor(value).map(canonicalSelectText);
-      for (const aliasKey of locationAliases) {
-        if (!aliasKey) continue;
-        if (optionKey === aliasKey) return 1000;
-        if (optionKey.startsWith(aliasKey)) return 960;
-        if (optionKey.includes(aliasKey)) return 930;
-      }
-    }
-    if (
-      fieldKey === "race" &&
-      /\bindia(?:n)?\b/.test(wantedKey) &&
-      !/\b(american indian|native american|alaska native)\b/.test(wantedKey)
-    ) {
-      if (/\basian\b/.test(optionKey)) return 1000;
-      if (/\bamerican indian\b|\balaska native\b/.test(optionKey)) return 0;
-    }
-
-    for (const alias of fieldValueAliases(fieldKey, value)) {
-      const aliasKey = canonicalSelectText(alias);
-      if (!aliasKey) continue;
-      if (optionKey === aliasKey) return 980;
-      if (optionKey.startsWith(aliasKey)) return 940;
-      if (optionKey.includes(aliasKey)) return 900;
-      if (aliasKey.includes(optionKey) && optionKey.length >= 5) return 850;
-    }
-
-    if (optionKey.startsWith(wantedKey)) return 830;
-    if (wantedKey.length >= 4 && optionKey.includes(wantedKey)) return 780;
-
-    const wantedTokens = selectTokens(value);
-    const optionTokens = new Set(selectTokens(optionText));
-    const overlap = wantedTokens.filter((token) => optionTokens.has(token));
-    let score = overlap.length * 120;
-
-    if (wantedTokens.length && overlap.length === wantedTokens.length) score += 220;
-    if (fieldKey === "race" && optionTokens.has("not") && optionTokens.has("hispanic")) {
-      score += 80;
-    }
-    if (
-      fieldKey === "veteran_status" &&
-      wantedTokens.includes("veteran") &&
-      (wantedTokens.includes("no") || wantedTokens.includes("not")) &&
-      optionTokens.has("not") &&
-      optionTokens.has("veteran")
-    ) {
-      score += 520;
-    }
-    if (
-      fieldKey === "disability_status" &&
-      wantedTokens.includes("no") &&
-      wantedTokens.some((token) => token.startsWith("disab")) &&
-      optionTokens.has("no") &&
-      [...optionTokens].some((token) => token.startsWith("disab"))
-    ) {
-      score += 520;
-    }
-    if (
-      wantedTokens.includes("virginia") &&
-      wantedTokens.includes("tech") &&
-      optionTokens.has("virginia") &&
-      (optionTokens.has("tech") || optionTokens.has("polytechnic"))
-    ) {
-      score += 520;
-    }
-
-    return score;
+  function normalizedPhoneDigits(value) {
+    return String(value || "").replace(/\D/g, "");
   }
 
   function valuesEquivalent(observedValue, expectedValue, fieldKey = "") {
-    return scoreOptionText(observedValue, expectedValue, fieldKey) >= 450;
+    if (/phone/.test(canonicalSelectText(fieldKey))) {
+      const observedDigits = normalizedPhoneDigits(observedValue);
+      const expectedDigits = normalizedPhoneDigits(expectedValue);
+      if (!observedDigits || !expectedDigits) return false;
+      if (observedDigits === expectedDigits) return true;
+      return (
+        expectedDigits.length === observedDigits.length + 1 &&
+        expectedDigits.startsWith("1") &&
+        expectedDigits.slice(1) === observedDigits
+      );
+    }
+    const observed = canonicalSelectText(observedValue);
+    const expected = canonicalSelectText(expectedValue);
+    return Boolean(observed && expected && observed === expected);
   }
 
-  function matchOption(options, value, fieldKey = "") {
-    let best = null;
-    let secondScore = 0;
+  function matchOption(options, value) {
+    const expected = canonicalSelectText(value);
+    if (!expected) return null;
+    return (
+      (options || []).find(
+        (option) =>
+          canonicalSelectText(option.text || option.optionText) === expected,
+      ) || null
+    );
+  }
 
-    for (const option of options || []) {
-      const score = scoreOptionText(option.text || option.optionText, value, fieldKey);
-      if (!best || score > best.score) {
-        secondScore = best?.score || 0;
-        best = { ...option, score };
-      } else if (score > secondScore) {
-        secondScore = score;
-      }
+  function collectRuntimeFieldsForRoot(root, index) {
+    const question = questionText(root);
+    const input = findPrimaryInput(root);
+    const fieldPath = fieldPathFor(root, input, question, index);
+    const composite = phoneSmsComposite(root, input, question, fieldPath);
+
+    if (composite) {
+      return [
+        {
+          root,
+          input: composite.phone.input,
+          question: composite.phone.question,
+          fieldPath,
+          fieldKey: composite.phone.fieldKey,
+          logicalKind: composite.phone.logicalKind,
+          eeocFieldKey: "",
+          sectionKind: "application",
+          fieldKind: composite.phone.fieldKind,
+          options: [],
+        },
+        {
+          root,
+          input: null,
+          question: composite.smsConsent.question,
+          fieldPath,
+          fieldKey: composite.smsConsent.fieldKey,
+          logicalKind: composite.smsConsent.logicalKind,
+          eeocFieldKey: "",
+          sectionKind: "application",
+          fieldKind: composite.smsConsent.fieldKind,
+          options: collectPhoneSmsConsentOptionInfos(root, []),
+        },
+      ];
     }
 
-    if (!best || best.score < 450) return null;
-    if (best.score < 900 && secondScore && best.score - secondScore < 80) {
-      return null;
-    }
-    return best;
+    const eeocSpec = eeocFieldSpecFor(question, fieldPath);
+    const hasCombobox = fieldHasCombobox(root, []);
+    const options = hasCombobox ? [] : collectOptionInfos(root, [], question);
+    const kind = fieldKind(root, options.length, hasCombobox);
+    return [
+      {
+        root,
+        input,
+        question,
+        fieldPath,
+        fieldKey: eeocSpec?.fieldKey || fieldPath,
+        logicalKind: "",
+        eeocFieldKey: eeocSpec?.fieldKey || "",
+        sectionKind: eeocSpec ? "eeoc" : "application",
+        fieldKind: kind,
+        options,
+      },
+    ];
   }
 
   function collectRuntimeFields(documentRef = document) {
     return collectFieldRoots(documentRef)
-      .map((root, index) => {
-        const question = questionText(root);
-        const input = findPrimaryInput(root);
-        const fieldPath = fieldPathFor(root, input, question, index);
-        const eeocSpec = eeocFieldSpecFor(question, fieldPath);
-        const hasCombobox = fieldHasCombobox(root, []);
-        const options = hasCombobox ? [] : collectOptionInfos(root, [], question);
-        const kind = fieldKind(root, options.length, hasCombobox);
-        return {
-          root,
-          input,
-          question,
-          fieldPath,
-          fieldKey: eeocSpec?.fieldKey || fieldPath,
-          eeocFieldKey: eeocSpec?.fieldKey || "",
-          sectionKind: eeocSpec ? "eeoc" : "application",
-          fieldKind: kind,
-          options,
-        };
-      })
-      .filter((field) => field.question && field.fieldPath);
+      .flatMap((root, index) => collectRuntimeFieldsForRoot(root, index))
+      .filter((field) => field.question && field.fieldPath && field.fieldKey);
   }
 
   function connectorApplicationFields(documentRef = document) {
@@ -2316,7 +2588,7 @@
         field.question,
         `kind: ${field.fieldKind}`,
         optionText ? `options: ${optionText}` : "",
-        "for normal non-sensitive questions, synthesize from My Info/resume/job context when a literal value is not provided",
+        "supply an exact caller-provided value for this field key",
       ]
         .filter(Boolean)
         .join("; "),
@@ -2330,20 +2602,11 @@
       .filter(Boolean)
       .slice(0, 10)
       .join(", ");
-    const special =
-      field.eeocFieldKey === "race"
-        ? ASHBY_RACE_INDIAN_HINT
-        : field.eeocFieldKey === "veteran_status"
-          ? "If runContext.myInfo says not a veteran, use I am not a protected veteran."
-          : field.eeocFieldKey === "disability_status"
-            ? "If runContext.myInfo says no disability, use the Ashby no-disability option."
-            : "";
     return truncate(
       [
-        `Explicit answer for ${field.question}.`,
+        `Exact caller-provided answer for ${field.question}.`,
         optionText ? `Available options: ${optionText}.` : "",
-        special,
-        "Omit when unknown.",
+        "Use exact visible option text when options are present.",
       ]
         .filter(Boolean)
         .join(" "),
@@ -2351,18 +2614,206 @@
     );
   }
 
-  function provideTools({ document: documentRef }) {
+  function hostCapability(meta, name) {
+    return meta?.capabilities?.[name] === true;
+  }
+
+  function submitReadiness(documentRef = document) {
+    const fields = collectFieldRoots(documentRef)
+      .flatMap((root, index) => collectFields({ controls: [] }, root, index))
+      .filter((field) => field?.label);
+    const missingRequiredFields = [];
+    const seen = new Set();
+
+    for (const field of fields) {
+      if (!field.required || field.answered) continue;
+      const fieldKey = normalizeText(field.fieldKey || field.fieldPath);
+      const identity = `${fieldKey}:${field.logicalKind || field.fieldKind}`;
+      if (seen.has(identity)) continue;
+      seen.add(identity);
+      missingRequiredFields.push({
+        fieldKey,
+        label: field.label,
+        fieldKind: field.logicalKind || field.fieldKind,
+      });
+    }
+
+    return {
+      ready: missingRequiredFields.length === 0,
+      missingRequiredFields,
+    };
+  }
+
+  function uploadExecutionTargets(state) {
+    const controls = new Map((state?.controls || []).map((control) => [control.id, control]));
+    return (state?.groups || [])
+      .filter(
+        (group) =>
+          group?.kind === "ashby_application_field" &&
+          group.fieldKind === "file" &&
+          group.fieldKey &&
+          group.uploadTriggerTargetId,
+      )
+      .map((group) => {
+        const control = controls.get(group.uploadTriggerTargetId);
+        const nativeFileInput =
+          lower(control?.tag) === "input" && lower(control?.type) === "file";
+        return {
+          fieldKey: group.fieldKey,
+          label: group.label,
+          targetId: group.uploadTriggerTargetId,
+          selector: group.uploadTriggerSelector || control?.selector || "",
+          ...(nativeFileInput
+            ? { activation: { kind: "file-input-picker" } }
+            : {}),
+          verification: {
+            kind: "adapter_field_property",
+            groupKind: "ashby_application_field",
+            targetId: group.targetId,
+            fieldKey: group.fieldKey,
+            property: "committedFilename",
+            previousValue: group.committedFilename || "",
+            expectedValueFrom: "filePath.basename",
+          },
+        };
+      })
+      .filter((target) => target.selector);
+  }
+
+  function submitExecutionTarget(state, documentRef = document) {
+    const target = exactSubmitTarget(state, documentRef);
+    if (
+      !target ||
+      !target.enabled ||
+      !state?.siteAdapter?.submitTargetId ||
+      target.targetId !== state.siteAdapter.submitTargetId
+    ) {
+      return null;
+    }
+    return {
+      targetId: target.targetId,
+      selector: target.selector,
+    };
+  }
+
+  function provideTools({ state, meta, document: documentRef }) {
     const applicationFields = connectorApplicationFields(documentRef || document);
     const eeocFields = connectorEeocFields(documentRef || document);
+    const jobPosting = extractAshbyJobPosting(documentRef || document);
+    const uploadTargets = hostCapability(meta, "hostFileUpload")
+      ? uploadExecutionTargets(state)
+      : [];
+    const submitTarget = hostCapability(meta, "guardedSubmit")
+      ? submitExecutionTarget(state, documentRef || document)
+      : null;
     const tools = [];
+
+    if (jobPosting) {
+      tools.push({
+        schema: {
+          type: "function",
+          name: READ_JOB_DESCRIPTION_TOOL,
+          description:
+            "Read the current Ashby job description as dense structured job-posting data. Takes no arguments and excludes application answers.",
+          strict: true,
+          parameters: {
+            type: "object",
+            properties: {},
+            required: [],
+            additionalProperties: false,
+          },
+        },
+        execution: {
+          realm: "page",
+          capability: null,
+          effect: "read",
+          sensitiveArguments: [],
+          operation: "read_job_description",
+          verification: { kind: "result_property", property: "jobPosting" },
+        },
+      });
+    }
+
+    if (uploadTargets.length) {
+      tools.push({
+        schema: {
+          type: "function",
+          name: UPLOAD_APPLICATION_FILE_TOOL,
+          description:
+            "Upload one local file to an exact Ashby application file field. filePath is resolved by the Codex host and is never sent to the page executor.",
+          strict: true,
+          parameters: {
+            type: "object",
+            properties: {
+              fieldKey: {
+                type: "string",
+                enum: uploadTargets.map((target) => target.fieldKey),
+                description: "The exact live Ashby file field to receive the file.",
+              },
+              filePath: {
+                type: "string",
+                description: "Absolute Codex-host path of the local file to upload.",
+              },
+            },
+            required: ["fieldKey", "filePath"],
+            additionalProperties: false,
+          },
+        },
+        execution: {
+          realm: "host",
+          capability: "browser.file-upload",
+          effect: "file-upload",
+          sensitiveArguments: ["filePath"],
+          operation: "upload_file",
+          targets: uploadTargets,
+        },
+      });
+    }
+
+    if (submitTarget) {
+      globalThis.WebGPTConnectorTools?.register?.(
+        SUBMIT_APPLICATION_TOOL,
+        ashbySubmitApplication,
+        { requiresAuthorization: true },
+      );
+      tools.push({
+        schema: {
+          type: "function",
+          name: SUBMIT_APPLICATION_TOOL,
+          description:
+            "Submit the current Ashby application. Use only when the user explicitly authorized final submission for this exact application.",
+          strict: true,
+          parameters: {
+            type: "object",
+            properties: {},
+            required: [],
+            additionalProperties: false,
+          },
+        },
+        execution: {
+          realm: "page",
+          capability: "guarded-submit",
+          effect: "submit",
+          sensitiveArguments: [],
+          operation: "guarded_submit",
+          requiresAuthorization: true,
+          target: submitTarget,
+          verification: {
+            kind: "navigation_or_target_absent",
+            previousUrl: state?.url || "",
+            targetId: submitTarget.targetId,
+          },
+        },
+      });
+    }
 
     if (applicationFields.length) {
       const mapping = applicationFields
-        .map((field) => `${field.fieldPath} = "${truncate(field.question, 80)}"`)
+        .map((field) => `${field.fieldKey} = "${truncate(field.question, 80)}"`)
         .join("; ");
       const fieldValueProperties = {};
       for (const field of applicationFields) {
-        fieldValueProperties[field.fieldPath] = {
+        fieldValueProperties[field.fieldKey] = {
           type: "string",
           description: fieldSchemaDescription(field),
         };
@@ -2372,12 +2823,9 @@
         type: "function",
         name: APPLICATION_FIELDS_TOOL,
         description: truncate(
-          "Fill all answerable non-file Ashby application fields in ONE step, including concise synthesized answers for normal non-sensitive questions. Provide fieldValues keyed by fieldPath. " +
+          "Fill caller-selected non-file Ashby application fields with exact values keyed by fieldKey. " +
             "This connector fills text inputs, textareas, native selects, radio/checkbox choices, and Ashby autocomplete/combobox dropdowns. " +
-            ASHBY_APPLICATION_SYNTHESIS_HINT +
-            " " +
-            ASHBY_FILL_KNOWN_VALUES_HINT +
-            " Omit resume/CV/file attachments and EEOC fields. fieldPath -> label: " +
+            "Omitted fields remain unchanged. Resume/CV/file attachments and EEOC fields are outside this operation. fieldKey -> label: " +
             mapping,
           1200,
         ),
@@ -2390,7 +2838,7 @@
               properties: fieldValueProperties,
               additionalProperties: false,
               description:
-                "Object keyed by Ashby fieldPath. Include every known or safely synthesized value now; do not omit known fields just because other fields are unknown. Generated text must be complete and never truncated mid-word or mid-sentence.",
+                "Exact caller-provided values keyed by live Ashby fieldKey. Omitted fields remain unchanged.",
             },
           },
           required: ["fieldValues"],
@@ -2415,13 +2863,8 @@
         type: "function",
         name: EEOC_TOOL,
         description: truncate(
-          "Fill multiple Ashby EEOC self-identification fields in ONE step. Include every explicit sensitive value available from runContext.myInfo or USER_GOAL in one call. " +
-            "Omit only genuinely unknown fields; do not invent values or choose decline/prefer-not-to-answer unless explicit. " +
-            ASHBY_FILL_KNOWN_VALUES_HINT +
-            " " +
-            ASHBY_RACE_INDIAN_HINT +
-            " " +
-            "The connector matches values against live options and commits each field. fieldKey -> label: " +
+          "Fill caller-selected Ashby EEOC self-identification fields with exact values keyed by fieldKey. " +
+            "Omitted fields remain unchanged. The connector matches supplied values against live options and verifies each commit. fieldKey -> label: " +
             mapping,
           1200,
         ),
@@ -2434,7 +2877,7 @@
               properties: fieldValueProperties,
               additionalProperties: false,
               description:
-                "Object keyed by Ashby EEOC fieldKey. Include only explicit values.",
+                "Exact caller-provided values keyed by live Ashby EEOC fieldKey. Use exact visible option text when available.",
             },
           },
           required: ["fieldValues"],
@@ -2472,23 +2915,29 @@
     return (
       fields.find((field) => {
         if (options.eeocOnly && field.sectionKind !== "eeoc") return false;
-        return (
-          field.fieldPath === key ||
-          field.fieldKey === key ||
-          field.eeocFieldKey === key
-        );
+        return field.fieldKey === key || field.eeocFieldKey === key;
       }) || null
     );
   }
 
   function fieldCurrentValue(field) {
     if (!field) return "";
+    if (field.logicalKind === "phone") {
+      return normalizeText(
+        field.input?.value ?? field.input?.getAttribute("value") ?? "",
+      );
+    }
+    if (field.logicalKind === "sms_consent") {
+      return selectedSmsConsentValue(
+        collectPhoneSmsConsentOptionInfos(field.root, []),
+      );
+    }
     if (field.fieldKind === "file") return fileValueForField(field.root);
     if (field.fieldKind === "select") return selectValueForField(field.root);
-    if (field.fieldKind === "combobox") return textValueForField(field.root);
+    if (field.fieldKind === "combobox") return exactTextValueForField(field.root);
     if (isYesNoFieldRoot(field.root)) return yesNoSelectedValue(field.root);
     if (field.options?.length) return selectedValueFromOptions(field.options);
-    return textValueForField(field.root);
+    return exactTextValueForField(field.root);
   }
 
   function nativeSetInputValue(input, value) {
@@ -2766,7 +3215,9 @@
     const fieldKey = field.fieldKey || field.fieldPath;
     if (isYesNoFieldRoot(field.root)) return fillYesNoField(field, value, ctx);
 
-    const options = collectOptionInfos(field.root, [], field.question)
+    const options = (field.logicalKind === "sms_consent"
+      ? collectPhoneSmsConsentOptionInfos(field.root, [])
+      : collectOptionInfos(field.root, [], field.question))
       .map((option) => ({
         ...option,
         text: option.optionText,
@@ -2785,7 +3236,9 @@
           valuesEquivalent(option.optionText, requestedValue, fieldKey),
       );
       if (already) {
-        committed[fieldKey] = already.optionText;
+        committed[fieldKey] = field.logicalKind === "sms_consent"
+          ? normalizedSmsConsentValue(already.optionText)
+          : already.optionText;
         continue;
       }
 
@@ -2797,7 +3250,9 @@
 
       await click(match.optionEl);
       await delay(150);
-      committed[fieldKey] = match.optionText || match.text || requestedValue;
+      committed[fieldKey] = field.logicalKind === "sms_consent"
+        ? fieldCurrentValue(field) || normalizedSmsConsentValue(match.optionText)
+        : match.optionText || match.text || requestedValue;
 
       if (field.fieldKind !== "multi_select") break;
     }
@@ -2846,33 +3301,51 @@
 
   async function fillNativeOrTextField(field, value, ctx) {
     const fill = ctx?.primitives?.fillElement;
+    const fieldKey = field.fieldKey || field.fieldPath;
     const input = field.input || findPrimaryInput(field.root);
     if (!input) {
-      return { ok: false, detail: `No fillable Ashby input for ${field.fieldPath}.` };
+      return { ok: false, detail: `No fillable Ashby input for ${fieldKey}.` };
     }
     if (typeof fill !== "function") {
       return { ok: false, detail: `${APPLICATION_FIELDS_TOOL} runner fill primitive unavailable.` };
     }
 
+    const exactTextVerification =
+      input.tagName === "TEXTAREA" || field.fieldKind === "long_text";
+    const valuesMatch = (observed, expected) =>
+      exactTextVerification
+        ? normalizeText(observed) === normalizeText(expected)
+        : valuesEquivalent(observed, expected, fieldKey);
     const current = fieldCurrentValue(field);
-    if (current && valuesEquivalent(current, value, field.fieldKey || field.fieldPath)) {
+    if (current && valuesMatch(current, value)) {
       return {
         ok: true,
         committed: true,
         value: current,
-        detail: `${field.fieldPath} already set to "${current}".`,
+        verificationMode: exactTextVerification
+          ? "exact_normalized_text"
+          : "adapter_equivalent",
+        detail: `${fieldKey} already set to "${current}".`,
       };
     }
 
     await fill(input, value);
     await delay(120);
-    const committedValue = fieldCurrentValue(field) || normalizeText(value);
+    const committedValue = fieldCurrentValue(field);
+    const committed = Boolean(committedValue) && valuesMatch(committedValue, value);
 
     return {
-      ok: true,
-      committed: true,
+      ok: committed,
+      recoverable: !committed,
+      continueBatch: !committed,
+      committed,
       value: committedValue,
-      detail: `Filled ${field.fieldPath}.`,
+      verificationMode: exactTextVerification
+        ? "exact_normalized_text"
+        : "adapter_equivalent",
+      detail: committed
+        ? `Filled ${fieldKey}.`
+        : `Filled ${fieldKey}; the committed value did not match exactly.`,
     };
   }
 
@@ -2908,11 +3381,14 @@
   function fieldTargetForResult(fieldKey, eeocOnly = false) {
     const field = locateRuntimeField(fieldKey, { eeocOnly });
     if (!field) return null;
+    const targetKey = field.logicalKind ? field.fieldKey : field.fieldPath;
     return {
-      groupTargetId: fieldTargetId(field.fieldPath),
+      groupTargetId: fieldTargetId(targetKey),
       matchedBy: field.eeocFieldKey && field.eeocFieldKey === fieldKey
         ? "eeocFieldKey"
-        : "fieldPath",
+        : field.logicalKind
+          ? "fieldKey"
+          : "fieldPath",
       matchMode: "ashby_runtime_field",
       controlIds: [],
     };
@@ -2932,6 +3408,7 @@
 
     const results = [];
     const committedFieldValues = {};
+    const fieldEvidence = {};
     const fieldTargets = {};
     const failed = [];
     const skipped = [];
@@ -2940,7 +3417,7 @@
       const result = await fillRuntimeField(fieldKey, value, ctx, {
         eeocOnly: Boolean(options.eeocOnly),
       });
-      const ok = result.ok !== false;
+      const ok = result.ok !== false && result.committed !== false;
       const target = fieldTargetForResult(fieldKey, Boolean(options.eeocOnly));
       if (target) fieldTargets[fieldKey] = target;
 
@@ -2959,7 +3436,14 @@
       } else if (!ok) {
         failed.push(fieldKey);
       } else {
-        committedFieldValues[fieldKey] = result.value || value;
+        const committedValue = result.value || value;
+        committedFieldValues[fieldKey] = committedValue;
+        if (result.verificationMode === "exact_normalized_text") {
+          fieldEvidence[fieldKey] = {
+            ...(await committedValueEvidence(committedValue)),
+            verificationMode: result.verificationMode,
+          };
+        }
       }
     }
 
@@ -2970,6 +3454,7 @@
       continueBatch: failed.length > 0,
       committed: failed.length === 0,
       fieldValues: committedFieldValues,
+      fieldEvidence,
       fieldTargets,
       failed,
       skipped,
@@ -2988,6 +3473,51 @@
     return ashbyFillFieldValues(action, ctx, { eeocOnly: true });
   }
 
+  async function ashbyReadJobDescription() {
+    const jobPosting = extractAshbyJobPosting(document);
+    if (!jobPosting) {
+      return { ok: false, detail: "Ashby job description is not available." };
+    }
+    return {
+      ok: true,
+      committed: false,
+      jobPosting,
+      detail: "Read the current Ashby job description.",
+    };
+  }
+
+  async function ashbySubmitApplication(_action, ctx) {
+    const target = exactSubmitTarget(ctx?.state || {}, document);
+    if (
+      !target ||
+      !target.enabled ||
+      !ctx?.state?.siteAdapter?.submitTargetId ||
+      target.targetId !== ctx.state.siteAdapter.submitTargetId
+    ) {
+      return { ok: false, detail: "Exact Ashby submit control is unavailable." };
+    }
+    const readiness = submitReadiness(document);
+    if (!readiness.ready) {
+      return {
+        ok: false,
+        code: "APPLICATION_NOT_READY",
+        committed: false,
+        missingRequiredFields: readiness.missingRequiredFields,
+        detail: `Ashby application has ${readiness.missingRequiredFields.length} missing required field(s).`,
+      };
+    }
+    if (typeof ctx?.primitives?.clickElement !== "function") {
+      return { ok: false, detail: "Ashby submit click primitive is unavailable." };
+    }
+    await ctx.primitives.clickElement(target.element);
+    return {
+      ok: true,
+      committed: true,
+      submitted: true,
+      detail: "Activated the exact Ashby Submit Application control.",
+    };
+  }
+
   if (
     globalThis.WebGPTConnectorTools &&
     typeof globalThis.WebGPTConnectorTools.register === "function"
@@ -2997,6 +3527,10 @@
       ashbyFillApplicationFields,
     );
     globalThis.WebGPTConnectorTools.register(EEOC_TOOL, ashbyFillEeoc);
+    globalThis.WebGPTConnectorTools.register(
+      READ_JOB_DESCRIPTION_TOOL,
+      ashbyReadJobDescription,
+    );
   }
 
   registry.register({
@@ -3029,6 +3563,7 @@
           missingRequiredCount: siteAdapter.missingRequiredCount,
           submitTargetId: siteAdapter.submitTargetId,
           uploadTargetIds: siteAdapter.uploadTargetIds,
+          jobPosting: siteAdapter.jobPosting,
           primaryControlIds: siteAdapter.primaryControlIds,
           actionHintsByTargetId: siteAdapter.actionHintsByTargetId,
           plannerHints: siteAdapter.plannerHints,
@@ -3036,11 +3571,21 @@
         visibleTextSummary: [
           ...(siteAdapter.visibleTextSummary || []),
           ...siteAdapter.plannerHints,
-          ...filterPlannerNoiseList(state.visibleTextSummary || []),
+          ...filterPlannerNoiseList(
+            state.visibleTextSummary || [],
+            siteAdapter.jobDescriptionEvidence,
+          ),
         ].slice(0, 80),
+        headings: filterPlannerNoiseHeadings(
+          state.headings || [],
+          siteAdapter.jobDescriptionEvidence,
+        ),
         groups: [
           ...siteAdapter.groups,
-          ...filterPlannerNoiseGroups(state.groups || []),
+          ...filterPlannerNoiseGroups(
+            state.groups || [],
+            siteAdapter.jobDescriptionEvidence,
+          ),
         ],
         controls: filterPlannerNoiseControls(
           enhanceControls(

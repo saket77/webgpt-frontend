@@ -32,6 +32,48 @@
   } = ns.trace;
   const { extractCollectionItems } = ns.collectionExtractor;
 
+  function isAdapterIdentifiedSubmitTarget(state, control, targetId) {
+    const normalizedTargetId = typeof targetId === "string" ? targetId.trim() : "";
+    if (
+      normalizedTargetId &&
+      normalizedTargetId === state?.siteAdapter?.submitTargetId
+    ) {
+      return true;
+    }
+
+    return Object.values(control?.adapterHints || {}).some(
+      (hint) => hint?.protectedEffect === "submit",
+    );
+  }
+
+  function assertGenericActionDoesNotSubmit(state, action, control) {
+    if (isAdapterIdentifiedSubmitTarget(state, control, action?.targetId)) {
+      throw new Error(
+        "Generic actions cannot target an adapter-identified final-submit control; use its guarded adapter tool.",
+      );
+    }
+  }
+
+  function protectedSubmitControlForElement(state, element) {
+    if (!element) return null;
+    for (const control of state?.controls || []) {
+      if (!isAdapterIdentifiedSubmitTarget(state, control, control?.id)) continue;
+      try {
+        const resolved = resolveElement(control, "press")?.el;
+        if (
+          resolved === element ||
+          (resolved?.contains && resolved.contains(element)) ||
+          (resolved && element?.contains && element.contains(resolved))
+        ) {
+          return control;
+        }
+      } catch {
+        // An unavailable protected target cannot be activated by this key press.
+      }
+    }
+    return null;
+  }
+
   async function runSingleAction(state, action) {
     if (!action || !action.type) {
       throw new Error("Invalid action.");
@@ -191,6 +233,8 @@
           ? getControlById(state, action.targetId)
           : null;
 
+        assertGenericActionDoesNotSubmit(state, action, control);
+
         let target = document.activeElement;
         let resolved = null;
         let replayTarget = null;
@@ -203,6 +247,15 @@
 
         if (!target || !(target instanceof Element)) {
           throw new Error("No valid target available for key press.");
+        }
+
+        if (!control) {
+          const activeControl = protectedSubmitControlForElement(state, target);
+          assertGenericActionDoesNotSubmit(
+            state,
+            { ...action, targetId: activeControl?.id || "" },
+            activeControl,
+          );
         }
 
         await pressKeyOnElement(target, key);
@@ -234,6 +287,8 @@
         if (!control) {
           throw new Error(`Unknown targetId: ${action.targetId}`);
         }
+
+        assertGenericActionDoesNotSubmit(state, action, control);
 
         const resolved = resolveElement(control, "click");
         const replayTarget = buildReplayTarget("control", control);

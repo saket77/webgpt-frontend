@@ -9,12 +9,17 @@ function readSource(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), "utf8");
 }
 
-test("Dotloop adapter is injected before state extraction", () => {
-  const source = readSource("packages/page-runtime/src/manifest.js");
+test("Dotloop adapter is injected before state extraction", async () => {
+  const { PAGE_RUNTIME_SCRIPT_FILES } = await import(
+    "../packages/page-runtime/src/manifest.js",
+  );
 
-  assert.match(source, /content-scripts\/adapters\/dotloop\.js/);
-  const dotloopIndex = source.indexOf("content-scripts/adapters/dotloop.js");
-  const extractIndex = source.indexOf("content-scripts/extractState.js");
+  const dotloopIndex = PAGE_RUNTIME_SCRIPT_FILES.indexOf(
+    "content-scripts/adapters/dotloop.js",
+  );
+  const extractIndex = PAGE_RUNTIME_SCRIPT_FILES.indexOf(
+    "content-scripts/extractState.js",
+  );
   assert.ok(dotloopIndex !== -1 && extractIndex !== -1);
   assert.ok(dotloopIndex < extractIndex, "Dotloop adapter must load before extraction");
 });

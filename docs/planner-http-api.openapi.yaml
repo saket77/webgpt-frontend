@@ -1,14 +1,14 @@
 openapi: 3.1.0
 info:
   title: WebGPT Planner HTTP API
-  version: 0.3.0
+  version: 0.4.0
   description: |
     HTTP contract implemented by the default WebGPT planner adapter.
     WebGPT frontend hosts consume a JavaScript plannerAdapter
     interface; this OpenAPI document describes the HTTP routes used by the
     default adapter implementation, including browser DOM, Google Sheets,
     Microsoft Excel runtime surfaces, connector-enabled site-adapter tools,
-    and frame-owned WebMCP page tools.
+    frame-owned WebMCP page tools, and stateless planner-context preparation.
 servers:
   - url: https://webgpt-backend-production.up.railway.app
     description: Hosted WebGPT planner
@@ -17,11 +17,71 @@ servers:
   - url: http://localhost:8787
     description: Simple local backend example
 tags:
+  - name: Planner Context
   - name: Runs
   - name: Template Runs
   - name: Artifacts
 
 paths:
+  /planner-context/prepare:
+    post:
+      tags: [Planner Context]
+      operationId: preparePlannerContext
+      summary: Prepare a bounded browser context for an external planner.
+      servers:
+        - url: http://localhost:3000
+          description: Current local planner-server implementation; remote availability is not implied.
+      description: |
+        Deterministically prepares one planner input without creating a run,
+        writing an artifact, or calling an LLM/VLM. The server requires the
+        exact `webgpt.planner-context.v1` request and a route-specific bearer.
+        Unknown top-level, transition, and options fields are rejected.
+      security:
+        - PlannerContextBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlannerContextPrepareRequest"
+      responses:
+        "200":
+          description: Planner context prepared.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlannerContextPrepareResponse"
+        "400":
+          description: Invalid request or unsupported schema version. Stable codes are `PLANNER_CONTEXT_INVALID_REQUEST` and `PLANNER_CONTEXT_SCHEMA_VERSION_UNSUPPORTED`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Missing or invalid bearer. Stable code is `PLANNER_CONTEXT_UNAUTHORIZED`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Request exceeded the server payload limit. Stable code is `PLANNER_CONTEXT_PAYLOAD_TOO_LARGE`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Context preparation failed. Stable code is `PLANNER_CONTEXT_PREPARE_FAILED`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Server bearer configuration is absent. Stable code is `PLANNER_CONTEXT_AUTH_NOT_CONFIGURED`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /runs/start-command:
     post:
       tags: [Runs]
@@ -359,6 +419,12 @@ paths:
           $ref: "#/components/responses/ErrorJson"
 
 components:
+  securitySchemes:
+    PlannerContextBearer:
+      type: http
+      scheme: bearer
+      description: Route-specific bearer configured by the server's `PLANNER_CONTEXT_API_TOKEN` environment variable.
+
   parameters:
     RunId:
       name: runId
@@ -440,6 +506,113 @@ components:
       oneOf:
         - $ref: "#/components/schemas/AnyObject"
         - type: "null"
+
+    PlannerContextPrepareRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - schemaVersion
+        - goal
+        - currentState
+        - history
+        - lastOutcome
+        - transition
+        - options
+      properties:
+        schemaVersion:
+          type: string
+          const: webgpt.planner-context.v1
+        goal:
+          type: string
+          minLength: 1
+          maxLength: 10000
+          description: Non-personal task goal. Callers must not place credentials or personal data here.
+        currentState:
+          $ref: "#/components/schemas/AnyObject"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnyObject"
+        lastOutcome:
+          $ref: "#/components/schemas/NullableObject"
+        transition:
+          oneOf:
+            - $ref: "#/components/schemas/PlannerContextTransition"
+            - type: "null"
+        options:
+          $ref: "#/components/schemas/PlannerContextPrepareOptions"
+
+    PlannerContextTransition:
+      type: object
+      additionalProperties: false
+      required: [eventId, step, beforeState, actions, execution]
+      properties:
+        eventId:
+          type: string
+          minLength: 1
+        step:
+          type: integer
+          minimum: 1
+        beforeState:
+          $ref: "#/components/schemas/AnyObject"
+        actions:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/AnyObject"
+        execution:
+          $ref: "#/components/schemas/AnyObject"
+
+    PlannerContextPrepareOptions:
+      type: object
+      additionalProperties: false
+      required: [externalPlanner]
+      properties:
+        externalPlanner:
+          type: boolean
+          const: true
+
+    PlannerContextPrepareResponse:
+      type: object
+      additionalProperties: false
+      required: [ok, schemaVersion, plannerInput, historyEntry]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        schemaVersion:
+          type: string
+          const: webgpt.planner-context.v1
+        plannerInput:
+          $ref: "#/components/schemas/PreparedPlannerInput"
+        historyEntry:
+          $ref: "#/components/schemas/NullableObject"
+
+    PreparedPlannerInput:
+      type: object
+      additionalProperties: false
+      required:
+        - state
+        - history
+        - lastOutcome
+        - workflowHints
+        - workflowState
+        - surfaceTargets
+      properties:
+        state:
+          $ref: "#/components/schemas/AnyObject"
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnyObject"
+        lastOutcome:
+          $ref: "#/components/schemas/NullableObject"
+        workflowHints:
+          $ref: "#/components/schemas/AnyObject"
+        workflowState:
+          $ref: "#/components/schemas/AnyObject"
+        surfaceTargets:
+          $ref: "#/components/schemas/AnyObject"
 
     StartCommandRunRequest:
       type: object

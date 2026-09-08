@@ -2,10 +2,13 @@
 
 This document describes how WebGPT frontend hosts talk to planner-capable backends.
 
-There are two related contracts:
+There are three related contracts:
 
 - The JavaScript `plannerAdapter` interface consumed by `packages/controller-core/`.
 - The default HTTP API implemented by `packages/planner-http-adapter/`, described in [planner-http-api.openapi.yaml](./planner-http-api.openapi.yaml).
+- The auxiliary `createWebGptApiClient().preparePlannerContext()` method for
+  stateless external-planner context preparation. It is not part of the
+  controller-facing `plannerAdapter` loop.
 
 The extension defaults to the hosted WebGPT planner at:
 
@@ -52,6 +55,62 @@ A planner adapter should:
 - tolerate backend-owned fields without making the controller depend on them
 
 The controller should remain backend-agnostic. Put route names, auth headers, response normalization, and backend-specific compatibility work inside an adapter.
+
+## Stateless Planner-Context Preparation
+
+`createWebGptApiClient().preparePlannerContext(payload, { signal })` calls the
+authenticated `POST /planner-context/prepare` endpoint. It validates the exact
+`webgpt.planner-context.v1` request and response shapes on the client. The
+operation is deterministic and stateless: it does not create a run, write an
+artifact, or call an LLM/VLM.
+
+This route is optional for compatible backends. The current implementation is
+in the local planner server; selecting a remote base URL does not prove that the
+remote deployment exposes it.
+
+The request has exactly these seven top-level fields:
+
+```ts
+type PlannerContextPrepareRequest = {
+  schemaVersion: "webgpt.planner-context.v1";
+  goal: string;
+  currentState: object;
+  history: object[];
+  lastOutcome: object | null;
+  transition: null | {
+    eventId: string;
+    step: number;
+    beforeState: object;
+    actions: object[];
+    execution: object;
+  };
+  options: { externalPlanner: true };
+};
+```
+
+The response is `{ ok, schemaVersion, plannerInput, historyEntry }`.
+`plannerInput` contains exactly `state`, `history`, `lastOutcome`,
+`workflowHints`, `workflowState`, and `surfaceTargets`; no `runId` is created or
+returned. Callers retain the returned `historyEntry` and include their bounded
+history in the next request.
+
+The server bearer is route-specific. A missing or invalid bearer returns
+`PLANNER_CONTEXT_UNAUTHORIZED` (`401`); absent server configuration returns
+`PLANNER_CONTEXT_AUTH_NOT_CONFIGURED` (`503`). Other stable server codes are
+`PLANNER_CONTEXT_INVALID_REQUEST` (`400`),
+`PLANNER_CONTEXT_SCHEMA_VERSION_UNSUPPORTED` (`400`),
+`PLANNER_CONTEXT_PAYLOAD_TOO_LARGE` (`413`), and
+`PLANNER_CONTEXT_PREPARE_FAILED` (`500`). The client normalizes failures to
+`WEBGPT_PLANNER_CONTEXT_ABORTED`, `WEBGPT_PLANNER_CONTEXT_HTTP_ERROR`,
+`WEBGPT_PLANNER_CONTEXT_NETWORK_ERROR`, or
+`WEBGPT_PLANNER_CONTEXT_SCHEMA_ERROR`, preserving an HTTP status and backend
+code when available.
+
+The caller must construct the value-free projection before invoking this
+method. Do not send raw DOM, free-form page text, entered values, personal data,
+selectors, credentials, local paths, filenames, or raw execution receipts.
+Transport and credential ownership are described in
+[`SECURITY.md`](../SECURITY.md).
 
 ## Browser Context
 

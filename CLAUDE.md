@@ -8,7 +8,7 @@ contract. Site adapters enrich extracted state; connector-enabled adapters may a
 DOM-backed tools through the local page-runtime connector registry. Websites may separately expose
 native WebMCP semantic tools. Site adapters and WebMCP page code never call the planner.
 
-## Two repos
+## Three repos
 - **Frontend** (this repo, `webgpt-frontend/`) — npm workspace for shared runtime packages and
   external-app-shaped hosts:
   - `packages/page-runtime` (`@webgpt/page-runtime`) — in-page extractor, runner, site adapters, connector tools.
@@ -19,6 +19,13 @@ native WebMCP semantic tools. Site adapters and WebMCP page code never call the 
 - **Backend** (`webgpt-backend/`) — active default planner server at
   `web-agent-chrome-extension/BackEnd/planner-server/` (Express 5, OpenAI SDK, CommonJS,
   `node --test`). `web-agent/` there is legacy/archived.
+- **Codex plugin** (`webgpt-plugin/`) — neutral Codex host harness plus skills and immutable
+  release tooling. Its release installs physical copies of `webgpt-plugin`,
+  `@webgpt/page-runtime`, and `@webgpt/planner-http-adapter`; installed skills validate and register
+  that exact release before importing their bootstrap. Workflow/profile policy stays in the skills,
+  page mechanics stay in this repo's page-runtime adapters, and the plugin harness stays neutral.
+  Application adapters accept exact caller-provided values keyed by live fields; they do not read a
+  profile, infer work-authorization or EEOC answers, or synthesize application responses.
 
 ## Control loop (one run)
 ```
@@ -55,7 +62,8 @@ execution action is `{type, executor:"webmcp", frameId, webMcp:{name,origin,sche
   dependency order, into all frames. Extension host injects through Chrome scripting APIs from
   `apps/extension-host/src/background/runtime/browser.js`; Browserbase host injects through Playwright
   frame evaluation from `apps/browserbase-host/src/browserbaseRuntime.js`.
-  The canonical order lives in `packages/page-runtime/src/manifest.js`.
+  The canonical layer declarations live in `packages/page-runtime/src/layers.js`;
+  `manifest.js` derives the advertised page-runtime source order from them.
   Modules are IIFEs on `globalThis.WebGPTExtractStateModules` / `window.WebGPTRunnerModules` — **order
   matters**; keep new files in the right place in that list.
 - **Extension bridge only**: `apps/extension-host/src/content-scripts/agent.js`
@@ -73,16 +81,20 @@ execution action is `{type, executor:"webmcp", frameId, webMcp:{name,origin,sche
   handling for `<select>` and rich-text editors).
 
 ## Site adapters and connector tools
-`packages/page-runtime/src/content-scripts/adapters/registry.js` contract: `{ id, match({url,document}), priority, enhanceState({state,document,url}) }`.
+`packages/page-runtime/src/content-scripts/adapters/registry.js` contract: `{ id, match({url,document}), priority, enhanceState({state,document,url}), provideTools({state,document,url,meta}) }`.
 Priority-sorted (higher first), composable (each gets the previous adapter's output), errors caught
 per-adapter. State-only adapters **annotate existing `el_*` controls** via `enhanceControls(...)` and add
 `siteAdapter` / `groups` / `plannerContext`; they must **not** mint fake click/fill targets (the runner
 resolves `targetId` against extracted `state.controls`).
 
 Connector-enabled adapters can also expose `provideTools()` schemas and register local
-`WebGPTConnectorTools` executors. Those tools still run through `run_actions`; they are page-local
-DOM helpers, not separate runtime surfaces. Because they live in `packages/page-runtime`, pure page-JS
-adapters and connector tools are shared by both extension host and Browserbase host. They must not use
+`WebGPTConnectorTools` executors. A descriptor may separate its model-safe `schema` from private
+`execution` routing; the registry publishes only the schema and retains routes behind
+`getPrivateToolRoutes()`. Ordinary tools remain page-local DOM helpers. A capability-aware external
+host may instead intercept an adapter-discovered `realm: "host"` operation such as native file upload;
+local paths must never enter page execution. Guarded submit remains an exact adapter page executor but
+requires a separate host grant and one-use private authorization. Hosts that do not advertise these
+capabilities retain the previous tool set. Pure page-JS adapters and page executors must not use
 unguarded `chrome.*`.
 
 ## WebMCP semantic page tools
@@ -95,7 +107,10 @@ WebMCP actions are never replayed. Contract: `docs/webmcp.md`.
 
 ## Backend (planner server)
 - Endpoints: `POST /runs/start-command`, `POST /runs/{id}/command-result`, `/provide-hint`,
-  `/confirm-success`, `/reject-success`, `/stop`; `POST /template-runs/...` for batch/templated runs.
+  `/confirm-success`, `/reject-success`, `/stop`; `POST /template-runs/...` for batch/templated runs;
+  and authenticated `POST /planner-context/prepare` for deterministic, stateless, value-free
+  external-planner context preparation. The planner-context route does not create a run or call an
+  LLM/VLM and requires the server's route-specific `PLANNER_CONTEXT_API_TOKEN` bearer.
 - LLM: OpenAI SDK, model `OPENAI_PLANNER_MODEL` (`reasoning.effort` default `medium`). Planner prompt
   under `src/services/planner-input/`. Run artifacts logged to `planner-artifacts/` (useful ground
   truth for debugging the action schema and prompts).
@@ -131,9 +146,9 @@ runtime commands.
 ## Conventions
 - Reuse the existing mechanisms — the command/router loop, the `el_*` extract → resolver targeting
   model, and the adapter `registry` pattern — rather than introducing new ones.
-- New page-runtime content-script files must be added to `PAGE_RUNTIME_SCRIPT_FILES` in
-  `packages/page-runtime/src/manifest.js`
-  in correct dependency order.
+- New page-runtime content-script files must be added to the appropriate ordered
+  declaration in `packages/page-runtime/src/layers.js`; `PAGE_RUNTIME_SCRIPT_FILES`
+  is derived from those declarations.
 - Keep shared code host-agnostic. `packages/page-runtime` must not contain unguarded `chrome.*`;
   Chrome bridge behavior belongs in `apps/extension-host/src/content-scripts/agent.js`.
 - When a feature is complete or the user says "good job", "done", "donezo", or similar, perform a docs

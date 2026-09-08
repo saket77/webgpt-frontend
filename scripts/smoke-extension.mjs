@@ -4,15 +4,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  EXTENSION_CONTENT_SCRIPT_FILES,
+} from "../apps/extension-host/src/background/runtime/contentScriptFiles.js";
+import { PAGE_RUNTIME_SCRIPT_FILES } from "../packages/page-runtime/src/manifest.js";
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const distDir = path.join(repoRoot, "apps", "extension-host", "dist-extension");
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
-}
-
-function read(relativePath) {
-  return fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
 }
 
 function walk(dir) {
@@ -31,6 +32,8 @@ const requiredDistEntries = [
   "background/controller-core/index.js",
   "background/planner-http-adapter/index.js",
   "background/page-runtime/manifest.js",
+  "background/page-runtime/layers.js",
+  "background/runtime/contentScriptFiles.js",
   "content-scripts/connectorTools.js",
   "content-scripts/extractState.js",
   "content-scripts/runner.js",
@@ -67,19 +70,18 @@ assert(
   `Built extension has unresolved workspace import: ${path.relative(repoRoot, unresolvedWorkspaceImport || "")}`,
 );
 
-const manifestSource = read("packages/page-runtime/src/manifest.js");
 assert(
-  manifestSource.includes('"content-scripts/connectorTools.js"'),
+  PAGE_RUNTIME_SCRIPT_FILES.includes("content-scripts/connectorTools.js"),
   "page-runtime manifest should include connectorTools first",
 );
 assert(
-  manifestSource.indexOf('"content-scripts/connectorTools.js"') <
-    manifestSource.indexOf('"content-scripts/adapters/greenhouse.js"'),
+  PAGE_RUNTIME_SCRIPT_FILES.indexOf("content-scripts/connectorTools.js") <
+    PAGE_RUNTIME_SCRIPT_FILES.indexOf("content-scripts/adapters/greenhouse.js"),
   "connectorTools must load before site adapters",
 );
 assert(
-  manifestSource.indexOf('"content-scripts/runner.js"') <
-    manifestSource.indexOf('"content-scripts/agent.js"'),
+  EXTENSION_CONTENT_SCRIPT_FILES.indexOf("content-scripts/runner.js") <
+    EXTENSION_CONTENT_SCRIPT_FILES.indexOf("content-scripts/agent.js"),
   "runner must load before extension bridge",
 );
 

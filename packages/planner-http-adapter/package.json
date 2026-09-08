@@ -1,10 +1,31 @@
 {
   "name": "@webgpt/planner-http-adapter",
-  "version": "1.0.0",
-  "private": true,
+  "version": "1.0.0-rc.1",
+  "description": "HTTP client and host adapter for WebGPT planner services",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/saket77/webgpt-frontend.git",
+    "directory": "packages/planner-http-adapter"
+  },
   "main": "src/index.js",
   "exports": {
     ".": "./src/index.js"
+  },
+  "files": [
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test ./test/*.test.mjs",
+    "prepack": "npm test"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
   }
 }

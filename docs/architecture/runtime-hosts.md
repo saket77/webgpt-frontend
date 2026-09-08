@@ -61,7 +61,7 @@ The extension host source imports shared WebGPT packages by package name:
 
 ```js
 import { createControllerCore } from "@webgpt/controller-core";
-import { EXTENSION_CONTENT_SCRIPT_FILES } from "@webgpt/page-runtime";
+import { EXTENSION_CONTENT_SCRIPT_FILES } from "./runtime/contentScriptFiles.js";
 import { createWebGptPlannerAdapter } from "@webgpt/planner-http-adapter";
 ```
 
@@ -119,7 +119,11 @@ These can be supplied through the shell or ignored `.env.local` files at the rep
 
 `@webgpt/page-runtime` is the important shared boundary.
 
-Both hosts inject the same canonical `PAGE_RUNTIME_SCRIPT_FILES` order. That means the WebMCP bridge and any site adapter or connector tool added under `packages/page-runtime/src/content-scripts/adapters/` are available in both hosts as long as they are pure page JavaScript.
+Both hosts inject the same canonical `PAGE_RUNTIME_SCRIPT_FILES` order. The
+extension-owned `contentScriptFiles.js` composition appends `agent.js`; the
+Browserbase host does not. That means the WebMCP bridge and any site adapter or
+connector tool added under `packages/page-runtime/src/content-scripts/adapters/`
+are available in both hosts as long as they are pure page JavaScript.
 
 `content-scripts/webMcp.js` discovers only tools owned by the current frame and re-discovers the live handle before invocation. The extension and Browserbase hosts assign numeric frame IDs and remove only that host routing field before page execution; WebMCP `executor`, route metadata, and exact nested `arguments` remain intact. Browserbase support depends on the remote browser exposing `document.modelContext`.
 

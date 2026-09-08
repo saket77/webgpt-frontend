@@ -87,6 +87,10 @@ async function main() {
     path.join(repoRoot, "packages", "page-runtime", "src", "manifest.js"),
     path.join(distDir, "background", "page-runtime", "manifest.js"),
   );
+  copyFile(
+    path.join(repoRoot, "packages", "page-runtime", "src", "layers.js"),
+    path.join(distDir, "background", "page-runtime", "layers.js"),
+  );
   copyFiltered(
     path.join(repoRoot, "packages", "page-runtime", "src", "content-scripts"),
     path.join(distDir, "content-scripts"),
@@ -103,12 +107,15 @@ async function main() {
   rewriteDistImport("background/controller/index.js", [
     ["@webgpt/controller-core", "../controller-core/index.js"],
   ]);
-  rewriteDistImport("background/runtime/browser.js", [
+  rewriteDistImport("background/runtime/contentScriptFiles.js", [
     ["@webgpt/page-runtime", "../page-runtime/manifest.js"],
   ]);
   rewriteDistImport("background/runtime/surfaces.js", [
     ["@webgpt/controller-core", "../controller-core/index.js"],
   ]);
+  // TODO: When this extension composition boundary is next changed, remove its
+  // duplicate wrappers and compose directly from @webgpt/page-runtime and
+  // @webgpt/planner-http-adapter as the canonical package implementations.
   rewriteDistImport("background/adapters/webgpt/api.js", [
     ["@webgpt/planner-http-adapter", "../../planner-http-adapter/index.js"],
   ]);
@@ -123,6 +130,8 @@ async function main() {
     "background/controller-core/index.js",
     "background/planner-http-adapter/index.js",
     "background/page-runtime/manifest.js",
+    "background/page-runtime/layers.js",
+    "background/runtime/contentScriptFiles.js",
     "content-scripts/agent.js",
     "content-scripts/extractState.js",
     "content-scripts/runner.js",

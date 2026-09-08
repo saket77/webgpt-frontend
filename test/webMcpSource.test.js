@@ -620,13 +620,16 @@ test("extension host strips only frame routing before sending WebMCP actions", (
   assert.doesNotMatch(sanitizer, /arguments:/);
 });
 
-test("webMcp.js is injected before state extraction in every runtime host", () => {
-  const source = fs.readFileSync(
-    path.join(ROOT, "packages/page-runtime/src/manifest.js"),
-    "utf8",
+test("webMcp.js is injected before state extraction in every runtime host", async () => {
+  const { PAGE_RUNTIME_SCRIPT_FILES } = await import(
+    "../packages/page-runtime/src/manifest.js",
   );
-  const bridgeIndex = source.indexOf("content-scripts/webMcp.js");
-  const extractIndex = source.indexOf("content-scripts/extractState.js");
+  const bridgeIndex = PAGE_RUNTIME_SCRIPT_FILES.indexOf(
+    "content-scripts/webMcp.js",
+  );
+  const extractIndex = PAGE_RUNTIME_SCRIPT_FILES.indexOf(
+    "content-scripts/extractState.js",
+  );
 
   assert.ok(bridgeIndex >= 0);
   assert.ok(extractIndex >= 0);

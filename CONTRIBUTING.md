@@ -45,7 +45,7 @@ Contributors can improve how the frontend understands and acts on pages by:
 - improving runner behavior in `packages/page-runtime/src/content-scripts/runner/`
 - adding state-only or connector-enabled site adapters in `packages/page-runtime/src/content-scripts/adapters/`
 
-Start with [docs/site-adapter-authoring.md](./docs/site-adapter-authoring.md) before adding an adapter. State-only adapters should enrich extracted state without mutating the page. Connector-enabled adapters may expose narrowly scoped DOM-backed tools through `provideTools()` and `WebGPTConnectorTools`, but those executors must reuse the adapter's page model, avoid hidden planning decisions, and never call planner services directly.
+Start with [docs/site-adapter-authoring.md](./docs/site-adapter-authoring.md) before adding an adapter. State-only adapters should enrich extracted state without mutating the page. Connector-enabled adapters may expose narrowly scoped DOM-backed tools through `provideTools()` and `WebGPTConnectorTools`, but those executors must reuse the adapter's page model, avoid hidden planning decisions, and never call planner services directly. When local host authority is required, keep DOM target discovery and the model-safe schema in the adapter, put private routing in the descriptor's `execution` record, and ensure the host intercepts sensitive arguments before page execution.
 
 For website-native semantic tools, read [docs/webmcp.md](./docs/webmcp.md). Do not duplicate a site's native WebMCP capability as a connector unless WebMCP is unavailable and the compatibility behavior is intentional.
 

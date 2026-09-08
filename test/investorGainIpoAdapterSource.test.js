@@ -9,14 +9,17 @@ function readSource(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), "utf8");
 }
 
-test("InvestorGain IPO adapter is injected before state extraction", () => {
-  const source = readSource("packages/page-runtime/src/manifest.js");
+test("InvestorGain IPO adapter is injected before state extraction", async () => {
+  const { PAGE_RUNTIME_SCRIPT_FILES } = await import(
+    "../packages/page-runtime/src/manifest.js",
+  );
 
-  assert.match(source, /content-scripts\/adapters\/investorGainIpo\.js/);
-  const adapterIndex = source.indexOf(
+  const adapterIndex = PAGE_RUNTIME_SCRIPT_FILES.indexOf(
     "content-scripts/adapters/investorGainIpo.js",
   );
-  const extractStateIndex = source.indexOf("content-scripts/extractState.js");
+  const extractStateIndex = PAGE_RUNTIME_SCRIPT_FILES.indexOf(
+    "content-scripts/extractState.js",
+  );
   assert.ok(adapterIndex !== -1 && extractStateIndex !== -1);
   assert.ok(adapterIndex < extractStateIndex);
 });
