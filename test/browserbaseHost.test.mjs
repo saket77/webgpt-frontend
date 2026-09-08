@@ -13,7 +13,7 @@ import {
   parseArgs,
   printSessionReady,
 } from "../apps/browserbase-host/src/cli.js";
-import { PAGE_RUNTIME_SCRIPT_FILES } from "@webgpt/page-runtime";
+import { PAGE_RUNTIME_SCRIPT_FILES } from "@webgpt-mundhada/page-runtime";
 
 function createFakeFrame(name, url = `https://example.test/${name}`) {
   return {

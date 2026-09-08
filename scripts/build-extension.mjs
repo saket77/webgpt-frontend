@@ -108,19 +108,19 @@ async function main() {
     ["@webgpt/controller-core", "../controller-core/index.js"],
   ]);
   rewriteDistImport("background/runtime/contentScriptFiles.js", [
-    ["@webgpt/page-runtime", "../page-runtime/manifest.js"],
+    ["@webgpt-mundhada/page-runtime", "../page-runtime/manifest.js"],
   ]);
   rewriteDistImport("background/runtime/surfaces.js", [
     ["@webgpt/controller-core", "../controller-core/index.js"],
   ]);
   // TODO: When this extension composition boundary is next changed, remove its
-  // duplicate wrappers and compose directly from @webgpt/page-runtime and
-  // @webgpt/planner-http-adapter as the canonical package implementations.
+  // duplicate wrappers and compose directly from @webgpt-mundhada/page-runtime and
+  // @webgpt-mundhada/planner-http-adapter as the canonical package implementations.
   rewriteDistImport("background/adapters/webgpt/api.js", [
-    ["@webgpt/planner-http-adapter", "../../planner-http-adapter/index.js"],
+    ["@webgpt-mundhada/planner-http-adapter", "../../planner-http-adapter/index.js"],
   ]);
   rewriteDistImport("background/adapters/webgpt/plannerAdapter.js", [
-    ["@webgpt/planner-http-adapter", "../../planner-http-adapter/index.js"],
+    ["@webgpt-mundhada/planner-http-adapter", "../../planner-http-adapter/index.js"],
   ]);
 
   const required = [

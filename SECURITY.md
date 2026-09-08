@@ -39,7 +39,7 @@ Cloud run logs under `.webgpt-cloud-runs/` may contain URLs, task goals, page-de
 
 ## Planner-Context Credentials And Transport
 
-`@webgpt/planner-http-adapter` is a low-level transport package and does not
+`@webgpt-mundhada/planner-http-adapter` is a low-level transport package and does not
 enforce URL policy. Hosts must require HTTPS for remote planner services and may
 allow plain HTTP only for an explicitly validated loopback address such as
 `http://localhost:3000`. Reject URLs with embedded credentials and do not treat

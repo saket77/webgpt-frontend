@@ -1,6 +1,6 @@
 # Page-runtime packaging
 
-`@webgpt/page-runtime` is the selective distribution boundary for WebGPT page
+`@webgpt-mundhada/page-runtime` is the selective distribution boundary for WebGPT page
 extraction, site adaptation, and page-local execution. It is deliberately
 workflow-neutral: Ashby and Greenhouse are site adapters, not the definition of
 the package, and eProcure, Canvas, Yelp, DocuSign, Dotloop, NCM, and InvestorGain
@@ -83,7 +83,7 @@ Node hosts call:
 readPageRuntime({ adapterIds, expectedRuntimeAbi, includeWebMcp })
 ```
 
-from `@webgpt/page-runtime/node`. Before returning source, the reader validates
+from `@webgpt-mundhada/page-runtime/node`. Before returning source, the reader validates
 the installed package identity, complete adapter catalog, canonical metadata,
 ABI, path containment, and SHA-256 digest of every selected artifact. It returns
 `{ runtimeAbi, releaseVersion, adapters, layers, compositionHash }`. The
@@ -108,7 +108,7 @@ page-runtime package.
 The external-host loading chain is intentionally package-only:
 
 ```text
-host -> import @webgpt/page-runtime/node
+host -> import @webgpt-mundhada/page-runtime/node
      -> select catalog candidates
      -> readPageRuntime({ adapterIds, expectedRuntimeAbi, includeWebMcp })
      -> verify manifest, containment, and SHA-256 digests

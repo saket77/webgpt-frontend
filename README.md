@@ -109,9 +109,9 @@ User goal or CLI goal
 The shared runtime packages are:
 
 ```text
-@webgpt/page-runtime          In-page extractor, runner, WebMCP bridge, site adapters, connector tools
+@webgpt-mundhada/page-runtime          In-page extractor, runner, WebMCP bridge, site adapters, connector tools
 @webgpt/controller-core       Host-agnostic planner command loop
-@webgpt/planner-http-adapter  Default HTTP contract for compatible planner backends
+@webgpt-mundhada/planner-http-adapter  Default HTTP contract for compatible planner backends
 ```
 
 The current hosts are:
@@ -123,7 +123,7 @@ The current hosts are:
 
 For a deeper architecture map, see [Runtime Hosts](./docs/architecture/runtime-hosts.md).
 External Node hosts can also integrity-check and compose only selected adapter
-artifacts through `@webgpt/page-runtime/node`; see
+artifacts through `@webgpt-mundhada/page-runtime/node`; see
 [Page-runtime packaging](./docs/architecture/page-runtime-packaging.md).
 
 Backends do not need to know how to click DOM nodes or call browser APIs directly. They return high-level commands such as:
@@ -204,8 +204,8 @@ The Browserbase host:
 1. creates a Browserbase session with `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID`
 2. connects to the cloud browser with Playwright CDP
 3. opens the requested URL
-4. injects the same `@webgpt/page-runtime` scripts used by the extension
-5. calls the same planner backend through `@webgpt/planner-http-adapter`
+4. injects the same `@webgpt-mundhada/page-runtime` scripts used by the extension
+5. calls the same planner backend through `@webgpt-mundhada/planner-http-adapter`
 6. executes planner commands through `@webgpt/controller-core`
 7. prints a Browserbase Live View URL, planner run ID, final result, and local JSONL event log
 
@@ -348,7 +348,7 @@ input without creating a run, writing an artifact, or calling an LLM/VLM. It
 requires the exact
 `webgpt.planner-context.v1` request, `options.externalPlanner: true`, and a
 route-specific bearer. See the OpenAPI document and the
-[`@webgpt/planner-http-adapter` README](./packages/planner-http-adapter/README.md)
+[`@webgpt-mundhada/planner-http-adapter` README](./packages/planner-http-adapter/README.md)
 for its schema, stable errors, and client behavior.
 
 Command-result requests are discriminated by `type`, including:
@@ -399,7 +399,7 @@ scripts/                     Build, smoke, and packaging scripts
 
 Site adapters enrich extracted state for specific websites. State-only adapters only describe the page. Connector-enabled adapters can additionally expose bounded page tools that the planner calls through `run_actions`; those tools execute in the content script and reuse the same DOM detection logic as the adapter.
 
-Application adapters expose live field identity, option text, upload and submit targets, and post-action verification. Their fill tools accept exact caller-provided values keyed by those live fields and leave omitted fields unchanged. Profile binding, work-authorization and EEOC decisions, answer synthesis, and workflow sequencing belong to the calling skill or host, not `@webgpt/page-runtime`.
+Application adapters expose live field identity, option text, upload and submit targets, and post-action verification. Their fill tools accept exact caller-provided values keyed by those live fields and leave omitted fields unchanged. Profile binding, work-authorization and EEOC decisions, answer synthesis, and workflow sequencing belong to the calling skill or host, not `@webgpt-mundhada/page-runtime`.
 
 Use site adapters when generic DOM extraction needs domain context, stable target mapping, planner hints, or a small DOM-backed connector tool. Do not use them for API-backed products whose useful state is not reliably represented in the DOM.
 

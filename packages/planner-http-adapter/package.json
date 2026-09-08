@@ -1,5 +1,5 @@
 {
-  "name": "@webgpt/planner-http-adapter",
+  "name": "@webgpt-mundhada/planner-http-adapter",
   "version": "1.0.0-rc.1",
   "description": "HTTP client and host adapter for WebGPT planner services",
   "type": "module",

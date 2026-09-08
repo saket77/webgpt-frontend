@@ -2,7 +2,7 @@ import {
   BROWSER_DOM_SURFACE,
   createControllerCore,
 } from "@webgpt/controller-core";
-import { createWebGptPlannerAdapter } from "@webgpt/planner-http-adapter";
+import { createWebGptPlannerAdapter } from "@webgpt-mundhada/planner-http-adapter";
 import { createBrowserbaseSession, connectPlaywrightBrowser } from "./browserbaseClient.js";
 import { createBrowserbaseRuntime } from "./browserbaseRuntime.js";
 import { createCloudEventSink } from "./eventSink.js";

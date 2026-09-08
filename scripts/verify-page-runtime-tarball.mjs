@@ -106,7 +106,7 @@ try {
   const installedPackageRoot = path.join(
     consumerRoot,
     "node_modules",
-    "@webgpt",
+    "@webgpt-mundhada",
     "page-runtime",
   );
   const installedFiles = await listFiles(installedPackageRoot);
@@ -152,8 +152,8 @@ try {
   }
 
   const consumerCheck = `
-    const { PAGE_RUNTIME_ABI } = await import("@webgpt/page-runtime/catalog");
-    const { readPageRuntime } = await import("@webgpt/page-runtime/node");
+    const { PAGE_RUNTIME_ABI } = await import("@webgpt-mundhada/page-runtime/catalog");
+    const { readPageRuntime } = await import("@webgpt-mundhada/page-runtime/node");
     const generic = await readPageRuntime();
     if (generic.adapters.length !== 0 || generic.layers.adapters.length !== 0) {
       throw new Error("The zero-adapter generic runtime is incomplete");

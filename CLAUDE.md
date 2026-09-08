@@ -11,9 +11,9 @@ native WebMCP semantic tools. Site adapters and WebMCP page code never call the 
 ## Three repos
 - **Frontend** (this repo, `webgpt-frontend/`) — npm workspace for shared runtime packages and
   external-app-shaped hosts:
-  - `packages/page-runtime` (`@webgpt/page-runtime`) — in-page extractor, runner, site adapters, connector tools.
+  - `packages/page-runtime` (`@webgpt-mundhada/page-runtime`) — in-page extractor, runner, site adapters, connector tools.
   - `packages/controller-core` (`@webgpt/controller-core`) — host-agnostic planner command loop.
-  - `packages/planner-http-adapter` (`@webgpt/planner-http-adapter`) — default backend HTTP contract.
+  - `packages/planner-http-adapter` (`@webgpt-mundhada/planner-http-adapter`) — default backend HTTP contract.
   - `apps/extension-host` (`@webgpt/extension-host`) — Chrome extension, sidepanel, Chrome APIs, Sheets/Excel runtimes.
   - `apps/browserbase-host` (`@webgpt/browserbase-host`) — local Node Browserbase cloud-browser host and CLI bench runner.
 - **Backend** (`webgpt-backend/`) — active default planner server at
@@ -21,7 +21,7 @@ native WebMCP semantic tools. Site adapters and WebMCP page code never call the 
   `node --test`). `web-agent/` there is legacy/archived.
 - **Codex plugin** (`webgpt-plugin/`) — neutral Codex host harness plus skills and immutable
   release tooling. Its release installs physical copies of `webgpt-plugin`,
-  `@webgpt/page-runtime`, and `@webgpt/planner-http-adapter`; installed skills validate and register
+  `@webgpt-mundhada/page-runtime`, and `@webgpt-mundhada/planner-http-adapter`; installed skills validate and register
   that exact release before importing their bootstrap. Workflow/profile policy stays in the skills,
   page mechanics stay in this repo's page-runtime adapters, and the plugin harness stays neutral.
   Application adapters accept exact caller-provided values keyed by live fields; they do not read a
@@ -119,8 +119,8 @@ WebMCP actions are never replayed. Contract: `docs/webmcp.md`.
 
 ## Current architecture focus
 Keep hosts external-app-shaped. `apps/extension-host` and `apps/browserbase-host` should consume shared
-WebGPT code through package imports (`@webgpt/page-runtime`, `@webgpt/controller-core`,
-`@webgpt/planner-http-adapter`) rather than relative `packages/.../src` imports. The extension build
+WebGPT code through package imports (`@webgpt-mundhada/page-runtime`, `@webgpt/controller-core`,
+`@webgpt-mundhada/planner-http-adapter`) rather than relative `packages/.../src` imports. The extension build
 copies package sources into `dist-extension` and rewrites bare package imports to local dist paths for
 Chrome.
 

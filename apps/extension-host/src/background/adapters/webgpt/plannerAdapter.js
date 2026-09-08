@@ -1,5 +1,5 @@
 import { resolveBackendBaseUrl } from "../../settings/backendConfig.js";
-import { createWebGptPlannerAdapter as createSharedWebGptPlannerAdapter } from "@webgpt/planner-http-adapter";
+import { createWebGptPlannerAdapter as createSharedWebGptPlannerAdapter } from "@webgpt-mundhada/planner-http-adapter";
 
 export function createWebGptPlannerAdapter({ baseUrl } = {}) {
   return createSharedWebGptPlannerAdapter({

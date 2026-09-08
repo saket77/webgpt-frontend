@@ -5,13 +5,13 @@ WebGPT is split into shared runtime packages and host apps.
 The shared packages define what WebGPT is:
 
 ```text
-@webgpt/page-runtime
+@webgpt-mundhada/page-runtime
   In-page JavaScript: extractor, runner, WebMCP bridge, connector tools, site adapters.
 
 @webgpt/controller-core
   Host-agnostic planner command loop: start, extract, act, replay, pause, done.
 
-@webgpt/planner-http-adapter
+@webgpt-mundhada/planner-http-adapter
   Default HTTP adapter for WebGPT-compatible planner backends.
 ```
 
@@ -34,7 +34,7 @@ goal
   -> runtime host
   -> @webgpt/controller-core
   -> state extraction through host runtime
-  -> planner backend through @webgpt/planner-http-adapter
+  -> planner backend through @webgpt-mundhada/planner-http-adapter
   -> command execution through host runtime
   -> post-action state extraction
   -> next planner command
@@ -62,7 +62,7 @@ The extension host source imports shared WebGPT packages by package name:
 ```js
 import { createControllerCore } from "@webgpt/controller-core";
 import { EXTENSION_CONTENT_SCRIPT_FILES } from "./runtime/contentScriptFiles.js";
-import { createWebGptPlannerAdapter } from "@webgpt/planner-http-adapter";
+import { createWebGptPlannerAdapter } from "@webgpt-mundhada/planner-http-adapter";
 ```
 
 The build script copies shared package source into `dist-extension/background/` and rewrites those bare package imports to local dist paths so Chrome can load the unpacked extension without workspace-aware module resolution.
@@ -117,7 +117,7 @@ These can be supplied through the shell or ignored `.env.local` files at the rep
 
 ## Page Runtime Sharing
 
-`@webgpt/page-runtime` is the important shared boundary.
+`@webgpt-mundhada/page-runtime` is the important shared boundary.
 
 Both hosts inject the same canonical `PAGE_RUNTIME_SCRIPT_FILES` order. The
 extension-owned `contentScriptFiles.js` composition appends `agent.js`; the
@@ -132,13 +132,13 @@ Page-runtime files must not rely on unguarded `chrome.*`. Chrome-specific bridge
 Node hosts that need file paths should use:
 
 ```js
-import { resolvePageRuntimeScriptPath } from "@webgpt/page-runtime/node";
+import { resolvePageRuntimeScriptPath } from "@webgpt-mundhada/page-runtime/node";
 ```
 
 Browser-safe consumers should use:
 
 ```js
-import { PAGE_RUNTIME_SCRIPT_FILES } from "@webgpt/page-runtime";
+import { PAGE_RUNTIME_SCRIPT_FILES } from "@webgpt-mundhada/page-runtime";
 ```
 
 ## Keeping Hosts Movable
@@ -152,9 +152,10 @@ Rules:
 - Shared packages do not import host-specific modules.
 - Chrome APIs stay in `apps/extension-host`.
 - Browserbase and Playwright APIs stay in `apps/browserbase-host`.
-- Node-only helpers live behind explicit package subpaths such as `@webgpt/page-runtime/node`.
+- Node-only helpers live behind explicit package subpaths such as `@webgpt-mundhada/page-runtime/node`.
 
-This keeps it boring to move a host into a private repo later: copy the host app, keep the `@webgpt/*` dependencies, install, and run.
+This keeps it boring to move a host into a private repo later: copy the host
+app, keep the declared package dependencies, install, and run.
 
 ## Bench Testing
 

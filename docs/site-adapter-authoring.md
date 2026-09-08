@@ -11,7 +11,7 @@ State-only adapters are still the default. Connector tools are for page operatio
 
 Before adding a connector, check whether the website already exposes the same capability through WebMCP. Native WebMCP tools are website-owned, discovered automatically, and should normally be preferred over duplicating that operation in `WebGPTConnectorTools`. Use a connector as an intentional compatibility path when WebMCP is unavailable or when the required behavior is genuinely WebGPT-specific. See [WebMCP integration](./webmcp.md).
 
-Adapters live in `@webgpt/page-runtime`. Pure page-runtime adapters are shared by both current hosts:
+Adapters live in `@webgpt-mundhada/page-runtime`. Pure page-runtime adapters are shared by both current hosts:
 
 - the Chrome extension host injects page-runtime through Chrome scripting APIs
 - the Browserbase host injects the same page-runtime scripts through Playwright frame evaluation

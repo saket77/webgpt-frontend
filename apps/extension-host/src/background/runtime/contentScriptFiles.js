@@ -1,4 +1,4 @@
-import { PAGE_RUNTIME_SCRIPT_FILES } from "@webgpt/page-runtime";
+import { PAGE_RUNTIME_SCRIPT_FILES } from "@webgpt-mundhada/page-runtime";
 
 export const EXTENSION_BRIDGE_SCRIPT_FILES = Object.freeze([
   "content-scripts/agent.js",

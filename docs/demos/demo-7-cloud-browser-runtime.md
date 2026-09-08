@@ -8,8 +8,8 @@ WebGPT started as a Chrome extension. This demo shows the frontend refactored in
 
 - Running an agent task against a real website without loading the Chrome extension.
 - Creating a Browserbase session and connecting to the cloud browser with Playwright over CDP.
-- Injecting the same `@webgpt/page-runtime` scripts the extension uses into the cloud browser.
-- Calling the same planner backend through `@webgpt/planner-http-adapter` and executing commands through `@webgpt/controller-core`.
+- Injecting the same `@webgpt-mundhada/page-runtime` scripts the extension uses into the cloud browser.
+- Calling the same planner backend through `@webgpt-mundhada/planner-http-adapter` and executing commands through `@webgpt/controller-core`.
 - Watching the run move in the Browserbase Live View while state extraction, actions, and site adapters behave as they do in the extension.
 - Using the CLI as a browser-agent bench: a real run produces a JSONL event log and artifacts an agent like Codex can inspect to improve the runtime.
 

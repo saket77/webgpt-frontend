@@ -305,7 +305,7 @@ test("reader couples manifest metadata to the installed package and catalog", as
       rejectsWithCode(PAGE_RUNTIME_ERROR_CODES.MANIFEST_INVALID),
     );
   }
-  assert.equal(PAGE_RUNTIME_PACKAGE_NAME, "@webgpt/page-runtime");
+  assert.equal(PAGE_RUNTIME_PACKAGE_NAME, "@webgpt-mundhada/page-runtime");
 });
 
 test("reader rejects malformed, missing, or modified release files", async (t) => {

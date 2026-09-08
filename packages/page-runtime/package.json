@@ -1,5 +1,5 @@
 {
-  "name": "@webgpt/page-runtime",
+  "name": "@webgpt-mundhada/page-runtime",
   "version": "1.0.0-rc.1",
   "description": "Integrity-checked, adapter-selective WebGPT page extraction and execution runtime",
   "type": "module",

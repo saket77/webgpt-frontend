@@ -2,7 +2,7 @@ import { PAGE_RUNTIME_ADAPTER_SCRIPT_FILES } from "./layers.js";
 
 export const PAGE_RUNTIME_SCHEMA_VERSION = 1;
 export const PAGE_RUNTIME_ABI = "webgpt-page-runtime-iife-v1";
-export const PAGE_RUNTIME_PACKAGE_NAME = "@webgpt/page-runtime";
+export const PAGE_RUNTIME_PACKAGE_NAME = "@webgpt-mundhada/page-runtime";
 export const PAGE_RUNTIME_RELEASE_VERSION = "1.0.0-rc.1";
 
 const ADAPTER_CANDIDATE_HINTS = {

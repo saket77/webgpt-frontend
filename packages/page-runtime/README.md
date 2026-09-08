@@ -1,4 +1,4 @@
-# `@webgpt/page-runtime`
+# `@webgpt-mundhada/page-runtime`
 
 This package is WebGPT's workflow-neutral page execution boundary. It publishes
 the shared extractor and runner once, plus one isolated artifact for every site
@@ -49,8 +49,8 @@ zero-adapter runtime and a multi-adapter runtime.
 ## Node host API
 
 ```js
-import { PAGE_RUNTIME_ABI } from "@webgpt/page-runtime/catalog";
-import { readPageRuntime } from "@webgpt/page-runtime/node";
+import { PAGE_RUNTIME_ABI } from "@webgpt-mundhada/page-runtime/catalog";
+import { readPageRuntime } from "@webgpt-mundhada/page-runtime/node";
 
 const runtime = await readPageRuntime({
   adapterIds: [

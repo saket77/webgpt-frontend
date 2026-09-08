@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import { BROWSER_DOM_SURFACE } from "@webgpt/controller-core";
-import { PAGE_RUNTIME_SCRIPT_FILES } from "@webgpt/page-runtime";
-import { resolvePageRuntimeScriptPath } from "@webgpt/page-runtime/node";
+import { PAGE_RUNTIME_SCRIPT_FILES } from "@webgpt-mundhada/page-runtime";
+import { resolvePageRuntimeScriptPath } from "@webgpt-mundhada/page-runtime/node";
 import { CLOUD_TAB_ID } from "./host.js";
 
 const CONTROL_DROP_REEXTRACT_ATTEMPTS = 2;

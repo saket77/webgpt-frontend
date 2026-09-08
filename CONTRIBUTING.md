@@ -18,10 +18,10 @@ The planner itself is intentionally outside this repository. Contributions shoul
 
 The host apps should behave like external consumers of the shared packages:
 
-- `apps/extension-host` imports shared WebGPT code through `@webgpt/controller-core`, `@webgpt/page-runtime`, and `@webgpt/planner-http-adapter`.
+- `apps/extension-host` imports shared WebGPT code through `@webgpt/controller-core`, `@webgpt-mundhada/page-runtime`, and `@webgpt-mundhada/planner-http-adapter`.
 - `apps/browserbase-host` imports shared WebGPT code through the same package names.
 - Do not add new `apps/* -> packages/*/src` relative imports in host source.
-- Keep Node-only helpers behind explicit subpaths such as `@webgpt/page-runtime/node`.
+- Keep Node-only helpers behind explicit subpaths such as `@webgpt-mundhada/page-runtime/node`.
 
 The Chrome extension build copies shared package source into `apps/extension-host/dist-extension` and rewrites package imports to local dist paths. Source code should still use package imports.
 
@@ -92,7 +92,7 @@ Live Browserbase runs require `BROWSERBASE_API_KEY`, `BROWSERBASE_PROJECT_ID`, a
 npm run cloud:run -- --eprocure --backend http://localhost:3000
 ```
 
-Keep cloud host changes behind host adapters. The Browserbase host should reuse `@webgpt/page-runtime`, `@webgpt/controller-core`, and `@webgpt/planner-http-adapter`; it should not import Chrome extension settings, sidepanel code, or Chrome APIs.
+Keep cloud host changes behind host adapters. The Browserbase host should reuse `@webgpt-mundhada/page-runtime`, `@webgpt/controller-core`, and `@webgpt-mundhada/planner-http-adapter`; it should not import Chrome extension settings, sidepanel code, or Chrome APIs.
 
 Browserbase host v1 supports browser DOM state, page-runtime adapters, connector tools, replay batches where possible, ask-human terminal status, Browserbase Live View, and JSONL logs. Google Sheets, Microsoft Excel, Browserbase Contexts, scheduler, and email summaries are not included in v1.
 
