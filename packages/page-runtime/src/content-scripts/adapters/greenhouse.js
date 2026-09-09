@@ -3,6 +3,7 @@
   const APPLICATION_TARGET_ID = `site:${ADAPTER_ID}:application`;
   const APPLICATION_FIELDS_TOOL = "greenhouse_fill_application_fields";
   const READ_JOB_DESCRIPTION_TOOL = "greenhouse_read_job_description";
+  const READ_APPLICATION_OPERATION = "greenhouse_read_application";
   const UPLOAD_APPLICATION_FILE_TOOL = "greenhouse_upload_application_file";
   const SUBMIT_APPLICATION_TOOL = "greenhouse_submit_application";
   const SELECT_TOOL = "greenhouse_fill_select";
@@ -3966,6 +3967,14 @@
   registry.register({
     id: ADAPTER_ID,
     priority: 84,
+    provides: {
+      "job.description.read": READ_JOB_DESCRIPTION_TOOL,
+      "application.read": READ_APPLICATION_OPERATION,
+      "application.fill": APPLICATION_FIELDS_TOOL,
+      "application.eeoc.fill": EEOC_TOOL,
+      "application.file.upload": UPLOAD_APPLICATION_FILE_TOOL,
+      "application.submit": SUBMIT_APPLICATION_TOOL,
+    },
     provideTools,
     match({ document: documentRef, url }) {
       return isGreenhousePage(documentRef, url);

@@ -1,9 +1,49 @@
 (function () {
   const adapters = [];
+  const adapterProvides = new Map();
   let privateToolRoutes = Object.freeze({});
+
+  const CAPABILITY_ID = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/;
+  const OPERATION_NAME = /^[a-z][a-z0-9_]{0,127}$/;
 
   function errorMessage(error) {
     return error?.message || String(error);
+  }
+
+  function normalizeAdapterProvides(value) {
+    if (value === undefined) return Object.freeze({});
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("Content adapter provides must be a plain capability map.");
+    }
+
+    const entries = Object.entries(value);
+    if (entries.length > 32) {
+      throw new Error("Content adapter provides exceeds the capability limit.");
+    }
+
+    const result = {};
+    for (const [capability, operationName] of entries) {
+      if (capability.length > 128 || !CAPABILITY_ID.test(capability)) {
+        throw new Error(
+          `Content adapter provides has an invalid capability: ${capability}.`,
+        );
+      }
+      if (
+        typeof operationName !== "string" ||
+        !OPERATION_NAME.test(operationName)
+      ) {
+        throw new Error(
+          `Content adapter provides has an invalid operation for ${capability}.`,
+        );
+      }
+      result[capability] = operationName;
+    }
+
+    return Object.freeze(result);
+  }
+
+  function cloneAdapterProvides(value) {
+    return Object.freeze({ ...value });
   }
 
   function register(adapter) {
@@ -19,12 +59,15 @@
       throw new Error(`Content adapter ${adapter.id} requires match().`);
     }
 
+    const provides = normalizeAdapterProvides(adapter.provides);
+
     const existingIndex = adapters.findIndex((item) => item.id === adapter.id);
     if (existingIndex >= 0) {
       adapters.splice(existingIndex, 1, adapter);
     } else {
       adapters.push(adapter);
     }
+    adapterProvides.set(adapter.id, provides);
 
     adapters.sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0));
   }
@@ -222,6 +265,10 @@
     enhanceState,
     getPrivateToolRoutes() {
       return clonePrivateRoute(privateToolRoutes) || {};
+    },
+    getAdapterProvides(id) {
+      if (!adapters.some((adapter) => adapter.id === id)) return null;
+      return cloneAdapterProvides(adapterProvides.get(id) || {});
     },
     consumePrivateToolAuthorization(toolName, token) {
       const name = typeof toolName === "string" ? toolName.trim() : "";

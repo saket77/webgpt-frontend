@@ -74,6 +74,14 @@ Site adapters add domain-specific state for websites where generic DOM extractio
 
 Most adapters are state-only: they enrich controls, groups, and planner hints so the backend can return normal browser actions. Some adapters are connector-enabled: they also expose narrowly scoped DOM-backed tools through `provideTools()` and local content-script executors. Connector tools are for operations where one planner action should reuse the adapter's page model to perform a bounded multi-step page interaction, such as committing a custom select value or filling real editable document overlay fields.
 
+An adapter may also declare a static `provides` map from stable semantic
+capability IDs to its private operation names. This map is local routing
+metadata for a workflow-aware trusted host after that adapter has matched the
+page. It does not participate in adapter selection and is not copied into
+planner-visible state or `connectorTools`; the existing extension and
+Browserbase flows continue to use `match()`, `enhanceState()`, and
+`provideTools()` as before.
+
 ### Website-native semantic tools with WebMCP
 
 When the active browser exposes WebMCP, WebGPT discovers website-owned semantic tools alongside DOM state. The backend gives each tool a private frame/origin/schema route, the page runtime revalidates the live handle before execution, and only the exact nested tool arguments reach the website. Starting a run authorizes planner-selected DOM, connector, and WebMCP actions that remain within the user goal. Mutations are not considered verified until fresh state shows an effect.
@@ -400,6 +408,11 @@ scripts/                     Build, smoke, and packaging scripts
 Site adapters enrich extracted state for specific websites. State-only adapters only describe the page. Connector-enabled adapters can additionally expose bounded page tools that the planner calls through `run_actions`; those tools execute in the content script and reuse the same DOM detection logic as the adapter.
 
 Application adapters expose live field identity, option text, upload and submit targets, and post-action verification. Their fill tools accept exact caller-provided values keyed by those live fields and leave omitted fields unchanged. Profile binding, work-authorization and EEOC decisions, answer synthesis, and workflow sequencing belong to the calling skill or host, not `@webgpt-mundhada/page-runtime`.
+
+When a workflow-aware host needs semantic routing, the adapter itself may map a
+bounded capability such as `application.read` to an adapter-private operation
+through `provides`. Capabilities describe what the active adapter can do; they
+do not select the adapter or grant permission to perform the operation.
 
 Use site adapters when generic DOM extraction needs domain context, stable target mapping, planner hints, or a small DOM-backed connector tool. Do not use them for API-backed products whose useful state is not reliably represented in the DOM.
 

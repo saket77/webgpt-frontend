@@ -4,6 +4,7 @@
   const APPLICATION_FIELDS_TOOL = "ashby_fill_application_fields";
   const EEOC_TOOL = "ashby_fill_eeoc";
   const READ_JOB_DESCRIPTION_TOOL = "ashby_read_job_description";
+  const READ_APPLICATION_OPERATION = "ashby_read_application";
   const UPLOAD_APPLICATION_FILE_TOOL = "ashby_upload_application_file";
   const SUBMIT_APPLICATION_TOOL = "ashby_submit_application";
   const EEOC_SECTION_TARGET_ID = `site:${ADAPTER_ID}:section:eeoc`;
@@ -3536,6 +3537,14 @@
   registry.register({
     id: ADAPTER_ID,
     priority: 85,
+    provides: {
+      "job.description.read": READ_JOB_DESCRIPTION_TOOL,
+      "application.read": READ_APPLICATION_OPERATION,
+      "application.fill": APPLICATION_FIELDS_TOOL,
+      "application.eeoc.fill": EEOC_TOOL,
+      "application.file.upload": UPLOAD_APPLICATION_FILE_TOOL,
+      "application.submit": SUBMIT_APPLICATION_TOOL,
+    },
     provideTools,
     match({ document: documentRef, url }) {
       return isAshbyPage(documentRef, url);

@@ -31,6 +31,37 @@ accept exact caller-provided values keyed by live fields and leave omitted
 fields unchanged; they do not infer answers from profile, work-authorization,
 EEOC, résumé, job-description, or workflow policy.
 
+An adapter may optionally self-declare `provides`, a static map whose keys are
+semantic capability IDs and whose values are adapter-private operation names:
+
+```js
+registry.register({
+  id: "example.application",
+  priority: 50,
+  provides: {
+    "application.read": "example_read_application",
+    "application.fill": "example_fill_application",
+  },
+  match,
+  enhanceState,
+});
+```
+
+Capability IDs are lowercase namespaced identifiers no longer than 128
+characters; each segment begins with a letter and may contain digits or
+hyphens. One adapter may declare at most 32. Private operation names are
+lowercase identifiers containing letters, digits, or underscores and are also
+limited to 128 characters. Registration validates and freezes the map.
+
+The in-page registry exposes `getAdapterProvides(id)` as trusted-host plumbing.
+A host reads it only after page-local matching has confirmed that the adapter is
+active, and receives a defensive frozen copy. `provides` is not part of the
+package catalog, does not influence host candidate selection or `match()`, and
+is never added to extracted state or planner-visible connector schemas. Hosts
+that do not consume this metadata—including the existing extension and
+Browserbase flows—retain their established matching, planning, and execution
+behavior.
+
 ## Build, verify, and pack
 
 From the workspace root:

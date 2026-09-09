@@ -81,12 +81,19 @@ packages/page-runtime/src/content-scripts/extractState.js
 
 ## Adapter Contract
 
-Each adapter registers one object. `match()` and `enhanceState()` are the core contract; `provideTools()` is optional and only used by connector-enabled adapters.
+Each adapter registers one object. `match()` and `enhanceState()` are the core
+contract. `provideTools()` is optional and only used by connector-enabled
+adapters. `provides` is separate optional metadata for a workflow-aware trusted
+host.
 
 ```js
 registry.register({
   id: "example.site",
   priority: 50,
+  provides: {
+    "example.record.read": "example_read_record",
+    "example.record.fill": "example_fill_record",
+  },
 
   match({ url, document }) {
     return true;
@@ -104,6 +111,38 @@ registry.register({
   },
 });
 ```
+
+### `provides`
+
+Use `provides` when the adapter can bind stable semantic capabilities for a
+workflow-aware trusted host. Keys describe what the adapter can do; values are
+private operation names understood by that adapter's local consumer:
+
+```js
+provides: {
+  "application.read": "example_read_application",
+  "application.fill": "example_fill_application_fields",
+}
+```
+
+Capability IDs must match
+`^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$` and be no longer than 128
+characters. An adapter may declare at most 32 capabilities. Operation names
+must match `^[a-z][a-z0-9_]{0,127}$`. Keep both sides stable across builds.
+
+The map belongs on the adapter definition, not in the package catalog or a
+central workflow table. Do not put selectors, user values, profile policy,
+permission grants, protected-effect decisions, or executable functions in it.
+Declaring a capability does not authorize the operation.
+
+Registration validates and freezes the map. The in-page registry's
+`getAdapterProvides(id)` returns a defensive copy for trusted-host use. The host
+must choose an adapter from URL evidence, inject it, and verify the adapter is
+active before reading the map. Capabilities must never influence that choice.
+The map is not added to extracted state or `connectorTools`, so it does not
+change planner-visible schemas. Classical extension and Browserbase behavior
+remains unchanged unless a host explicitly consumes this metadata after the
+active match.
 
 ### `match({ url, document })`
 
@@ -434,8 +473,9 @@ When adding a new adapter:
 5. Map each domain target to generic controls.
 6. Add compact action hints.
 7. Add high-signal facts to `siteAdapter`, `adapterHints`, groups, or `visibleTextSummary`.
-8. If a bounded page-local operation needs a connector, define `provideTools()` and register the executor.
-9. Verify that the extracted state stays compact and executable.
+8. If a workflow-aware host needs semantic routing, declare the adapter's bounded `provides` map.
+9. If a bounded page-local operation needs a connector, define `provideTools()` and register the executor.
+10. Verify that the extracted state stays compact and executable.
 
 Useful DOM samples include:
 
@@ -619,6 +659,7 @@ Before opening a PR:
 - For host-shared adapters, run `npm run smoke:cloud` and at least one relevant Browserbase dry-run or live bench when practical.
 - Load the extension unpacked in Chrome.
 - Confirm the adapter only matches its intended page family.
+- Confirm `provides` uses bounded semantic IDs, maps only to adapter-private operation names, and remains absent from extracted state and connector schemas.
 - Confirm `siteAdapter.actionHintsByTargetId` keys are real generic control IDs.
 - Confirm required controls remain executable by the runner.
 - Confirm the payload stays compact and does not include unnecessary DOM or user data.

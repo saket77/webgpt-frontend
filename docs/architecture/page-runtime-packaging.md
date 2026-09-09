@@ -65,6 +65,11 @@ existing `match()` is the final authority. The catalog does not contain workflow
 capabilities, résumé or EEOC concepts, profile bindings, application operations,
 submit policy, or workflow-specific aliases.
 
+Semantic capability declarations are intentionally not catalog fields. They
+live on the executable adapter definition as `provides`, so package metadata
+cannot make a capability claim before the adapter has actually loaded and
+matched the page.
+
 The package has no `application-runtime`, `application-layers`, application
 router, profile binder, or job-tool compatibility API. An adapter ID may include
 the word `application` because it describes a page kind; that does not make the
@@ -74,6 +79,32 @@ Adapter behavior stays in the adapter: `match`, `enhanceState`, dynamic
 `provideTools`, and any registered page-local `WebGPTConnectorTools` executor.
 Workflows consume the state and operations those adapters expose. Hosts retain
 browser/session ownership and privileged capabilities.
+
+## Active-adapter capability metadata
+
+An adapter can register a bounded static map from a semantic capability ID to
+an adapter-private operation name:
+
+```js
+provides: {
+  "application.read": "greenhouse_read_application",
+  "application.fill": "greenhouse_fill_application_fields",
+}
+```
+
+The adapter registry validates this map at registration, stores it separately
+from extracted state, and returns a defensive frozen copy from
+`getAdapterProvides(id)`. A trusted host must first resolve candidates from URL
+hints, inject the chosen adapter, and verify that page-local `match()` placed
+its ID in `activeAdapterIds`. Only then may the host read the selected adapter's
+`provides` map and bind requested semantic capabilities.
+
+Neither capability IDs nor private operation names participate in candidate
+selection. They are also absent from `connectorTools` and other planner-visible
+schemas. `provideTools()` remains the dynamic model-facing connector surface;
+`provides` is host-private workflow routing metadata. The full-script Chrome
+extension and Browserbase hosts may ignore it without changing their existing
+matching, extraction, planning, or execution behavior.
 
 ## Integrity and host preflight
 

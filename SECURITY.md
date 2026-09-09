@@ -68,6 +68,19 @@ Generic state extraction never records password, file, or hidden input values. O
 
 ## Privileged Adapter Operations
 
+An adapter's optional `provides` map is capability metadata, not authority. It
+must contain only bounded semantic capability IDs and adapter-private operation
+names—never selectors, authorization tokens, local paths, user values, or
+workflow policy. The map is kept out of extracted state and planner-visible
+connector schemas.
+
+A workflow-aware trusted host must select the adapter from URL evidence, inject
+it, and verify the page-local active match before reading
+`getAdapterProvides(id)`. A declared capability must not affect adapter
+selection, bypass existing host permission checks, or imply consent for a
+protected effect. Hosts that do not consume this metadata retain the existing
+Chrome-extension and Browserbase security behavior.
+
 An adapter may describe a host-routed native file upload or a guarded final
 submit only when the extracting host explicitly advertises the matching
 capability. Model-visible `connectorTools` contain only the function schema;

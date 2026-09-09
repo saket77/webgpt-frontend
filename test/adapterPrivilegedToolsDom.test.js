@@ -23,6 +23,14 @@ const CASES = [
     adapterFile: "ashby.js",
     url: "https://jobs.ashbyhq.com/example/application",
     readTool: "ashby_read_job_description",
+    provides: {
+      "job.description.read": "ashby_read_job_description",
+      "application.read": "ashby_read_application",
+      "application.fill": "ashby_fill_application_fields",
+      "application.eeoc.fill": "ashby_fill_eeoc",
+      "application.file.upload": "ashby_upload_application_file",
+      "application.submit": "ashby_submit_application",
+    },
     uploadTool: "ashby_upload_application_file",
     submitTool: "ashby_submit_application",
     adapterId: "ashby.application",
@@ -101,6 +109,14 @@ const CASES = [
     adapterFile: "greenhouse.js",
     url: "https://job-boards.greenhouse.io/example/jobs/123",
     readTool: "greenhouse_read_job_description",
+    provides: {
+      "job.description.read": "greenhouse_read_job_description",
+      "application.read": "greenhouse_read_application",
+      "application.fill": "greenhouse_fill_application_fields",
+      "application.eeoc.fill": "greenhouse_fill_eeoc",
+      "application.file.upload": "greenhouse_upload_application_file",
+      "application.submit": "greenhouse_submit_application",
+    },
     uploadTool: "greenhouse_upload_application_file",
     submitTool: "greenhouse_submit_application",
     adapterId: "greenhouse.application",
@@ -214,6 +230,36 @@ function extract(fixture, config, meta = {}) {
 }
 
 for (const config of CASES) {
+  test(`${config.name} declares an exact host-private capability map`, (t) => {
+    const fixture = createFixture(config);
+    t.after(() => fixture.dom.window.close());
+
+    const first = fixture.window.WebGPTContentAdapters.getAdapterProvides(
+      config.adapterId,
+    );
+    assert.deepEqual(JSON.parse(JSON.stringify(first)), config.provides);
+    assert.equal(Object.isFrozen(first), true);
+
+    const second = fixture.window.WebGPTContentAdapters.getAdapterProvides(
+      config.adapterId,
+    );
+    assert.notEqual(first, second);
+    assert.deepEqual(JSON.parse(JSON.stringify(second)), config.provides);
+    assert.equal(
+      fixture.window.WebGPTContentAdapters.getAdapterProvides("unknown.adapter"),
+      null,
+    );
+
+    const plannerState = extract(fixture, config, {
+      capabilities: { hostFileUpload: true, guardedSubmit: true },
+    });
+    const serializedState = JSON.stringify(plannerState);
+    assert.equal(serializedState.includes('"provides"'), false);
+    for (const capability of Object.keys(config.provides)) {
+      assert.equal(serializedState.includes(capability), false);
+    }
+  });
+
   test(`${config.name} owns read, host-upload, and guarded-submit tool contracts`, async (t) => {
     const fixture = createFixture(config);
     t.after(() => fixture.dom.window.close());
@@ -547,7 +593,7 @@ for (const config of CASES) {
   });
 }
 
-test("registry preserves legacy descriptors and clones private route reads", (t) => {
+test("registry keeps legacy adapters additive and clones host-private reads", (t) => {
   const dom = new JSDOM("<!doctype html><title>Registry</title>", {
     runScripts: "outside-only",
     url: "https://example.test/",
@@ -579,6 +625,48 @@ test("registry preserves legacy descriptors and clones private route reads", (t)
   );
   assert.equal(state.connectorTools[0], legacy);
   assert.equal(receivedMeta, meta);
+
+  const legacyProvides = window.WebGPTContentAdapters.getAdapterProvides(
+    "example.adapter",
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(legacyProvides)), {});
+  assert.equal(Object.isFrozen(legacyProvides), true);
+  assert.notEqual(
+    legacyProvides,
+    window.WebGPTContentAdapters.getAdapterProvides("example.adapter"),
+  );
+  assert.equal(
+    window.WebGPTContentAdapters.getAdapterProvides("unknown.adapter"),
+    null,
+  );
+
+  window.WebGPTContentAdapters.register({
+    id: "namespaced.adapter",
+    match: () => false,
+    provides: { "calendar-event.create": "legacy_tool" },
+  });
+  assert.deepEqual(
+    JSON.parse(
+      JSON.stringify(
+        window.WebGPTContentAdapters.getAdapterProvides("namespaced.adapter"),
+      ),
+    ),
+    { "calendar-event.create": "legacy_tool" },
+  );
+
+  assert.throws(
+    () =>
+      window.WebGPTContentAdapters.register({
+        id: "invalid.adapter",
+        match: () => true,
+        provides: { invalid: "legacy_tool" },
+      }),
+    /invalid capability/,
+  );
+  assert.equal(
+    window.WebGPTContentAdapters.getAdapterProvides("invalid.adapter"),
+    null,
+  );
 
   const first = window.WebGPTContentAdapters.getPrivateToolRoutes();
   first.mutated = true;
