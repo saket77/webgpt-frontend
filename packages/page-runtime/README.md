@@ -95,6 +95,42 @@ const runtime = await readPageRuntime({
 
 The current runtime ABI is `webgpt-page-runtime-iife-v1`.
 
+### Generic action contract
+
+`GENERIC_ACTION_CONTRACT` from the `/node` export is a deeply frozen, JSON-safe
+contract with schema version `webgpt.generic-actions.v1`, `actions` descriptors
+(`name`, `description`, `parameters`) and `executionGuidance`. Hosts use it to
+advertise and validate the local runner's `click`, `fill`, `press`, `scroll`,
+`wait`, `goto` and `extract` actions through one batch entrypoint:
+
+```js
+await session.runActions({
+  observationId: observation.observationId,
+  description: "Set the known destination before searching",
+  actions: [{ type: "fill", targetId: "el_1", value: "Paris" }],
+});
+```
+
+`session` is a consumer-host API; this package implements its page actions and
+publishes the contract, not the host session or teaching recorder. Descriptor
+`parameters` omit the `type` discriminator; hosts add `{ type: name }` when
+constructing an action. `description` belongs to the batch envelope, never to an
+individual page action.
+
+Batch only actions whose targets and inputs are already known. A navigation or
+newly revealed dependency requires a fresh observation before the next batch.
+Use `fill` for a native `<select>` option value or label. Custom comboboxes may
+need fill, fresh observation and an option click to commit the selection.
+
+Native selects expose `multiple` and a complete `options` catalog containing
+exact `label`/`value`, `selected`, effective `disabled` and `groupLabel` facts.
+The catalog is not subject to the legacy selected-value summary cap. Hosts must
+apply their normal model-facing safety projection to it.
+
+This contract does not advertise horizontal scroll, back navigation or frame
+routing. The legacy `extract.context` and `extract.frameId` fields remain
+available as extraction provenance; they do not select an execution frame.
+
 `listPageRuntimeAdapters()` from the catalog subpath returns a defensive,
 deeply frozen snapshot for candidate selection.
 

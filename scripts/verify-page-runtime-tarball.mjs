@@ -153,7 +153,11 @@ try {
 
   const consumerCheck = `
     const { PAGE_RUNTIME_ABI } = await import("@webgpt-mundhada/page-runtime/catalog");
-    const { readPageRuntime } = await import("@webgpt-mundhada/page-runtime/node");
+    const { readPageRuntime, GENERIC_ACTION_CONTRACT } = await import("@webgpt-mundhada/page-runtime/node");
+    if (GENERIC_ACTION_CONTRACT?.schemaVersion !== "webgpt.generic-actions.v1" ||
+        GENERIC_ACTION_CONTRACT.actions.map(({ name }) => name).sort().join(",") !== "click,extract,fill,goto,press,scroll,wait") {
+      throw new Error("The installed generic action contract is missing or incomplete");
+    }
     const generic = await readPageRuntime();
     if (generic.adapters.length !== 0 || generic.layers.adapters.length !== 0) {
       throw new Error("The zero-adapter generic runtime is incomplete");

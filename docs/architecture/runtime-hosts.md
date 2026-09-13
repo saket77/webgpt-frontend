@@ -159,6 +159,22 @@ app, keep the declared package dependencies, install, and run.
 
 ## Bench Testing
 
+### Codex local teaching host
+
+The private WebGPT plugin can use page-runtime without a backend planner. Its
+task-scoped browser run observes/projects crude state locally and calls one
+batched executor. `@webgpt-mundhada/page-runtime/node` publishes the versioned
+`GENERIC_ACTION_CONTRACT`: click, fill, press, scroll, wait, goto and extract.
+Native select uses fill with extracted option values/labels; custom comboboxes
+need observation between typing and selecting newly revealed options.
+
+The plugin owns teaching mode, privacy-safe model projection, private recording,
+logical final report validation, and a separate host-only artifact upload. The
+page package owns DOM mechanics and schemas, not upload policy or adapter
+generation. Teaching does not change extension or Browserbase planner loops.
+The backend's `/teaching-artifacts` API is a temporary memory-only evidence store,
+separate from planner run sessions and successful-run replay artifacts.
+
 The Browserbase host doubles as an integration bench harness:
 
 ```bash

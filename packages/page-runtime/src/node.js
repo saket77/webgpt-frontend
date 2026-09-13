@@ -7,6 +7,7 @@ import {
 } from "./reader.js";
 
 export { PAGE_RUNTIME_SCRIPT_FILES } from "./manifest.js";
+export { GENERIC_ACTION_CONTRACT } from "./generic-action-contract.js";
 
 export const PAGE_RUNTIME_ROOT = fileURLToPath(new URL("./", import.meta.url));
 export const PAGE_RUNTIME_PACKAGE_ROOT = fileURLToPath(

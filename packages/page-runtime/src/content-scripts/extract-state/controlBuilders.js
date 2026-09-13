@@ -36,6 +36,18 @@
       return {
         currentValue: selectedValues[0] || boundedControlValue(el.value),
         selectedValues,
+        multiple: Boolean(el.multiple),
+        // Keep the complete catalog: a useful selection can be far beyond the
+        // selected-value summary, and option values must remain exact for fill.
+        options: Array.from(el.options || []).map((option) => ({
+          label: String(option.label ?? option.textContent ?? ""),
+          value: String(option.value ?? ""),
+          selected: Boolean(option.selected),
+          disabled: Boolean(
+            !isEnabled(el) || option.disabled || option.closest("optgroup")?.disabled,
+          ),
+          groupLabel: String(option.closest("optgroup")?.label || ""),
+        })),
       };
     }
 
