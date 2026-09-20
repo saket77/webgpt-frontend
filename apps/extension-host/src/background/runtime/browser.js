@@ -5,6 +5,7 @@ import {
   runBrowserControlAction,
 } from "./browserControl.js";
 import { EXTENSION_CONTENT_SCRIPT_FILES } from "./contentScriptFiles.js";
+import { normalizeDomExecutionResult } from "./executionResult.js";
 
 const CONTENT_SCRIPT_PROTOCOL_REVISION = "webgpt-content-runtime-v1";
 const PING_MESSAGE_TYPE = "PING_WEBGPT_CONTENT_SCRIPT";
@@ -703,7 +704,7 @@ async function runDomActionsInTab(tabId, state, actions) {
   }
 
   return {
-    ...response.result,
+    ...normalizeDomExecutionResult(response.result),
     frameId,
     tabId,
   };

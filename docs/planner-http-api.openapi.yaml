@@ -2141,6 +2141,9 @@ components:
       properties:
         ok:
           type: boolean
+        recoverable:
+          type: boolean
+          description: True when the batch is unsuccessful only because one or more nested action failures are recoverable.
         summary:
           type: string
         error:

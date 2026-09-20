@@ -185,7 +185,7 @@ Browser DOM state can include connector tools contributed by active site adapter
 }
 ```
 
-Planner backends should treat connector tools as additional action tools for the current browser step. Tool metadata such as `webgpt.adapterId`, `webgpt.replayable`, and `webgpt.mayCauseNavigation` is for WebGPT routing, replay, and audit logs; it is not required in model-facing function schemas.
+Planner backends should treat connector tools as additional action tools for the current browser step. When a tool is advertised inside `frames[frameId].connectorTools`, retain that owning `frameId` in a private route, omit it from the model-facing function schema, and attach it to the executable action after the model call is parsed. A model-supplied `frameId` must not override this route. Tool metadata such as `webgpt.adapterId`, `webgpt.replayable`, and `webgpt.mayCauseNavigation` is for WebGPT routing, replay, and audit logs; it is not required in model-facing function schemas.
 
 Connector actions are DOM-backed page operations, not runtime surface commands. They run through `run_actions`, execute in the content-script connector registry, and should reuse the same adapter logic that enriched state.
 
@@ -319,6 +319,7 @@ Connector actions carry the arguments from their tool schema:
   "actions": [
     {
       "type": "example_fill_fields",
+      "frameId": 38,
       "fieldValues": {
         "tenant_name": "Saket Mundhada"
       }
@@ -327,7 +328,7 @@ Connector actions carry the arguments from their tool schema:
 }
 ```
 
-Connector executors return normal action results. A useful connector result includes structured evidence such as committed values, skipped targets, failures, or an extraction batch so the backend can verify action effects.
+Connector executors return normal action results. A useful connector result includes structured evidence such as committed values, skipped targets, failures, or an extraction batch so the backend can verify action effects. If any nested action result has `ok: false`, the extension host reports the enclosing execution as `ok: false`; recoverable failures retain `recoverable: true` and their diagnostic summary so the planner can replan accurately.
 
 Connector actions must not perform work across a document navigation boundary. If a connector action may navigate, it must be marked as navigation-capable by connector metadata, placed last in the batch, and followed by the normal navigation wait and fresh state extraction before any further work.
 

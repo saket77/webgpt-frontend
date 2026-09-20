@@ -291,6 +291,8 @@ Connector results should be structured:
 - `recoverable` / `continueBatch`: whether the runner may continue after partial failure
 - domain evidence such as `fieldValues`, `person`, `filled`, `skipped`, `failed`, or `extractionBatch`
 
+Continuing the in-page batch does not convert a failed connector into success. The extension host reports an enclosing `ok: false, recoverable: true` execution when any nested connector result is recoverably unsuccessful, preserving the runner summary for the planner's next step.
+
 Connector replay is connector-native: a saved replay action calls the same registered executor after the content script re-extracts current state. If the connector tool is unavailable on the replay page, replay should fail clearly rather than silently degrade to unrelated DOM clicks.
 
 Connector actions must not cross a document navigation boundary. If a connector action can trigger navigation, mark it with connector metadata and make it the final action in its batch; any post-navigation work must happen after the normal navigation wait and fresh state extraction.
