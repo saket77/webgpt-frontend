@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { createControllerCore } from "../packages/controller-core/src/index.js";
 import { getEmptySession } from "../packages/controller-core/src/state/sessionStore.js";
+import { buildBrowserContext, syncSessionWithRun } from "../packages/planner-http-adapter/src/runContext.js";
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -245,6 +246,348 @@ test("controller-core start run extracts state and pauses on planner done", asyn
   assert.equal(runtime.extractCalls.length, 1);
   assert.equal(plannerAdapter.calls[0].type, "state_extracted");
   assert.equal((await store.getSession(1)).pausedReason, "awaiting_success_confirmation");
+});
+
+test("normal Start uses the same run through mint poll, hint and checked action receipt", async () => {
+  const url = "https://example.test";
+  const initial = { tabId: 1, documentId: "document-1", url };
+  const actions = [{ type: "fill", targetId: "el_1", value: "Minter-chosen text" }];
+  const binding = observationId => ({ ...initial, observationId });
+  const outcome = { status: "waiting_for_adapter", draft: { fileName: "site.js" } };
+  let captures = 0;
+  let receipts = 0;
+  let polls = 0;
+  let resumePrompt;
+  const runtime = createRuntime({
+    mint: {
+      async startContext() { return initial; },
+      async capture(tabId, expected) {
+        assert.equal(tabId, 1);
+        assert.equal(expected.documentId, initial.documentId);
+        const observationId = "observation-" + ++captures;
+        return {
+          binding: binding(observationId),
+          observation: { observationId, page: { url }, discoveryOk: true, activeAdapterIds: [], state: { controls: [] } },
+        };
+      },
+      async runActions(tabId, bound, received) {
+        assert.equal(tabId, 1);
+        assert.deepEqual(bound, binding("observation-2"));
+        assert.deepEqual(received, actions);
+        receipts++;
+        return { ok: true, results: [{ action: { type: "fill", targetId: "el_1" }, result: { ok: true, verified: true } }] };
+      },
+    },
+  });
+  const plannerAdapter = createPlannerAdapter();
+  const classicStart = plannerAdapter.startCommandRun;
+  Object.assign(plannerAdapter, {
+    buildBrowserContext,
+    syncSessionWithRun,
+    async startCommandRun(args) {
+      assert.equal(args.browserContext.mintProtocol, 1);
+      assert.equal(args.browserContext.tabId, 1);
+      return classicStart();
+    },
+    async postCommandResult(args) {
+      assert.equal(args.runId, "run_1");
+      assert.equal(args.browserContext.mintProtocol, 1);
+      let command;
+      let phase = "exploring";
+      if (args.type === "mint_requested") {
+        assert.equal(captures, 1);
+        assert.equal(args.state, undefined);
+        assert.equal(args.mintObservation.observationId, "observation-1");
+        command = { type: "wait_for_command", retryAfterMs: 1 };
+      } else if (args.type === "poll") {
+        polls++;
+        if (polls === 2) {
+          command = { type: "ask_human", promptId: "prompt-1", message: "Is this the right field?" };
+          phase = "awaiting_hint";
+        } else if (polls === 5) {
+          command = { type: "adapter_mint_outcome", outcome };
+          phase = "waiting_for_adapter";
+        } else {
+          command = { type: "wait_for_command", retryAfterMs: 1 };
+          if (polls > 2) phase = "reviewing_draft";
+        }
+      } else if (args.type === "state_extracted") {
+        assert.equal(args.state, undefined);
+        assert.equal(args.command.teachingOperationId, "observe-2");
+        command = { type: "run_actions", teachingOperationId: "action-1", binding: binding("observation-2"), actions };
+      } else {
+        assert.equal(args.type, "actions_executed");
+        assert.equal(args.command.teachingOperationId, "action-1");
+        assert.equal(args.postState.observationId, "observation-3");
+        assert.equal(args.execution.results[0].result.verified, true);
+        assert.equal(args.command.actions, undefined);
+        assert.doesNotMatch(JSON.stringify(args), /Minter-chosen text/);
+        command = { type: "wait_for_command", retryAfterMs: 1 };
+        phase = "drafting";
+      }
+      return { run: { step: 1, chromeStepLifecycle: 1, activePlanner: command.type === "adapter_mint_outcome" ? "classic" : "pomerado", teaching: { phase } },
+        command: { ...command, runId: "run_1", step: 1 } };
+    },
+    async provideHumanHint(args) {
+      resumePrompt = args.promptId;
+      return { run: { activePlanner: "pomerado", step: 1 },
+        command: { type: "extract_state", runId: "run_1", step: 1, teachingOperationId: "observe-2",
+          binding: binding("observation-1") } };
+    },
+  });
+  const { controller, eventSink, store } = createHarness({ plannerAdapter, runtime });
+  const paused = await controller.startAgent(1, "Find thing");
+  assert.equal(paused.reason, "awaiting_human_hint");
+  assert.equal((await store.getSession(1)).mintPhase, "exploring");
+  const finished = await controller.provideHintAndResume(1, "Yes");
+  assert.equal(resumePrompt, "prompt-1");
+  assert.equal(receipts, 1);
+  assert.equal(runtime.extractCalls.length, 0);
+  assert.deepEqual(finished.adapterMintOutcome, outcome);
+  const session = await store.getSession(1);
+  assert.equal(session.activePlanner, "classic");
+  assert.equal(session.mintPhase, undefined);
+  const events = eventSink.events.map(({ event }) => event);
+  const mintEvents = events.filter(event => event.kind.startsWith("adapter_mint_"));
+  assert.deepEqual(mintEvents.map(({ kind, activePlanner, mintPhase, step }) => [kind, activePlanner, mintPhase, step]), [
+    ["adapter_mint_progress", "pomerado", "exploring", 1],
+    ["adapter_mint_progress", "pomerado", "drafting", 1],
+    ["adapter_mint_progress", "pomerado", "reviewing_draft", 1],
+    ["adapter_mint_handoff", "classic", undefined, 1],
+    ["adapter_mint_outcome", "classic", undefined, 1],
+  ]);
+  assert.deepEqual(events.filter(event => event.kind === "step_started").map(({ step }) => step), [1]);
+  assert.deepEqual(events.filter(event => event.kind === "human_hint" || event.kind === "paused").map(({ step }) => step), [1, 1]);
+  assert.ok(!events.some(event => ["planner_output", "success_confirmed"].includes(event.kind)));
+});
+
+async function testClassicMintHandoff(reuse) {
+  const url = "https://example.test";
+  const binding = observation => ({ tabId: 1, documentId: "document-1", url, observationId: `mint-${observation}` });
+  const actions = [{ type: "click", targetId: "el_1" }];
+  const mintActions = [{ type: "fill", targetId: "el_2", value: "Minter-chosen text" }];
+  const classicStep = reuse ? 2 : 3;
+  let observations = 0;
+  const runtime = createRuntime({
+    mint: {
+      async startContext() { return { tabId: 1, documentId: "document-1", url }; },
+      async capture() {
+        const current = binding(++observations);
+        return {
+          binding: current,
+          observation: { observationId: current.observationId, page: { url },
+            discoveryOk: true, activeAdapterIds: [], state: { controls: [] } },
+        };
+      },
+      async runActions(tabId, current, received) {
+        assert.equal(tabId, 1);
+        assert.deepEqual(current, binding(observations));
+        assert.deepEqual(received, mintActions);
+        return { ok: true, results: [{ action: { type: "fill", targetId: "el_2" }, result: { ok: true, verified: true } }] };
+      },
+    },
+  });
+  const plannerAdapter = createPlannerAdapter();
+  const calls = [];
+  const handoff = {
+    run: { step: classicStep - 1, activePlanner: "classic", chromeStepLifecycle: 1, teaching: {
+      draft: { fileName: "site.js", runtimeVerification: "pending", reused: reuse },
+    } },
+    command: { type: "extract_state", reason: "classic_mint_handoff", activePlanner: "classic", step: classicStep },
+  };
+  const mintAction = step => ({
+    run: { step, activePlanner: "pomerado", chromeStepLifecycle: 1, teaching: { phase: "exploring" } },
+    command: { type: "run_actions", step, actions: mintActions, teachingOperationId: `write-${step}`, binding: binding(step) },
+  });
+  Object.assign(plannerAdapter, {
+    buildBrowserContext,
+    syncSessionWithRun,
+    async postCommandResult(args) {
+      calls.push(args.type);
+      assert.equal(args.runId, "run_1");
+      assert.equal(args.browserContext.mintProtocol, 1);
+      if (args.type === "mint_requested") {
+        assert.equal(args.browserContext.mintHandoffProtocol, 1);
+        assert.ok(eventSink.events.some(({ event }) => event.kind === "adapter_mint_progress" &&
+          event.activePlanner === "pomerado" && event.step === 1));
+        if (reuse) return handoff;
+        return mintAction(1);
+      }
+      assert.equal(args.browserContext.mintHandoffProtocol, undefined);
+      if (args.type === "poll") return handoff;
+      if (args.command?.teachingOperationId) {
+        const step = args.command.step;
+        assert.equal(args.type, "actions_executed");
+        assert.equal(args.browserContext.step, step);
+        assert.equal(args.command.teachingOperationId, `write-${step}`);
+        assert.equal(args.postState.observationId, binding(step + 1).observationId);
+        assert.equal(args.execution.results[0].result.verified, true);
+        if (step === 1) return mintAction(2);
+        return { run: { step: 2, activePlanner: "pomerado", teaching: { phase: "drafting" } },
+          command: { type: "wait_for_command", step: 2, retryAfterMs: 1 } };
+      }
+      if (args.type === "state_extracted") {
+        assert.equal(args.step, classicStep);
+        assert.equal(args.command.reason, "classic_mint_handoff");
+        assert.equal(args.command.runId, "run_1");
+        assert.equal(args.state.frames[0].url, url);
+        assert.equal(args.mintObservation, undefined);
+        assert.equal(args.browserContext.documentId, undefined);
+        return { run: { step: classicStep, activePlanner: "classic" },
+          command: { type: "run_actions", step: classicStep, actions, plan: { status: "continue", actions } } };
+      }
+      assert.equal(args.type, "actions_executed");
+      assert.equal(args.command.step, classicStep);
+      return { run: { step: classicStep, activePlanner: "classic" }, command: { type: "done", step: classicStep } };
+    },
+  });
+  const { controller, eventSink, store } = createHarness({ plannerAdapter, runtime });
+
+  const result = await controller.startAgent(1, "Find thing");
+
+  assert.deepEqual(calls, ["mint_requested", ...(reuse ? [] : ["actions_executed", "actions_executed", "poll"]), "state_extracted", "actions_executed"]);
+  assert.equal(result.reason, "awaiting_success_confirmation");
+  assert.deepEqual(runtime.actionCalls[0].actions, actions);
+  assert.equal((await store.getSession(1)).runId, "run_1");
+  assert.equal((await store.getSession(1)).activePlanner, "classic");
+  const events = eventSink.events.map(({ event }) => event);
+  assert.deepEqual(events.filter(event => event.kind === "step_started").map(({ step }) => step), reuse ? [1, 2] : [1, 2, 3]);
+  assert.deepEqual(events.filter(event => event.kind === "action_planned").map(({ step, action }) => [step, action.type]),
+    reuse ? [[2, "click"]] : [[1, "fill"], [2, "fill"], [3, "click"]]);
+  assert.doesNotMatch(JSON.stringify(events), /Minter-chosen text/);
+  assert.deepEqual(events.filter(event => event.kind === "execution_result").map(({ step }) => step),
+    reuse ? [2] : [1, 2, 3]);
+  const handoffs = events.filter(event => event.kind === "adapter_mint_handoff");
+  assert.deepEqual(handoffs.map(({ step, nextStep, activePlanner }) => [step, nextStep, activePlanner]),
+    [[classicStep - 1, classicStep, "classic"]]);
+  assert.match(handoffs[0].message, reuse ? /^A saved adapter draft/ : /^Pomerado saved the draft/);
+  assert.ok(events.some(event => event.kind === "planner_output" && event.step === classicStep && event.activePlanner === "classic"));
+  assert.ok(!events.some(event => event.kind === "adapter_mint_outcome"));
+}
+
+test("two teaching action batches and Classic share consecutive steps on the same run", () => testClassicMintHandoff(false));
+
+test("a reused draft hands the same run directly to Classic Step 2", () => testClassicMintHandoff(true));
+
+test("a Chrome Classic hint refreshes the paused step even at the step limit", async () => {
+  const plannerAdapter = createPlannerAdapter();
+  const seen = [];
+  Object.assign(plannerAdapter, {
+    syncSessionWithRun,
+    async startCommandRun() {
+      return {
+        runId: "run_1", run: { step: 0, chromeStepLifecycle: 1 },
+        command: { type: "extract_state", step: 1, surface: "browser_dom" },
+      };
+    },
+    async postCommandResult(args) {
+      seen.push(args);
+      return {
+        run: { step: 1, activePlanner: "classic" },
+        command: seen.length === 1
+          ? { type: "ask_human", step: 1, message: "Which role should I open?" }
+          : { type: "done", step: 1 },
+      };
+    },
+    async provideHumanHint() {
+      return {
+        run: { step: 1, activePlanner: "classic" },
+        command: { type: "extract_state", step: 1, reason: "human_hint", operationId: "refresh-1", surface: "browser_dom" },
+      };
+    },
+  });
+  const { controller, eventSink } = createHarness({ plannerAdapter, config: { MAX_STEPS: 1 } });
+  assert.equal((await controller.startAgent(1, "Open a role")).step, 1);
+  assert.equal((await controller.provideHintAndResume(1, "Open the intake form")).reason, "awaiting_success_confirmation");
+  assert.equal(seen[0].command, undefined);
+  assert.deepEqual(seen[1].command, {
+    type: "extract_state", runId: "run_1", step: 1, reason: "human_hint", operationId: "refresh-1",
+  });
+  const events = eventSink.events.map(({ event }) => event);
+  assert.deepEqual(events.filter(({ kind }) => kind === "step_started").map(({ step }) => step), [1]);
+  assert.deepEqual(events.filter(({ kind }) => kind === "state_extracted").map(({ step }) => step), [1, 1]);
+});
+
+test("an unavailable optional mint observation still completes the authenticated Classic flow", async () => {
+  const runtime = createRuntime({ mint: {
+    async startContext() {
+      return { tabId: 1, documentId: "document-1", url: "https://example.test" };
+    },
+    async capture() { throw new Error("Optional top-frame observation unavailable"); },
+  } });
+  const plannerAdapter = createPlannerAdapter();
+  const classicPost = plannerAdapter.postCommandResult;
+  Object.assign(plannerAdapter, {
+    buildBrowserContext,
+    syncSessionWithRun,
+    async postCommandResult(args) {
+      assert.equal(args.browserContext.mintProtocol, 1);
+      assert.equal(args.browserContext.documentId, undefined);
+      assert.equal(args.mintObservation, undefined);
+      return classicPost(args);
+    },
+    async confirmRunSuccess(args) {
+      assert.equal(args.browserContext.mintProtocol, 1);
+      return {};
+    },
+    async saveSuccessfulArtifacts() { return {}; },
+  });
+  const { controller } = createHarness({ plannerAdapter, runtime });
+  const result = await controller.startAgent(1, "Read a page");
+  assert.equal(result.reason, "awaiting_success_confirmation");
+  assert.equal((await controller.confirmSuccess(1)).completed, true);
+  assert.equal(plannerAdapter.stops[0].browserContext.mintProtocol, 1);
+});
+
+test("a matched adapter or failed discovery uses the ordinary Classic observation", async () => {
+  const url = "https://example.test";
+  const initial = { tabId: 1, documentId: "document-1", url };
+  for (const discovery of [
+    { discoveryOk: true, activeAdapterIds: ["example.adapter"] },
+    { discoveryOk: false, activeAdapterIds: [] },
+    { discoveryOk: true },
+  ]) {
+    const binding = { ...initial, observationId: "observation-1" };
+    const runtime = createRuntime({ mint: {
+      async startContext() { return initial; },
+      async capture() {
+        return {
+          binding,
+          observation: { observationId: binding.observationId, page: { url }, ...discovery },
+        };
+      },
+    } });
+    const plannerAdapter = createPlannerAdapter();
+    Object.assign(plannerAdapter, { buildBrowserContext, syncSessionWithRun });
+    const { controller } = createHarness({ plannerAdapter, runtime });
+    const result = await controller.startAgent(1, "Fill the form");
+    assert.equal(result.reason, "awaiting_success_confirmation");
+    assert.equal(runtime.extractCalls.length, 1);
+    assert.equal(plannerAdapter.calls[0].type, "state_extracted");
+    assert.equal(plannerAdapter.calls[0].mintObservation, undefined);
+    assert.equal(plannerAdapter.calls[0].browserContext.documentId, undefined);
+  }
+});
+
+test("Chrome refuses a Classic command in response to its directed mint request", async () => {
+  const url = "https://example.test";
+  const initial = { tabId: 1, documentId: "document-1", url };
+  const runtime = createRuntime({ mint: {
+    async startContext() { return initial; },
+    async capture() {
+      return {
+        binding: { ...initial, observationId: "observation-1" },
+        observation: { observationId: "observation-1", page: { url }, discoveryOk: true, activeAdapterIds: [] },
+      };
+    },
+  } });
+  const plannerAdapter = createPlannerAdapter({ commandsByResultType: {
+    mint_requested: { type: "run_actions", runId: "run_1", step: 1, actions: [{ type: "click", targetId: "el_1" }] },
+  } });
+  Object.assign(plannerAdapter, { buildBrowserContext, syncSessionWithRun });
+  const { controller } = createHarness({ plannerAdapter, runtime });
+  await assert.rejects(controller.startAgent(1, "Fill the form"), /did not start the site adapter planner/);
+  assert.equal(runtime.actionCalls.length, 0);
 });
 
 test("controller-core executes planner actions and posts action results", async () => {

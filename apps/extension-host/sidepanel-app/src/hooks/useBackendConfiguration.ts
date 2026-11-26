@@ -7,6 +7,8 @@ type BackendConfiguration = {
   source: string;
   overrideBaseUrl: string;
   defaultBaseUrl: string;
+  mintTokenConfigured: boolean;
+  mintTokenProvisioned?: boolean;
 };
 
 type BackendConfigurationResponse = {
@@ -15,21 +17,35 @@ type BackendConfigurationResponse = {
   config?: BackendConfiguration;
 };
 
-type LoadingAction = "refresh" | "save" | "reset" | "localhost" | null;
+type LoadingAction = "refresh" | "save" | "reset" | "localhost" | "saveMint" | "removeMint" | null;
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function supportsLocalMint(baseUrl?: string) {
+  if (!baseUrl) return false;
+  try {
+    const url = new URL(baseUrl);
+    return url.protocol === "http:" &&
+      ["127.0.0.1", "[::1]", "localhost"].includes(url.hostname) &&
+      !url.username && !url.password && url.pathname === "/" && !url.search && !url.hash;
+  } catch {
+    return false;
+  }
+}
+
 export function useBackendConfiguration() {
   const [config, setConfig] = useState<BackendConfiguration | null>(null);
   const [draftBaseUrl, setDraftBaseUrl] = useState("");
+  const [draftMintToken, setDraftMintToken] = useState("");
   const [error, setError] = useState("");
   const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
 
   const applyConfig = useCallback((nextConfig: BackendConfiguration) => {
     setConfig(nextConfig);
     setDraftBaseUrl(nextConfig.baseUrl || "");
+    setDraftMintToken("");
     setError("");
   }, []);
 
@@ -123,6 +139,30 @@ export function useBackendConfiguration() {
     }
   }, [applyConfig]);
 
+  const updateMintToken = useCallback(async (token: string) => {
+    if (!config || !supportsLocalMint(config.baseUrl)) return null;
+
+    try {
+      setLoadingAction(token ? "saveMint" : "removeMint");
+      const response = await sendToWorker<BackendConfigurationResponse>({
+        type: "WEBGPT_SET_LOCAL_MINT_TOKEN",
+        baseUrl: config.baseUrl,
+        token,
+      });
+      if (!response?.ok || !response.config) {
+        throw new Error(response?.error || "Failed to update the local mint token.");
+      }
+      applyConfig(response.config);
+      return response.config;
+    } catch (nextError) {
+      setError(getErrorMessage(nextError));
+      return null;
+    } finally {
+      setDraftMintToken("");
+      setLoadingAction(null);
+    }
+  }, [applyConfig, config]);
+
   useEffect(() => {
     void refreshConfig();
   }, [refreshConfig]);
@@ -137,13 +177,17 @@ export function useBackendConfiguration() {
     config,
     draftBaseUrl,
     setDraftBaseUrl,
+    draftMintToken,
+    setDraftMintToken,
     error,
     loadingAction,
     hasOverride,
     hasUnsavedChanges,
+    supportsLocalMint: supportsLocalMint(config?.baseUrl),
     refreshConfig,
     saveConfig,
     useLocalhostConfig,
     resetConfig,
+    updateMintToken,
   };
 }

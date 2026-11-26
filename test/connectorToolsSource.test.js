@@ -40,11 +40,11 @@ test("browser runtime uses revisioned content-script protocol before extraction 
 
   assert.match(
     browserSource,
-    /const CONTENT_SCRIPT_PROTOCOL_REVISION = "webgpt-content-runtime-v1"/,
+    /const CONTENT_SCRIPT_PROTOCOL_REVISION = "webgpt-content-runtime-v2"/,
   );
   assert.match(
     agentSource,
-    /const CONTENT_SCRIPT_PROTOCOL_REVISION = "webgpt-content-runtime-v1"/,
+    /const CONTENT_SCRIPT_PROTOCOL_REVISION = "webgpt-content-runtime-v2"/,
   );
   assert.match(browserSource, /type: PING_MESSAGE_TYPE/);
   assert.match(browserSource, /response\.protocolRevision === CONTENT_SCRIPT_PROTOCOL_REVISION/);

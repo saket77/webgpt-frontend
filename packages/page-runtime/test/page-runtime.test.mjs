@@ -100,7 +100,7 @@ test("layer declarations preserve the exact page-runtime aggregate shared by bot
     ...Object.values(PAGE_RUNTIME_ADAPTER_SCRIPT_FILES),
     ...PAGE_RUNTIME_TAIL_SCRIPT_FILES,
   ]);
-  assert.equal(PAGE_RUNTIME_SCRIPT_FILES.length, 30);
+  assert.equal(PAGE_RUNTIME_SCRIPT_FILES.length, 31);
   assert.deepEqual(PAGE_RUNTIME_ADAPTER_IDS, [
     "canvas.quiz",
     "yelp.local",
@@ -111,6 +111,7 @@ test("layer declarations preserve the exact page-runtime aggregate shared by bot
     "greenhouse.application",
     "investorgain.ipo_gmp_report",
     "eprocure.latest_active_tenders",
+    "whatsapp.web",
   ]);
 });
 

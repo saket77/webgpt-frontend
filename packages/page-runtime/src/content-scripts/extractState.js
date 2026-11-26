@@ -12,8 +12,8 @@
   const { buildScrollState, buildScrollableContainers } = ns.scrollBuilders;
   const adapterRegistry = globalThis.WebGPTContentAdapters || null;
 
-  function extractState(meta = {}) {
-    const controls = buildControls();
+  function extractState(meta = {}, { onControl } = {}) {
+    const controls = buildControls(onControl);
     const scrollableContainers = buildScrollableContainers();
 
     const state = {

@@ -6,7 +6,12 @@ import {
   type RunLaunchRequest,
   useAgentLaunchRequest,
 } from "../hooks/useAgentLaunchRequest";
-import type { AttachmentPayload } from "../hooks/useAgentActions";
+import {
+  adapterMintStatusText,
+  type AdapterMintOutcome,
+  type AdapterMintPhase,
+  type AttachmentPayload,
+} from "../hooks/useAgentActions";
 import { useAgentUX } from "../providers";
 
 declare const chrome: any;
@@ -23,6 +28,8 @@ export type AgentEvent = {
   primaryFrameId?: number | null;
   frameId?: number | null;
   plannerStatus?: string;
+  activePlanner?: string;
+  mintPhase?: AdapterMintPhase;
   reasoning?: string;
   action?: unknown;
   ok?: boolean;
@@ -30,12 +37,14 @@ export type AgentEvent = {
   reason?: string;
   hint?: string;
   pendingStep?: number;
+  nextStep?: number;
   fromTabId?: number;
   toTabId?: number;
   item?: any;
   queue?: any;
   results?: any[];
   surface?: Surface;
+  outcome?: AdapterMintOutcome;
 };
 
 export type AgentSession = {
@@ -59,6 +68,9 @@ export type AgentSession = {
   artifactFileName?: string;
   pendingAccessSurface?: Surface | "";
   pendingAccessCommand?: unknown;
+  adapterMintOutcome?: AdapterMintOutcome;
+  activePlanner?: string;
+  mintPhase?: AdapterMintPhase;
 };
 
 type SessionScope = "home" | "template";
@@ -257,7 +269,9 @@ function sessionStatusText(session?: AgentSession | null) {
   }
 
   if (session.running) {
-    return `Running step ${session.step || 0}`;
+    return session.activePlanner === "pomerado"
+      ? adapterMintStatusText(session.mintPhase)
+      : `Running step ${session.step || 0}`;
   }
 
   if (session.pausedReason) {
@@ -266,6 +280,16 @@ function sessionStatusText(session?: AgentSession | null) {
     }
 
     return `Paused: ${session.pausedReason}`;
+  }
+
+  if (session.adapterMintOutcome) {
+    switch (session.adapterMintOutcome.status) {
+      case "draft_saved": return "Draft saved · Runtime verification pending";
+      case "waiting_for_adapter": return "Adapter drafted · Waiting for activation";
+      case "not_applicable": return "Adapter mint not applicable";
+      case "blocked": return "Adapter mint blocked";
+      case "interrupted": return "Adapter mint interrupted";
+    }
   }
 
   if (session.goal) {
@@ -330,6 +354,11 @@ function applyEventToSession(
   switch (event.kind) {
     case "loop_started":
     case "loop_resumed":
+      if (event.kind === "loop_started") {
+        delete next.adapterMintOutcome;
+        delete next.activePlanner;
+        delete next.mintPhase;
+      }
       next.running = true;
       next.awaitingNavigation = false;
       next.pausedReason = null;
@@ -341,16 +370,20 @@ function applyEventToSession(
       next.awaitingNavigation = false;
       next.pausedReason = null;
       if (typeof event.step === "number") next.step = event.step;
+      if (event.activePlanner) next.activePlanner = event.activePlanner;
       break;
 
     case "state_extracted":
     case "planner_output":
+    case "adapter_mint_progress":
     case "action_planned":
     case "execution_result":
       next.running = true;
       next.awaitingNavigation = false;
       if (typeof event.step === "number") next.step = event.step;
       if (event.url) next.lastKnownUrl = event.url;
+      if (event.activePlanner) next.activePlanner = event.activePlanner;
+      if (event.mintPhase) next.mintPhase = event.mintPhase;
       break;
 
     case "awaiting_navigation":
@@ -436,11 +469,29 @@ function applyEventToSession(
 
     case "max_steps_reached":
     case "fatal_error":
+    case "adapter_mint_handoff":
+    case "adapter_mint_outcome":
     case "session_reset":
+      if (event.kind === "adapter_mint_handoff" && Number.isInteger(event.nextStep)) {
+        next.running = true;
+        if (event.activePlanner) next.activePlanner = event.activePlanner;
+        delete next.mintPhase;
+        break;
+      }
       next.running = false;
       next.awaitingNavigation = false;
       next.pausedReason = null;
       next.stopRequested = false;
+      if (event.kind === "adapter_mint_handoff" || event.kind === "adapter_mint_outcome") {
+        next.adapterMintOutcome = event.outcome;
+        if (event.activePlanner) next.activePlanner = event.activePlanner;
+        delete next.mintPhase;
+      }
+      if (event.kind === "session_reset") {
+        delete next.adapterMintOutcome;
+        delete next.activePlanner;
+        delete next.mintPhase;
+      }
       break;
 
     case "session_attached":
@@ -479,11 +530,20 @@ export function deriveEffectiveSessionState(
       "session_reset",
       "fatal_error",
       "max_steps_reached",
+      "adapter_mint_outcome",
     ].includes(lastEvent.kind)
   ) {
     inferredRunning = false;
     inferredAwaitingNavigation = false;
     inferredPausedReason = null;
+  }
+
+  if (lastEvent?.kind === "adapter_mint_handoff") {
+    inferredRunning = Number.isInteger(lastEvent.nextStep);
+    if (!inferredRunning) {
+      inferredAwaitingNavigation = false;
+      inferredPausedReason = null;
+    }
   }
 
   if (lastEvent?.kind === "stopped_by_user") {
@@ -512,6 +572,7 @@ export function deriveEffectiveSessionState(
         "step_started",
         "state_extracted",
         "planner_output",
+        "adapter_mint_progress",
         "action_planned",
         "execution_result",
         "navigation_completed",
@@ -794,12 +855,14 @@ export function useAgentRunController({
 
       setAttachedTabId(tabId);
       setForeignSession(null);
+      const outcome = response.result?.adapterMintOutcome;
       setSession((prev) => ({
         ...(prev || {}),
         goal: effectiveGoal,
         attachedTabId: tabId,
         surface: effectiveSurface,
-        running: true,
+        running: !outcome,
+        adapterMintOutcome: outcome,
         awaitingNavigation: false,
         pausedReason: null,
         stopRequested: false,
@@ -1201,10 +1264,12 @@ export function useAgentRunController({
 
     if (!response?.ok) return response;
 
+    const outcome = response.result?.adapterMintOutcome;
     setSession((prev) => ({
       ...(prev || {}),
       pausedReason: null,
-      running: true,
+      running: !outcome,
+      ...(outcome && { adapterMintOutcome: outcome }),
     }));
 
     return response;

@@ -5,7 +5,8 @@ import {
   getLastKnownUrlFromState,
 } from "../../state/stateViews.js";
 import { clone } from "../../utils/common.js";
-import { ensureLiveSession, getCommandStep } from "./context.js";
+import { ensureLiveSession, getCommandStep, recordStepStarted } from "./context.js";
+import { captureMint, isClassicMintHandoff, recordMintProgress, saveMintRunState } from "./mint.js";
 import {
   activateSurfaceFromContext,
   rememberSurfaceContext,
@@ -28,6 +29,8 @@ export async function executeExtractStateCommand(
 ) {
   let session = await ensureLiveSession(tabId);
   const step = getCommandStep(command, session);
+  const classicMintHandoff = isClassicMintHandoff(command);
+  const resumesHumanHint = session.chromeStepLifecycle === 1 && command.reason === "human_hint";
   const commandSurface = normalizeSurface(command?.surface);
   const sessionSurface = normalizeSurface(session.surface);
   const tabSurface = await runtime.detectSurfaceForTab?.(tabId).catch(() => null);
@@ -71,12 +74,10 @@ export async function executeExtractStateCommand(
     });
   }
 
-  await addEvent(tabId, {
-    kind: "step_started",
-    step,
+  await recordStepStarted(tabId, session, step, {
     surface,
+    ...(classicMintHandoff && { activePlanner: "classic", reason: command.reason }),
     surfaceContextId: command?.surfaceContextId || command?.nextSurfaceContextId || "",
-    message: `Step ${step} started.`,
   });
 
   session = await activateSurfaceFromContext(
@@ -87,17 +88,32 @@ export async function executeExtractStateCommand(
     command?.surfaceContextId || command?.nextSurfaceContextId,
   );
 
-  const state = await runtime.extractStateFromTab(tabId, {
-    goal: session.goal,
-    step,
-    surface,
-    meta: {
-      ...(command?.type === "navigation_completed"
-        ? { afterNavigation: true }
-        : {}),
-      ...(command?.meta || {}),
-    },
-  });
+  let mintObservation;
+  if (session.step === 0 && command?.type === "extract_state" &&
+      session.mintBinding && !session.mintBinding.observationId && surface === BROWSER_DOM_SURFACE) {
+    const discovery = await captureMint(tabId, session, runtime).catch(() => null);
+    if (discovery?.discoveryOk === true && Array.isArray(discovery.activeAdapterIds) &&
+        discovery.activeAdapterIds.length === 0 && discovery.page?.url === session.mintBinding?.url &&
+        discovery.observationId && discovery.observationId === session.mintBinding?.observationId) {
+      mintObservation = discovery;
+    } else {
+      delete session.mintBinding;
+    }
+  }
+
+  const state = mintObservation
+    ? { surface, frames: { 0: { ...mintObservation.state, ...mintObservation.page } } }
+    : await runtime.extractStateFromTab(tabId, {
+        goal: session.goal,
+        step,
+        surface,
+        meta: {
+          ...(command?.type === "navigation_completed"
+            ? { afterNavigation: true }
+            : {}),
+          ...(command?.meta || {}),
+        },
+      });
 
   const stateSummary = getAggregateStateSummary(state);
 
@@ -132,55 +148,80 @@ export async function executeExtractStateCommand(
     };
   }
 
+  if (mintObservation) {
+    session.mintPhase = "exploring";
+    await saveSession(tabId, session);
+    await recordMintProgress(tabId, step, session.mintPhase, "Starting Pomerado teaching for this page.");
+  }
+
+  const runId = session.runId;
   const commandResponse = await plannerAdapter.postCommandResult({
-    runId: session.runId,
-    type: resultType,
-    state,
+    runId,
+    ...(mintObservation
+      ? { type: "mint_requested", mintObservation }
+      : { type: resultType, state }),
+    ...((classicMintHandoff || resumesHumanHint) && {
+      step,
+      command: {
+        type: command.type, runId, step, reason: command.reason,
+        ...(resumesHumanHint && { operationId: command.operationId }),
+      },
+    }),
     userHint: session.userHint,
-    browserContext: plannerAdapter.buildBrowserContext(
-      tabId,
-      session,
-      stateSummary.url,
-    ),
+    browserContext: {
+      ...plannerAdapter.buildBrowserContext(tabId, session, stateSummary.url),
+      ...(mintObservation && { mintHandoffProtocol: 1 }),
+    },
     artifactFileName: "",
     surface: session.surface,
   });
 
   const nextCommand = commandResponse.command || {};
   const plan = nextCommand.plan || {};
-
+  const backendRun = commandResponse.run || nextCommand.run;
   session = await getSession(tabId);
-  session = plannerAdapter.syncSessionWithRun(
-    session,
-    commandResponse.run || nextCommand.run,
-  );
-  session.attachedTabId = tabId;
-  await saveSession(tabId, session);
+  if ((mintObservation || classicMintHandoff || resumesHumanHint) &&
+      (session.runId !== runId || session.stopRequested || !session.running)) {
+    return { terminal: "result", result: { ok: true, stopped: true } };
+  }
+  if (mintObservation && nextCommand.type !== "adapter_mint_outcome" &&
+      !isClassicMintHandoff(nextCommand) &&
+      backendRun?.activePlanner !== "pomerado") {
+    throw new Error("The local backend did not start the site adapter planner.");
+  }
 
-  await addEvent(tabId, {
-    kind: "planner_output",
-    step: session.step || step,
-    plannerStatus: plan.status || nextCommand.type || "",
-    surface: plan.surface || nextCommand.surface || "",
-    commandSurface: plan.commandSurface || nextCommand.surface || "",
-    nextSurface:
-      plan.nextSurface ||
-      (nextCommand.reason === "surface_handoff" ? nextCommand.surface : ""),
-    nextSurfaceContextId:
-      plan.nextSurfaceContextId || nextCommand.surfaceContextId || "",
-    nextCommandType: nextCommand.type || "",
-    nextCommandReason: nextCommand.reason || "",
-    reasoning: plan.reasoning || "",
-    summary: nextCommand.summary || plan.summary || "",
-    plannerSummary: nextCommand.plannerSummary || "",
-    actions: clone(
-      nextCommand.actions ||
-        nextCommand.commands ||
-        plan.actions ||
-        plan.commands ||
-        [],
-    ),
-  });
+  const nextSession = plannerAdapter.syncSessionWithRun(session, backendRun);
+  nextSession.attachedTabId = tabId;
+  if (mintObservation) {
+    await saveMintRunState(tabId, session, nextSession, backendRun, nextCommand, step);
+  } else {
+    await saveSession(tabId, nextSession);
+    await addEvent(tabId, {
+      kind: "planner_output",
+      step: nextSession.step || step,
+      ...(classicMintHandoff && { activePlanner: "classic", reason: command.reason }),
+      plannerStatus: plan.status || nextCommand.type || "",
+      surface: plan.surface || nextCommand.surface || "",
+      commandSurface: plan.commandSurface || nextCommand.surface || "",
+      nextSurface:
+        plan.nextSurface ||
+        (nextCommand.reason === "surface_handoff" ? nextCommand.surface : ""),
+      nextSurfaceContextId:
+        plan.nextSurfaceContextId || nextCommand.surfaceContextId || "",
+      nextCommandType: nextCommand.type || "",
+      nextCommandReason: nextCommand.reason || "",
+      reasoning: plan.reasoning || "",
+      summary: nextCommand.summary || plan.summary || "",
+      plannerSummary: nextCommand.plannerSummary || "",
+      actions: clone(
+        nextCommand.actions ||
+          nextCommand.commands ||
+          plan.actions ||
+          plan.commands ||
+          [],
+      ),
+    });
+  }
 
   const stopAfterPlan = await stopIfRequested(
     tabId,

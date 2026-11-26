@@ -33,10 +33,24 @@ export function clearLocalRunTracking(session, { keepGoal = false } = {}) {
   session.finalResult = null;
   session.pendingNewTab = null;
   session.replayRunning = false;
+  delete session.activePlanner;
+  delete session.mintProtocol;
+  delete session.mintBinding;
+  delete session.mintPromptId;
+  delete session.mintPhase;
+  delete session.chromeStepLifecycle;
+  delete session.mintDispatchedOperationId;
+  delete session.adapterMintOutcome;
   session.artifactFileName = keepGoal ? session.artifactFileName || "" : "";
 }
 
 export function createSessionLifecycleHandlers({ plannerAdapter }) {
+  function mintStopContext(tabId, session) {
+    return session.mintProtocol === 1 ? {
+      browserContext: plannerAdapter.buildBrowserContext(tabId, session, session.mintBinding?.url || session.lastKnownUrl),
+    } : {};
+  }
+
   async function deleteBackendRunAndClearLocal(
     tabId,
     session,
@@ -48,6 +62,7 @@ export function createSessionLifecycleHandlers({ plannerAdapter }) {
         reason,
         message,
         deleteRun: true,
+        ...mintStopContext(tabId, session),
       });
     }
 
@@ -66,6 +81,7 @@ export function createSessionLifecycleHandlers({ plannerAdapter }) {
           reason: "session_reset",
           message: "Frontend session reset.",
           deleteRun: true,
+          ...mintStopContext(tabId, currentSession),
         });
       } catch {
         // Keep local reset behavior even if backend delete fails.
@@ -104,6 +120,7 @@ export function createSessionLifecycleHandlers({ plannerAdapter }) {
           reason: "stop_requested",
           message: "User requested stop.",
           deleteRun: false,
+          ...mintStopContext(tabId, session),
         });
       } catch {
         // Keep local stop behavior even if backend stop fails.
@@ -137,6 +154,7 @@ export function createSessionLifecycleHandlers({ plannerAdapter }) {
           reason: "stopped_by_user",
           message,
           deleteRun: false,
+          ...mintStopContext(tabId, session),
         });
       } catch {
         // Keep local stop behavior even if backend stop fails.

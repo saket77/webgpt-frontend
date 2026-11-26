@@ -6,6 +6,10 @@ export const PAGE_RUNTIME_PACKAGE_NAME = "@webgpt-mundhada/page-runtime";
 export const PAGE_RUNTIME_RELEASE_VERSION = "1.0.0-rc.3";
 
 const ADAPTER_CANDIDATE_HINTS = {
+  "whatsapp.web": {
+    priority: 60,
+    matchHints: { protocols: ["https:"], hostnames: ["web.whatsapp.com"], pathnamePatterns: ["^/$"] },
+  },
   "canvas.quiz": {
     priority: 100,
     matchHints: {

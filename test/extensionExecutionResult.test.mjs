@@ -38,6 +38,26 @@ test("successful nested action results remain successful", () => {
   assert.equal(normalizeDomExecutionResult(original), original);
 });
 
+test("frame-local receipts retain the matching planned action's frame ID", () => {
+  const planned = [
+    { type: "whatsapp_prepare_message", frameId: 0 },
+    { type: "extract" },
+  ];
+  const original = {
+    ok: true,
+    results: [
+      { action: { type: "whatsapp_prepare_message" }, result: { ok: true, committed: true } },
+      { action: { type: "extract" }, result: { ok: true } },
+    ],
+  };
+
+  const execution = normalizeDomExecutionResult(original, planned);
+  assert.equal(execution.results[0].action.frameId, 0);
+  assert.equal(execution.results[0].result.committed, true);
+  assert.equal(execution.results[1].action.frameId, undefined);
+  assert.equal(original.results[0].action.frameId, undefined);
+});
+
 test("non-recoverable nested failures report their actual detail", () => {
   const execution = normalizeDomExecutionResult({
     ok: true,

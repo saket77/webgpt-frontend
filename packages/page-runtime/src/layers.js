@@ -24,6 +24,7 @@ export const PAGE_RUNTIME_ADAPTER_SCRIPT_FILES = Object.freeze({
   "greenhouse.application": "content-scripts/adapters/greenhouse.js",
   "investorgain.ipo_gmp_report": "content-scripts/adapters/investorGainIpo.js",
   "eprocure.latest_active_tenders": "content-scripts/adapters/eprocure.js",
+  "whatsapp.web": "content-scripts/adapters/whatsapp.js",
 });
 
 export const PAGE_RUNTIME_ADAPTER_IDS = Object.freeze(

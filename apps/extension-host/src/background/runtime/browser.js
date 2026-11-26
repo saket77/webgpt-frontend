@@ -6,8 +6,11 @@ import {
 } from "./browserControl.js";
 import { EXTENSION_CONTENT_SCRIPT_FILES } from "./contentScriptFiles.js";
 import { normalizeDomExecutionResult } from "./executionResult.js";
+import { projectMintObservation } from "./mintProjection.js";
+import { resolveBackendBaseUrl } from "../settings/backendConfig.js";
+import { getMintAccess } from "../settings/mintAccess.js";
 
-const CONTENT_SCRIPT_PROTOCOL_REVISION = "webgpt-content-runtime-v1";
+const CONTENT_SCRIPT_PROTOCOL_REVISION = "webgpt-content-runtime-v2";
 const PING_MESSAGE_TYPE = "PING_WEBGPT_CONTENT_SCRIPT";
 const EXTRACT_STATE_MESSAGE_TYPE = "WEBGPT_EXTRACT_STATE_V2";
 const RUN_ACTIONS_MESSAGE_TYPE = "WEBGPT_RUN_ACTIONS_V2";
@@ -623,6 +626,71 @@ export async function extractStateFromTab(tabId, { goal, step, meta = {} }) {
     meta,
   });
 }
+
+async function mintTabDocument(tabId) {
+  const frame = await chrome.webNavigation.getFrame({ tabId, frameId: 0 });
+  if (!frame?.documentId || !frame.url || !/^https?:\/\//.test(frame.url)) {
+    throw new Error("The selected tab has no active browser document.");
+  }
+  return { tabId, documentId: frame.documentId, url: frame.url };
+}
+
+async function mintFrameMessage(bound, message) {
+  return chrome.tabs.sendMessage(bound.tabId, {
+    ...message, protocolRevision: CONTENT_SCRIPT_PROTOCOL_REVISION, mintProtocol: 1,
+  }, { documentId: bound.documentId });
+}
+
+const chromeMintRuntime = {
+  async startContext(tabId) {
+    if (!await getMintAccess(await resolveBackendBaseUrl())) return null;
+    const bound = await mintTabDocument(tabId);
+    return { ...bound, attachedTabId: tabId, mintProtocol: 1 };
+  },
+
+  async capture(tabId, expected) {
+    if (!await ensureContentScriptReady(tabId)) throw new Error("The selected tab is unavailable.");
+    const bound = await mintTabDocument(tabId);
+    if (expected && (expected.tabId !== bound.tabId || expected.documentId !== bound.documentId ||
+        expected.url !== bound.url)) throw new Error("The selected browser document changed.");
+    const response = await mintFrameMessage(bound, { type: EXTRACT_STATE_MESSAGE_TYPE });
+    const frame = response?.state;
+    if (!response?.ok || !frame?.mintObservationId || frame.url !== bound.url) {
+      throw new Error("The selected document could not provide a fresh mint observation.");
+    }
+    if (!await getMintAccess(await resolveBackendBaseUrl())) {
+      throw new Error("The local mint configuration is unavailable.");
+    }
+    return {
+      binding: { ...bound, observationId: frame.mintObservationId },
+      observation: projectMintObservation(frame, frame.mintObservationId),
+    };
+  },
+
+  async runActions(tabId, binding, actions) {
+    const bound = await mintTabDocument(tabId);
+    if (binding.tabId !== bound.tabId || binding.documentId !== bound.documentId || binding.url !== bound.url) {
+      throw new Error("The selected browser document changed.");
+    }
+    if (!await getMintAccess(await resolveBackendBaseUrl())) {
+      throw new Error("The local mint configuration is unavailable.");
+    }
+    if (!Array.isArray(actions) || actions.length < 1 || actions.length > 16) {
+      throw new Error("The mint command did not contain a bounded action batch.");
+    }
+    const local = actions.map(action => {
+      const { type, targetId } = action;
+      if (type === "fill") return { type, targetId, value: action.value };
+      if (type === "scroll") return { type, targetId, direction: action.direction, amount: action.amount };
+      if (type === "wait") return { type, targetId, ms: action.ms };
+      if (type === "press") return { type, targetId, key: action.key };
+      return { type, targetId };
+    });
+    const response = await mintFrameMessage(bound, { type: RUN_ACTIONS_MESSAGE_TYPE, binding, actions: local });
+    if (!response?.ok || !response.result) return { ok: false, uncertain: true, results: [] };
+    return response.result;
+  },
+};
 export async function runReplayActionsInTab(tabId, replaySteps) {
   const ready = await ensureContentScriptReady(tabId, {
     attempts: 20,
@@ -704,7 +772,7 @@ async function runDomActionsInTab(tabId, state, actions) {
   }
 
   return {
-    ...normalizeDomExecutionResult(response.result),
+    ...normalizeDomExecutionResult(response.result, actions),
     frameId,
     tabId,
   };
@@ -885,6 +953,7 @@ export const browserRuntime = {
   actionsMayCauseNavigation,
   ensureContentScriptReady,
   extractStateFromTab,
+  mint: chromeMintRuntime,
   runActionsInTab,
   runReplayActionsInTab,
 };

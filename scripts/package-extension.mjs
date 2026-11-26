@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const extensionRoot = path.join(repoRoot, "apps", "extension-host");
 const distDir = path.join(extensionRoot, "dist-extension");
+const localBenchModule = "background/settings/localBenchConfig.js";
 
 function readManifest() {
   return JSON.parse(fs.readFileSync(path.join(extensionRoot, "src", "manifest.json"), "utf8"));
@@ -33,12 +34,15 @@ function parseArgs(argv) {
   const options = {
     output: path.resolve(repoRoot, "..", `webgpt-extension-frontend-v${manifest.version}.zip`),
     skipBuild: false,
+    localBench: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--skip-build") {
       options.skipBuild = true;
+    } else if (arg === "--local-bench") {
+      options.localBench = true;
     } else if (arg === "--output" || arg === "-o") {
       const next = argv[index + 1];
       if (!next) throw new Error(`${arg} requires a file path.`);
@@ -116,6 +120,15 @@ async function main() {
   const stageDir = fs.mkdtempSync(path.join(os.tmpdir(), "webgpt-extension-package-"));
   try {
     copyFiltered(distDir, stageDir);
+    const defaultConfig = path.join(extensionRoot, "src", localBenchModule);
+    const stagedConfig = path.join(stageDir, localBenchModule);
+    if (options.localBench) {
+      if (fs.readFileSync(stagedConfig, "utf8") === fs.readFileSync(defaultConfig, "utf8")) {
+        throw new Error("Create a local bench config and rebuild before packaging it.");
+      }
+    } else {
+      fs.copyFileSync(defaultConfig, stagedConfig);
+    }
 
     fs.mkdirSync(path.dirname(options.output), { recursive: true });
     if (fs.existsSync(options.output)) {
@@ -123,6 +136,7 @@ async function main() {
     }
 
     run("zip", ["-r", "-q", options.output, "."], { cwd: stageDir });
+    if (options.localBench) fs.chmodSync(options.output, 0o600);
     const entryCount = verifyZip(options.output);
     const size = fs.statSync(options.output).size;
     console.log(`Packaged ${entryCount} files into ${options.output}`);

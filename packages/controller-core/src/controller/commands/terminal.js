@@ -23,7 +23,9 @@ export function buildAskHumanTerminal(command, session) {
 
   return {
     terminal: "ask_human",
-    step: command.step || session.step,
+    step: session.activePlanner === "pomerado" && !session.chromeStepLifecycle
+      ? session.step || 1 : command.step || session.step,
     plan,
+    ...(command.promptId && { promptId: command.promptId }),
   };
 }

@@ -53,7 +53,7 @@ The sidepanel decides pre-run permissions and passes `surface` through:
 apps/extension-host/sidepanel-app/src/controllers/useAgentRunController.ts
 apps/extension-host/sidepanel-app/src/components/agent/PreRunDisclosureModal.tsx
 apps/extension-host/src/background/messages.js
-apps/extension-host/src/background/adapters/webgpt/api.js
+apps/extension-host/src/background/adapters/webgpt/plannerAdapter.js
 ```
 
 Browserbase host v1 does not have sidepanel permissions or OAuth runtime flows. It supports `browser_dom` runs and page-runtime connector tools. Google Sheets and Microsoft Excel command methods are unsupported stubs in `apps/browserbase-host/src/browserbaseRuntime.js` and fail clearly if a backend sends those commands to the cloud host.

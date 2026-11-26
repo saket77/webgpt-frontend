@@ -6,6 +6,7 @@ import { summarizeEvent } from "./EventLogCard";
 type AgentEvent = {
   kind: string;
   step?: number;
+  nextStep?: number;
   reason?: string;
   url?: string;
 };
@@ -42,6 +43,7 @@ function deriveEffectiveSessionState(
         "step_started",
         "state_extracted",
         "planner_output",
+        "adapter_mint_progress",
         "action_planned",
         "execution_result",
         "navigation_completed",
@@ -77,9 +79,15 @@ function deriveEffectiveSessionState(
         "session_reset",
         "fatal_error",
         "max_steps_reached",
+        "adapter_mint_outcome",
       ].includes(lastEvent.kind)
     ) {
       isRunning = false;
+      isAwaitingNavigation = false;
+      pausedReason = null;
+    }
+    if (lastEvent.kind === "adapter_mint_handoff") {
+      isRunning = Number.isInteger(lastEvent.nextStep);
       isAwaitingNavigation = false;
       pausedReason = null;
     }

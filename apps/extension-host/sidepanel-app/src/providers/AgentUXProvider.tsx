@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   useAgentActions,
+  type AgentRunResult,
   type StartAgentRequest,
 } from "../hooks/useAgentActions";
 import { useAgentEventStream } from "../hooks/useAgentEventStream";
@@ -92,7 +93,7 @@ type AgentUXContextValue = {
       pendingStatus?: string;
       successStatus?: string;
     },
-  ) => Promise<WorkerResponse | null>;
+  ) => Promise<WorkerResponse<AgentRunResult> | null>;
 
   stopAgentRun: (
     tabId?: number | null,
@@ -130,7 +131,7 @@ type AgentUXContextValue = {
       pendingStatus?: string;
       successStatus?: string;
     },
-  ) => Promise<WorkerResponse | null>;
+  ) => Promise<WorkerResponse<AgentRunResult> | null>;
 
   resetAgentSession: (
     tabId?: number | null,
@@ -240,7 +241,7 @@ export function AgentUXProvider({ children }: { children: ReactNode }) {
             throw new Error(response?.error || "Failed to start agent.");
           }
 
-          setIsRunning(true);
+          setIsRunning(!response.result?.adapterMintOutcome);
           return response;
         },
         {
@@ -371,12 +372,9 @@ export function AgentUXProvider({ children }: { children: ReactNode }) {
             args.hint ?? hint ?? "",
           );
 
-          if (!response?.ok) {
-            throw new Error(response?.error || "Failed to send hint.");
-          }
-
+          if (!response?.ok) throw new Error(response?.error || "Failed to send hint.");
           setHint("");
-          setIsRunning(true);
+          setIsRunning(!response.result?.adapterMintOutcome);
           return response;
         },
         {

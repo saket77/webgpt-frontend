@@ -20,6 +20,7 @@ type AgentEvent = {
   reason?: string;
   hint?: string;
   pendingStep?: number;
+  nextStep?: number;
 };
 
 type UseAgentEventStreamArgs = {
@@ -53,6 +54,7 @@ export function useAgentEventStream({
           event.kind === "step_started" ||
           event.kind === "state_extracted" ||
           event.kind === "planner_output" ||
+          event.kind === "adapter_mint_progress" ||
           event.kind === "action_planned" ||
           event.kind === "execution_result" ||
           event.kind === "navigation_completed" ||
@@ -71,9 +73,13 @@ export function useAgentEventStream({
           event.kind === "template_queue_finished" ||
           event.kind === "fatal_error" ||
           event.kind === "max_steps_reached" ||
+          event.kind === "adapter_mint_outcome" ||
           event.kind === "session_reset"
         ) {
           setIsRunning?.(false);
+        }
+        if (event.kind === "adapter_mint_handoff") {
+          setIsRunning?.(Number.isInteger(event.nextStep));
         }
       }
 

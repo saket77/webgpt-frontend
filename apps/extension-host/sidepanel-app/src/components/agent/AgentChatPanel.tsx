@@ -23,9 +23,11 @@ import {
   type ReactNode,
 } from "react";
 import { useAgentUX } from "../../providers";
-import type {
-  AttachmentPayload,
-  ProfileAttachmentRole,
+import {
+  adapterMintStatusText,
+  type AdapterMintPhase,
+  type AttachmentPayload,
+  type ProfileAttachmentRole,
 } from "../../hooks/useAgentActions";
 
 type AgentEvent = {
@@ -44,6 +46,8 @@ type AgentEvent = {
   primaryFrameId?: number | null;
   frameId?: number | null;
   plannerStatus?: string;
+  activePlanner?: string;
+  mintPhase?: AdapterMintPhase;
   surface?: string;
   commandSurface?: string;
   nextSurface?: string;
@@ -247,12 +251,17 @@ function getExtractedItems(finalResult: AgentEvent["finalResult"]) {
 
 function eventTone(event: AgentEvent) {
   if (["fatal_error", "max_steps_reached"].includes(event.kind)) return "bad";
-  if (["success_confirmed", "success_rejected", "paused"].includes(event.kind)) {
+  if (["success_confirmed", "success_rejected", "paused", "adapter_mint_handoff"].includes(event.kind)) {
     return "bright";
   }
   if (event.kind === "execution_result" && event.ok === false) return "bad";
   if (event.kind === "human_hint") return "bright";
   return "muted";
+}
+
+function isTeachingThought(event: AgentEvent) {
+  return event.kind === "adapter_mint_progress" ||
+    (event.kind === "planner_output" && event.activePlanner === "pomerado");
 }
 
 function eventTitle(event: AgentEvent) {
@@ -266,10 +275,17 @@ function eventTitle(event: AgentEvent) {
     case "state_extracted":
       return "Read page";
     case "planner_output":
+      if (isTeachingThought(event)) return "Thinking";
       if (event.nextCommandReason === "surface_handoff" || event.nextSurface) {
         return "Handoff";
       }
       return event.plannerStatus === "success" ? "Answer ready" : "Thinking";
+    case "adapter_mint_progress":
+      return "Thinking";
+    case "adapter_mint_handoff":
+      return "Handoff to Classic";
+    case "adapter_mint_outcome":
+      return "Adapter mint";
     case "action_planned":
       return "Next action";
     case "execution_result":
@@ -335,10 +351,15 @@ function eventBody(event: AgentEvent) {
       return pieces.join(" | ");
     }
     case "planner_output":
+      if (event.activePlanner === "pomerado") {
+        return event.message || adapterMintStatusText(event.mintPhase);
+      }
       if (!event.reasoning && handoff) {
         return handoff.trim();
       }
       return `${event.reasoning || "The agent is deciding what to do next."}${handoff}`;
+    case "adapter_mint_progress":
+      return event.message || adapterMintStatusText(event.mintPhase);
     case "action_planned":
       return summarizeAction(event.action);
     case "execution_result":
@@ -407,6 +428,19 @@ function groupEvents(events: AgentEvent[]) {
   });
 
   return groups;
+}
+
+function groupActivity(events: AgentEvent[]) {
+  const blocks: AgentEvent[][] = [];
+  for (const event of events) {
+    const previous = blocks.at(-1);
+    if (previous && isTeachingThought(previous[0]) && isTeachingThought(event)) {
+      previous.push(event);
+    } else {
+      blocks.push([event]);
+    }
+  }
+  return blocks;
 }
 
 function getLatestConfirmationSummary(events: AgentEvent[]) {
@@ -505,7 +539,9 @@ function StepActivity({
   const opened = active || manuallyOpened;
   const latestEvent = group.events[group.events.length - 1];
   const title = group.step == null ? "Session" : `Step ${group.step}`;
-  const latestBody = latestEvent ? eventBody(latestEvent) : "";
+  const mintHandoff = group.events.findLast((event) => event.kind === "adapter_mint_handoff");
+  const summaryEvent = mintHandoff || latestEvent;
+  const latestBody = summaryEvent ? eventBody(summaryEvent) : "";
 
   return (
     <Paper className="activity-step" withBorder>
@@ -537,9 +573,10 @@ function StepActivity({
 
       <Collapse in={opened}>
         <Stack gap={10} px="md" pb="md">
-          {group.events.map((event, index) => {
+          {groupActivity(group.events).map((activity, index) => {
+            const [event] = activity;
             const tone = eventTone(event);
-            const body = eventBody(event);
+            const teaching = isTeachingThought(event);
 
             return (
               <Box
@@ -551,14 +588,22 @@ function StepActivity({
                     {eventTitle(event)}
                   </Text>
                   <Text size="xs" c="dimmed">
-                    {formatTimestamp(event.timestamp)}
+                    {formatTimestamp(activity.at(-1)?.timestamp)}
                   </Text>
                 </Group>
-                {body ? (
-                  <Text size="sm" className="activity-event-body">
-                    {body}
+                {teaching ? (
+                  <Text size="xs" c="violet.7" fw={600}>
+                    Teaching with Pomerado
                   </Text>
                 ) : null}
+                {activity.map((entry, phaseIndex) => {
+                  const body = eventBody(entry);
+                  return body ? (
+                    <Text size="sm" className="activity-event-body" key={`${entry.timestamp ?? ""}-${phaseIndex}`}>
+                      {body}
+                    </Text>
+                  ) : null;
+                })}
               </Box>
             );
           })}

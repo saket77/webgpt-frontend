@@ -2,6 +2,10 @@ import {
   BACKEND_BASE_URL_STORAGE_KEY,
   DEFAULT_API_BASE_URL,
 } from "../config.js";
+import { getMintAccess, setLocalMintToken } from "./mintAccess.js";
+import { localBenchConfig } from "./localBenchConfig.js";
+
+const defaultBaseUrl = localBenchConfig?.baseUrl || DEFAULT_API_BASE_URL;
 
 function trimTrailingSlash(url) {
   return url.endsWith("/") ? url.slice(0, -1) : url;
@@ -42,21 +46,14 @@ export async function getStoredBackendBaseUrl() {
 
 export async function getBackendConfiguration() {
   const storedBaseUrl = await getStoredBackendBaseUrl();
-
-  if (!storedBaseUrl) {
-    return {
-      baseUrl: DEFAULT_API_BASE_URL,
-      source: "default",
-      overrideBaseUrl: "",
-      defaultBaseUrl: DEFAULT_API_BASE_URL,
-    };
-  }
-
+  const baseUrl = storedBaseUrl ? normalizeBackendBaseUrl(storedBaseUrl) : defaultBaseUrl;
   return {
-    baseUrl: normalizeBackendBaseUrl(storedBaseUrl),
-    source: "storage",
+    baseUrl,
+    source: storedBaseUrl ? "storage" : "default",
     overrideBaseUrl: storedBaseUrl,
-    defaultBaseUrl: DEFAULT_API_BASE_URL,
+    defaultBaseUrl,
+    mintTokenProvisioned: baseUrl === localBenchConfig?.baseUrl,
+    mintTokenConfigured: Boolean(await getMintAccess(baseUrl)),
   };
 }
 
@@ -65,8 +62,8 @@ export async function resolveBackendBaseUrl({ baseUrl } = {}) {
     return normalizeBackendBaseUrl(baseUrl);
   }
 
-  const config = await getBackendConfiguration();
-  return config.baseUrl;
+  const storedBaseUrl = await getStoredBackendBaseUrl();
+  return storedBaseUrl ? normalizeBackendBaseUrl(storedBaseUrl) : defaultBaseUrl;
 }
 
 export async function setStoredBackendBaseUrl(baseUrl) {
@@ -81,5 +78,17 @@ export async function setStoredBackendBaseUrl(baseUrl) {
 
 export async function resetStoredBackendBaseUrl() {
   await chrome.storage.local.remove(BACKEND_BASE_URL_STORAGE_KEY);
+  return getBackendConfiguration();
+}
+
+export async function setStoredLocalMintToken({ baseUrl, token }) {
+  const activeBaseUrl = await resolveBackendBaseUrl();
+  if (normalizeBackendBaseUrl(baseUrl) !== activeBaseUrl) {
+    throw new Error("The active backend changed. Refresh Settings and try again.");
+  }
+  if (activeBaseUrl === localBenchConfig?.baseUrl) {
+    throw new Error("The local bench build supplies its own mint token.");
+  }
+  await setLocalMintToken(activeBaseUrl, token);
   return getBackendConfiguration();
 }

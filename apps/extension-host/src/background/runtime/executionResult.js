@@ -5,8 +5,26 @@ function nestedActionFailures(execution) {
     .filter((result) => result && result.ok === false);
 }
 
-export function normalizeDomExecutionResult(execution) {
+export function normalizeDomExecutionResult(execution, plannedActions) {
   if (!execution || typeof execution !== "object") return execution;
+
+  if (Array.isArray(plannedActions) && Array.isArray(execution.results)) {
+    // The page runner receives frame-local actions and returns them in order.
+    // Restore the original frame IDs so the planner can match their receipts.
+    const results = execution.results.map((entry, index) => {
+      const planned = plannedActions[index];
+      if (
+        !Number.isInteger(planned?.frameId) ||
+        !entry?.action ||
+        entry.action.type !== planned.type ||
+        entry.action.frameId != null
+      ) {
+        return entry;
+      }
+      return { ...entry, action: { ...entry.action, frameId: planned.frameId } };
+    });
+    execution = { ...execution, results };
+  }
 
   const failures = nestedActionFailures(execution);
   if (!failures.length) return execution;

@@ -1,4 +1,5 @@
 import { ensureLiveSession } from "./context.js";
+import { executeMintCommand } from "./mint.js";
 import { executeExtractStateCommand } from "./extractState.js";
 import { executeWaitForNavigationCommand } from "./navigation.js";
 import { executeRunActionsCommand } from "./runActions.js";
@@ -18,12 +19,16 @@ export async function executeCommand(
 ) {
   const session = await ensureLiveSession(tabId);
 
-  if (command?.type === "done") {
-    return buildDoneTerminal(command, session);
-  }
-
   if (command?.type === "ask_human") {
     return buildAskHumanTerminal(command, session);
+  }
+
+  if (session.activePlanner === "pomerado" || command?.type === "adapter_mint_outcome") {
+    return executeMintCommand(tabId, command, session, { plannerAdapter, runtime, stopIfRequested });
+  }
+
+  if (command?.type === "done") {
+    return buildDoneTerminal(command, session);
   }
 
   if (command?.type === "wait_for_navigation") {

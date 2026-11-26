@@ -36,6 +36,9 @@ export function createAttachSessionToTab({ runtime }) {
     }
 
     const sourceSession = await getSession(fromTabId);
+    if (sourceSession.activePlanner === "pomerado") {
+      throw new Error("An active adapter mint must stay on the selected tab.");
+    }
     const targetTab = await getControllerCorePorts()
       .host.getTab(toTabId)
       .catch(() => null);

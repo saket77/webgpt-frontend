@@ -2,8 +2,8 @@ import { createWebGptApiClient } from "./api.js";
 import { createReplayPreflight } from "./replay.js";
 import { buildBrowserContext, syncSessionWithRun } from "./runContext.js";
 
-export function createWebGptPlannerAdapter({ baseUrl, resolveBaseUrl } = {}) {
-  const apiClient = createWebGptApiClient({ baseUrl, resolveBaseUrl });
+export function createWebGptPlannerAdapter({ baseUrl, resolveBaseUrl, resolveMintToken } = {}) {
+  const apiClient = createWebGptApiClient({ baseUrl, resolveBaseUrl, resolveMintToken });
   const tryRunReplayPreflight = createReplayPreflight({
     postCommandResult: apiClient.postCommandResult,
   });

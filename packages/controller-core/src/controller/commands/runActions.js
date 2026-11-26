@@ -7,6 +7,39 @@ import { ensureLiveSession, getCommandStep } from "./context.js";
 import { POST_ACTION_STATE_SETTLE_MS } from "../../config.js";
 import { BROWSER_DOM_SURFACE } from "../../runtime/surfaces.js";
 
+export async function recordPlannedActions(tabId, step, actions) {
+  for (const action of actions) {
+    await addEvent(tabId, {
+      kind: "action_planned",
+      step,
+      action: clone(action),
+      frameId: Number.isInteger(action?.frameId) ? action.frameId : 0,
+      message: `Planned action: ${action.type}`,
+    });
+  }
+}
+
+export async function recordActionResult(tabId, { step, actions, execution, nextCommand, message }) {
+  await addEvent(tabId, {
+    kind: "execution_result",
+    step,
+    surface: BROWSER_DOM_SURFACE,
+    nextCommandType: nextCommand?.type || "",
+    nextCommandSurface: nextCommand?.surface || "",
+    nextCommandReason: nextCommand?.reason || "",
+    nextSurface: nextCommand?.reason === "surface_handoff" ? nextCommand.surface || "" : "",
+    nextSurfaceContextId: nextCommand?.surfaceContextId || "",
+    ok: Boolean(execution?.ok),
+    summary: execution?.summary || "",
+    error: execution?.error || "",
+    actionCount: actions.length,
+    executedActionCount: Array.isArray(execution?.results) ? execution.results.length : 0,
+    noActions: Boolean(execution?.noActions || actions.length === 0),
+    results: clone(execution?.results || []),
+    ...(message && { message }),
+  });
+}
+
 async function maybeMarkNavigation({
   tabId,
   command,
@@ -68,15 +101,7 @@ export async function executeRunActionsCommand(
     });
   }
 
-  for (const action of actions) {
-    await addEvent(tabId, {
-      kind: "action_planned",
-      step: session.step || step,
-      action: clone(action),
-      frameId: Number.isInteger(action?.frameId) ? action.frameId : 0,
-      message: `Planned action: ${action.type}`,
-    });
-  }
+  await recordPlannedActions(tabId, session.step || step, actions);
 
   const stopBeforeExecution = await stopIfRequested(
     tabId,
@@ -200,27 +225,11 @@ export async function executeRunActionsCommand(
   session.attachedTabId = activeTabId;
   await saveSession(activeTabId, session);
 
-  await addEvent(activeTabId, {
-    kind: "execution_result",
+  await recordActionResult(activeTabId, {
     step: session.step || step,
-    surface: BROWSER_DOM_SURFACE,
-    nextCommandType: commandResult.command?.type || "",
-    nextCommandSurface: commandResult.command?.surface || "",
-    nextCommandReason: commandResult.command?.reason || "",
-    nextSurface:
-      commandResult.command?.reason === "surface_handoff"
-        ? commandResult.command?.surface || ""
-        : "",
-    nextSurfaceContextId: commandResult.command?.surfaceContextId || "",
-    ok: Boolean(execution?.ok),
-    summary: execution?.summary || "",
-    error: execution?.error || "",
-    actionCount: actions.length,
-    executedActionCount: Array.isArray(execution?.results)
-      ? execution.results.length
-      : 0,
-    noActions: Boolean(execution?.noActions || actions.length === 0),
-    results: clone(execution?.results || []),
+    actions,
+    execution,
+    nextCommand: commandResult.command,
   });
 
   const stopAfterExecution = await stopIfRequested(

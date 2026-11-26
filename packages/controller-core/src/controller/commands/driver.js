@@ -1,7 +1,8 @@
-import { ensureLiveSession } from "./context.js";
+import { ensureLiveSession, getCommandStep } from "./context.js";
 import { executeCommand } from "./router.js";
 import { MAX_STEPS } from "../../config.js";
 import { getMissingCommandAccess } from "./accessControl.js";
+import { BROWSER_DOM_SURFACE } from "../../runtime/surfaces.js";
 
 export async function driveCommand(
   tabId,
@@ -15,14 +16,16 @@ export async function driveCommand(
   while (true) {
     const session = await ensureLiveSession(activeTabId);
 
-    if (
-      (command?.type === "extract_state" ||
-        command?.type === "navigation_completed") &&
-      session.step >= MAX_STEPS
-    ) {
+    const readsPage = command?.type === "extract_state" || command?.type === "navigation_completed";
+    const usesChromeSteps = session.chromeStepLifecycle === 1 &&
+      (command?.surface || session.surface) === BROWSER_DOM_SURFACE;
+    const runsBrowserActions = command?.type === "run_actions";
+    if (usesChromeSteps
+      ? (readsPage || runsBrowserActions) && getCommandStep(command, session) > MAX_STEPS
+      : readsPage && session.step >= MAX_STEPS) {
       return {
         terminal: "max_steps_reached",
-        step: session.step,
+        step: usesChromeSteps ? Math.min(session.step, MAX_STEPS) : session.step,
       };
     }
 

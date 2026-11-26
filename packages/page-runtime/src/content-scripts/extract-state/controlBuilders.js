@@ -537,7 +537,7 @@
     return Array.from(document.querySelectorAll(selector));
   }
 
-  function buildControls() {
+  function buildControls(onControl) {
     const allControls = [];
     let idCounter = 1;
 
@@ -611,7 +611,7 @@
       const { score, reasons } = scorePromotableContainer(el);
       const controlValues = valuesForControl(el);
 
-      allControls.push({
+      const control = {
         id: `el_${idCounter++}`,
         selector: selectorFor(el),
         tag,
@@ -657,7 +657,9 @@
         checked:
           el instanceof HTMLInputElement ? Boolean(el.checked) : undefined,
         ...controlValues,
-      });
+      };
+      allControls.push(control);
+      onControl?.(control, el);
     }
 
     return allControls;

@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { Card, ScrollArea, Stack, Text } from "@mantine/core";
+import { adapterMintStatusText, type AdapterMintPhase } from "../../hooks/useAgentActions";
 import { useAgentUX } from "../../providers";
 
 type AgentEvent = {
@@ -13,6 +14,8 @@ type AgentEvent = {
   primaryFrameId?: number | null;
   frameId?: number | null;
   plannerStatus?: string;
+  activePlanner?: string;
+  mintPhase?: AdapterMintPhase;
   surface?: string;
   commandSurface?: string;
   nextSurface?: string;
@@ -66,7 +69,15 @@ export function summarizeEvent(event: AgentEvent) {
     case "state_extracted":
       return `[${ts}] State extracted${surfaceSuffix} on ${event.url ?? ""} (${event.controlsCount ?? 0} controls${frameCountSuffix}${primaryFrameSuffix})`;
     case "planner_output":
+      if (event.activePlanner === "pomerado") {
+        return `[${ts}] ${event.message || adapterMintStatusText(event.mintPhase)}`;
+      }
       return `[${ts}] Planner${surfaceSuffix} → status=${event.plannerStatus || "continue"}${handoffSuffix} | ${event.reasoning || ""}`;
+    case "adapter_mint_progress":
+      return `[${ts}] ${event.message || adapterMintStatusText(event.mintPhase)}`;
+    case "adapter_mint_handoff":
+    case "adapter_mint_outcome":
+      return `[${ts}] ${event.message || ""}`;
     case "action_planned":
       return `[${ts}] Action planned${frameSuffix} → ${JSON.stringify(event.action)}`;
     case "execution_result":

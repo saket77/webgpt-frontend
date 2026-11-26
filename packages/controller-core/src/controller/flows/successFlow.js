@@ -30,6 +30,7 @@ export async function confirmSuccessFlow(
 
   const confirmResult = await plannerAdapter.confirmRunSuccess({
     runId: session.runId,
+    ...(session.mintProtocol === 1 && { browserContext: { mintProtocol: 1 } }),
   });
 
   let saveResult = null;
@@ -102,6 +103,7 @@ export async function rejectSuccessAndResumeFlow(
   const result = await plannerAdapter.rejectRunSuccess({
     runId: session.runId,
     hint: text,
+    ...(session.mintProtocol === 1 && { browserContext: { mintProtocol: 1 } }),
   });
 
   const nextSession = plannerAdapter.syncSessionWithRun(session, result.run);

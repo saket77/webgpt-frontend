@@ -1,4 +1,5 @@
 import { addEvent } from "../../events.js";
+import { saveMintRunState } from "../commands/mint.js";
 import { clearPauseState } from "../session/lifecycle.js";
 import { getSession, saveSession } from "../../state/sessionStore.js";
 
@@ -28,7 +29,7 @@ export async function provideHintAndResumeFlow(
   const browserContext = plannerAdapter.buildBrowserContext(
     tabId,
     session,
-    session.lastKnownUrl,
+    session.mintBinding?.url || session.lastKnownUrl,
   );
 
   await addEvent(tabId, {
@@ -45,6 +46,7 @@ export async function provideHintAndResumeFlow(
       runId: session.runId,
       hint: text,
       browserContext,
+      ...(session.mintPromptId && { promptId: session.mintPromptId }),
     });
   } catch (error) {
     if (
@@ -55,16 +57,24 @@ export async function provideHintAndResumeFlow(
       throw error;
     }
 
-    const snapshot = await plannerAdapter.getRun({ runId: session.runId });
+    const snapshot = await plannerAdapter.getRun({
+      runId: session.runId,
+      ...(session.mintProtocol === 1 && { browserContext }),
+    });
     result = { run: snapshot.run };
   }
 
   const nextSession = plannerAdapter.syncSessionWithRun(session, result.run);
   nextSession.userHint = text;
   clearPauseState(nextSession);
+  delete nextSession.mintPromptId;
   nextSession.stopRequested = false;
   nextSession.attachedTabId = tabId;
-  await saveSession(tabId, nextSession);
+  if (session.activePlanner === "pomerado") {
+    await saveMintRunState(tabId, session, nextSession, result.run, result.command);
+  } else {
+    await saveSession(tabId, nextSession);
+  }
 
-  return continueRun(tabId);
+  return continueRun(tabId, result.command);
 }

@@ -56,6 +56,25 @@ A planner adapter should:
 
 The controller should remain backend-agnostic. Put route names, auth headers, response normalization, and backend-specific compatibility work inside an adapter.
 
+## Chrome browser steps and planner handoff
+
+Chrome browser runs advertise `browserContext.chromeStepLifecycle: 1` when
+starting. The backend assigns the step for Classic and for delegated Pomerado
+work. The initial page read opens Step 1. A browser action batch and its fresh
+state use the same step. A later batch advances the step. Polling, a human
+pause and its resumed extraction, and adapter drafting or source review keep
+the current step. The host echoes the operation ID on a human-hint refresh so
+the backend can distinguish successive requests on that step.
+
+After a draft saves, Chrome receives a fresh `extract_state` command for the
+next step on the same run. Classic plans with the current tool catalog. The
+draft reference preserves its runtime verification status.
+
+Codex owns its overall plan and browser workflow. The shared backend tracks
+the steps and receipts during a delegated Pomerado mint. Codex echoes the step
+and operation ID supplied in each browser command, and resumes its own
+workflow when control returns.
+
 ## Stateless Planner-Context Preparation
 
 `createWebGptApiClient().preparePlannerContext(payload, { signal })` calls the

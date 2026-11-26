@@ -1,3 +1,4 @@
+import { addEvent } from "../../events.js";
 import { getSession } from "../../state/sessionStore.js";
 
 export function getCommandStep(command, session) {
@@ -6,6 +7,20 @@ export function getCommandStep(command, session) {
   }
 
   return Number(session?.step || 0) + 1;
+}
+
+export async function recordStepStarted(tabId, session, step, details) {
+  if (session.chromeStepLifecycle === 1 &&
+      session.events?.findLast(event => event.kind === "step_started")?.step === step) {
+    return false;
+  }
+  await addEvent(tabId, {
+    kind: "step_started",
+    step,
+    ...details,
+    message: `Step ${step} started.`,
+  });
+  return true;
 }
 
 export async function ensureLiveSession(tabId) {

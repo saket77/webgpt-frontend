@@ -70,6 +70,35 @@ function validPlannerContextResponse(overrides = {}) {
   };
 }
 
+test("ordinary run routes send mint credentials only for the explicitly opted-in context", async () => {
+  const requests = [];
+  const client = createWebGptApiClient({
+    baseUrl: "http://127.0.0.1:3000",
+    resolveMintToken: () => "local-test-token",
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options, body: JSON.parse(options.body || "null") });
+      return response({ ok: true, runId: "run_1", run: { id: "run_1" }, command: { type: "extract_state" } });
+    },
+  });
+  const browserContext = { mintProtocol: 1, tabId: 7 };
+  await client.startCommandRun({ goal: "Normal browser run" });
+  await client.startCommandRun({ goal: "Mint-backed browser run", browserContext });
+  await client.postCommandResult({ runId: "run_1", type: "state_extracted", browserContext, mintObservation: { observationId: "obs" } });
+  await client.provideHumanHint({ runId: "run_1", browserContext, promptId: "prompt-1" });
+  await client.stopRun({ runId: "run_1", browserContext });
+  await client.getRun({ runId: "run_1", browserContext });
+  await client.confirmRunSuccess({ runId: "run_1", browserContext });
+  await client.rejectRunSuccess({ runId: "run_1", browserContext });
+  assert.equal(requests[0].options.headers.Authorization, undefined);
+  for (const { options } of requests.slice(1)) {
+    assert.equal(options.headers.Authorization, "Bearer local-test-token");
+    assert.equal(options.redirect, "error");
+    assert.ok(!options.body?.includes("local-test-token"));
+  }
+  assert.equal(requests[2].body.mintObservation.observationId, "obs");
+  assert.equal(requests[3].body.promptId, "prompt-1");
+});
+
 test("preparePlannerContext posts the versioned payload to only the prepare route", async () => {
   const calls = [];
   const controller = new AbortController();

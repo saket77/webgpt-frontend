@@ -15,15 +15,21 @@ export function BackendConfigCard() {
     config,
     draftBaseUrl,
     setDraftBaseUrl,
+    draftMintToken,
+    setDraftMintToken,
     error,
     loadingAction,
     hasOverride,
     hasUnsavedChanges,
+    supportsLocalMint,
     refreshConfig,
     saveConfig,
     useLocalhostConfig: setLocalhostConfig,
     resetConfig,
+    updateMintToken,
   } = useBackendConfiguration();
+  const isBusy = loadingAction !== null;
+  const mintTokenDisabled = isBusy || hasUnsavedChanges;
 
   return (
     <Card withBorder radius="md" p="md">
@@ -63,6 +69,7 @@ export function BackendConfigCard() {
           value={draftBaseUrl}
           onChange={(event) => setDraftBaseUrl(event.currentTarget.value)}
           autoComplete="off"
+          disabled={isBusy}
         />
 
         {error ? (
@@ -74,7 +81,7 @@ export function BackendConfigCard() {
         <Group>
           <Button
             onClick={() => void saveConfig()}
-            disabled={!draftBaseUrl.trim() || !hasUnsavedChanges}
+            disabled={isBusy || !draftBaseUrl.trim() || !hasUnsavedChanges}
             loading={loadingAction === "save"}
           >
             Save Backend URL
@@ -83,6 +90,7 @@ export function BackendConfigCard() {
           <Button
             variant="default"
             onClick={() => void setLocalhostConfig()}
+            disabled={isBusy}
             loading={loadingAction === "localhost"}
           >
             Use Localhost
@@ -91,6 +99,7 @@ export function BackendConfigCard() {
           <Button
             variant="default"
             onClick={() => void refreshConfig()}
+            disabled={isBusy}
             loading={loadingAction === "refresh"}
           >
             Refresh
@@ -100,12 +109,52 @@ export function BackendConfigCard() {
             variant="subtle"
             color="gray"
             onClick={() => void resetConfig()}
-            disabled={!hasOverride}
+            disabled={isBusy || !hasOverride}
             loading={loadingAction === "reset"}
           >
             Reset To Default
           </Button>
         </Group>
+
+        {config?.mintTokenProvisioned && (
+          <Text size="xs" c="dimmed" role="status">Local mint configured</Text>
+        )}
+        {supportsLocalMint && !config?.mintTokenProvisioned && (
+          <Stack gap="xs">
+            <TextInput
+              label="Local Mint Token"
+              description="Authorizes Pomerado for this backend until the browser or extension restarts."
+              type="password"
+              autoComplete="off"
+              maxLength={4096}
+              value={draftMintToken}
+              onChange={(event) => setDraftMintToken(event.currentTarget.value)}
+              disabled={mintTokenDisabled}
+            />
+            <Group gap="xs">
+              <Button
+                onClick={() => void updateMintToken(draftMintToken.trim())}
+                disabled={mintTokenDisabled || !draftMintToken.trim()}
+                loading={loadingAction === "saveMint"}
+              >
+                Save Mint Token
+              </Button>
+              {config?.mintTokenConfigured && (
+                <>
+                  <Button
+                    variant="subtle"
+                    onClick={() => void updateMintToken("")}
+                    disabled={mintTokenDisabled}
+                    loading={loadingAction === "removeMint"}
+                  >
+                    Remove Token
+                  </Button>
+                  <Text size="xs" c="dimmed" role="status">Token configured</Text>
+                </>
+              )}
+            </Group>
+          </Stack>
+        )}
       </Stack>
     </Card>
   );

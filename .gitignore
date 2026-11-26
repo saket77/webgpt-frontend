@@ -6,6 +6,8 @@ webgpt-mundhada-page-runtime-*.tgz
 .env.local
 .env.*.local
 apps/extension-host/dist-extension/
+apps/extension-host/.local-bench-config.json
+apps/extension-host/Chrome_extension_dist.zip
 apps/extension-host/sidepanel-app/node_modules/
 apps/extension-host/sidepanel-app/dist/
 apps/browserbase-host/.env

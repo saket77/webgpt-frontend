@@ -171,7 +171,7 @@
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
 
-  async function fillElement(el, value) {
+  async function fillElement(el, value, { exactTarget = false } = {}) {
     el.scrollIntoView({ block: "center", inline: "center" });
     el.focus?.();
 
@@ -182,7 +182,7 @@
       return;
     }
 
-    if (fillRichTextEditor(el, value)) return;
+    if (!exactTarget && fillRichTextEditor(el, value)) return;
 
     if ("value" in el) {
       setNativeValue(el, value);
@@ -191,6 +191,15 @@
     }
 
     if (el.isContentEditable) {
+      // An empty Lexical editor needs native insertion to update its editor state.
+      if (el.hasAttribute("data-lexical-editor") && String(value ?? "") &&
+          el.textContent === "" && !el.querySelector('[contenteditable="false"], img, audio, video')) {
+        const document = el.ownerDocument;
+        if (document.activeElement !== el || !document.execCommand("insertText", false, value)) {
+          throw new Error("Lexical text input could not be committed.");
+        }
+        return;
+      }
       el.textContent = value;
       dispatchInputEvents(el);
       return;

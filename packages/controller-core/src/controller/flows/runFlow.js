@@ -131,10 +131,50 @@ export async function continueRunFlow(
       });
     }
 
+    if (result?.terminal === "mint_outcome") {
+      session = await getSession(resultTabId);
+      const status = result.outcome?.status;
+      const handedBack = session.mintPhase && session.activePlanner === "classic" &&
+        ["waiting_for_adapter", "draft_saved"].includes(status);
+      const step = session.step || 1;
+      session.running = false;
+      session.awaitingNavigation = false;
+      session.stopRequested = false;
+      session.pausedReason = "";
+      session.adapterMintOutcome = result.outcome;
+      delete session.mintPhase;
+      await saveSession(resultTabId, session);
+      const descriptions = {
+        draft_saved: "Draft saved · Runtime verification pending",
+        waiting_for_adapter: "Adapter drafted · Waiting for activation",
+        not_applicable: "Adapter mint is not applicable.",
+        blocked: "Adapter mint blocked.",
+        interrupted: "Adapter mint interrupted.",
+      };
+      if (handedBack) {
+        await addEvent(resultTabId, {
+          kind: "adapter_mint_handoff",
+          activePlanner: "classic",
+          step,
+          outcome: result.outcome,
+          message: "Pomerado handed the run back to Classic. Classic is waiting for the draft adapter to be activated.",
+        });
+      }
+      await addEvent(resultTabId, {
+        kind: "adapter_mint_outcome",
+        activePlanner: session.activePlanner,
+        step,
+        outcome: result.outcome,
+        message: descriptions[status] || "Adapter mint ended.",
+      });
+      return { ok: true, adapterMintOutcome: result.outcome };
+    }
+
     if (result?.terminal === "ask_human") {
       return handleAskHumanPlan(resultTabId, {
         step: result.step,
         plan: result.plan,
+        promptId: result.promptId,
       });
     }
 
@@ -172,7 +212,7 @@ export async function continueRunFlow(
     }
 
     session = await getSession(resultTabId);
-    const finalStep = session.step;
+    const finalStep = result.step;
 
     try {
       await deleteBackendRunAndClearLocal(resultTabId, session, {
@@ -263,6 +303,12 @@ export async function startAgentFlow(
     normalizeSurface(surface) ||
     (await runtime.detectSurfaceForTab?.(tabId))?.surface ||
     BROWSER_DOM_SURFACE;
+  const mintBinding = !session.isTemplateRun && session.surface === BROWSER_DOM_SURFACE
+    ? await runtime.mint?.startContext(tabId).catch(() => null) : null;
+  if (mintBinding) {
+    session.mintProtocol = 1;
+    session.mintBinding = mintBinding;
+  }
 
   await replaceSession(tabId, session);
 
@@ -275,6 +321,9 @@ export async function startAgentFlow(
     myInfo,
     attachments,
     profileAttachments,
+    ...(mintBinding && {
+      browserContext: plannerAdapter.buildBrowserContext(tabId, session, mintBinding.url),
+    }),
   });
 
   session = await getSession(tabId);

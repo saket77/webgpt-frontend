@@ -181,6 +181,16 @@ npm run package:extension -- --output ../webgpt-extension-frontend-store.zip
 
 Run `npm run smoke:extension` after building to verify the generated extension has the expected manifest, service worker, sidepanel assets, and content scripts.
 
+### Local Chrome Bench
+
+For the loopback bench on port 3000, an optional, Git-ignored
+`apps/extension-host/.local-bench-config.json` supplies `baseUrl` as
+`http://localhost:3000` and `token` as the local backend's 64-character hex
+credential. The unpacked build uses them by default. To package that private
+bench build, use `npm run package:extension -- --local-bench --output
+apps/extension-host/Chrome_extension_dist.zip`. The standard packaging
+command omits the credential.
+
 ### 3. Choose a Backend
 
 Open the WebGPT sidepanel and use the Backend card to choose a compatible planner backend.

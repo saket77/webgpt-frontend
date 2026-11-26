@@ -3,7 +3,7 @@ import { getSession, saveSession } from "../../state/sessionStore.js";
 
 async function pauseForHuman(
   tabId,
-  { reason, step, message, finalResult, plan = null },
+  { reason, step, message, finalResult, plan = null, promptId },
 ) {
   const session = await getSession(tabId);
 
@@ -13,6 +13,7 @@ async function pauseForHuman(
   session.pendingStep = step;
   session.stopRequested = false;
   session.attachedTabId = tabId;
+  if (promptId) session.mintPromptId = promptId;
 
   if (finalResult !== undefined) {
     session.finalResult = finalResult;
@@ -72,11 +73,12 @@ export async function handleDonePlan(
   });
 }
 
-export async function handleAskHumanPlan(tabId, { step, plan }) {
+export async function handleAskHumanPlan(tabId, { step, plan, promptId }) {
   return pauseForHuman(tabId, {
     reason: "awaiting_human_hint",
     step,
     message: plan.reasoning || "Planner requested human guidance.",
     plan,
+    promptId,
   });
 }

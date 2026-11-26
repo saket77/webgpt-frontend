@@ -8,6 +8,8 @@ export function syncSessionWithRun(session, run) {
     step: Number.isInteger(run.step) ? run.step : session.step,
     finalResult:
       run.finalResult === undefined ? session.finalResult : run.finalResult,
+    ...(run.activePlanner && { activePlanner: run.activePlanner }),
+    ...(run.chromeStepLifecycle === 1 && { chromeStepLifecycle: 1 }),
   };
 }
 
@@ -23,5 +25,10 @@ export function buildBrowserContext(tabId, session, observedUrl = "") {
     url,
     goal: session.goal || "",
     step: session.step || 0,
+    ...(session.mintProtocol === 1 && { mintProtocol: 1 }),
+    ...(session.mintBinding && {
+      documentId: session.mintBinding.documentId,
+      observationId: session.mintBinding.observationId,
+    }),
   };
 }

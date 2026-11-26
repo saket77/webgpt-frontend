@@ -13,7 +13,7 @@ async function stageNewTabHandoff(tab) {
   }
 
   const sourceSession = await getSessionIfExists(openerTabId).catch(() => null);
-  if (!sourceSession) return;
+  if (!sourceSession || sourceSession.activePlanner === "pomerado") return;
 
   if (sourceSession.movedToTabId) return;
   if ((sourceSession.attachedTabId || openerTabId) !== openerTabId) return;

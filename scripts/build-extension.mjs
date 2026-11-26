@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const extensionRoot = path.join(repoRoot, "apps", "extension-host");
 const distDir = path.join(extensionRoot, "dist-extension");
+const localBenchModule = "background/settings/localBenchConfig.js";
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -107,17 +108,15 @@ async function main() {
   rewriteDistImport("background/controller/index.js", [
     ["@webgpt/controller-core", "../controller-core/index.js"],
   ]);
+  const pageRuntime = JSON.parse(fs.readFileSync(
+    path.join(repoRoot, "packages", "page-runtime", "package.json"), "utf8",
+  ));
   rewriteDistImport("background/runtime/contentScriptFiles.js", [
     ["@webgpt-mundhada/page-runtime", "../page-runtime/manifest.js"],
+    ['export const PAGE_RUNTIME_VERSION = "";', `export const PAGE_RUNTIME_VERSION = ${JSON.stringify(pageRuntime.version)};`],
   ]);
   rewriteDistImport("background/runtime/surfaces.js", [
     ["@webgpt/controller-core", "../controller-core/index.js"],
-  ]);
-  // TODO: When this extension composition boundary is next changed, remove its
-  // duplicate wrappers and compose directly from @webgpt-mundhada/page-runtime and
-  // @webgpt-mundhada/planner-http-adapter as the canonical package implementations.
-  rewriteDistImport("background/adapters/webgpt/api.js", [
-    ["@webgpt-mundhada/planner-http-adapter", "../../planner-http-adapter/index.js"],
   ]);
   rewriteDistImport("background/adapters/webgpt/plannerAdapter.js", [
     ["@webgpt-mundhada/planner-http-adapter", "../../planner-http-adapter/index.js"],
@@ -141,6 +140,17 @@ async function main() {
 
   for (const entry of required) {
     assertExists(path.join(distDir, entry));
+  }
+
+  const localBenchFile = path.join(extensionRoot, ".local-bench-config.json");
+  if (fs.existsSync(localBenchFile)) {
+    const { baseUrl, token } = JSON.parse(fs.readFileSync(localBenchFile, "utf8"));
+    if (baseUrl !== "http://localhost:3000" || typeof token !== "string" || !/^[a-f0-9]{64}$/.test(token)) {
+      throw new Error("Local bench config requires http://localhost:3000 and a 64-character hex token.");
+    }
+    fs.unlinkSync(path.join(distDir, localBenchModule));
+    fs.writeFileSync(path.join(distDir, localBenchModule),
+      `export const localBenchConfig = ${JSON.stringify({ baseUrl, token })};\n`, { mode: 0o600 });
   }
 
   console.log(`Built extension at ${distDir}`);

@@ -28,6 +28,23 @@ export type StartAgentRequest = {
   profileAttachments?: ProfileAttachmentPayload[];
 };
 
+export type AdapterMintOutcome = {
+  status: "draft_saved" | "waiting_for_adapter" | "not_applicable" | "blocked" | "interrupted";
+};
+
+export type AdapterMintPhase = "exploring" | "drafting" | "reviewing_draft";
+
+export function adapterMintStatusText(phase?: AdapterMintPhase) {
+  switch (phase) {
+    case "exploring": return "Pomerado is exploring the page";
+    case "drafting": return "Pomerado is writing the adapter draft";
+    case "reviewing_draft": return "Reviewing the adapter source";
+    default: return "Pomerado is preparing a site adapter";
+  }
+}
+
+export type AgentRunResult = { adapterMintOutcome?: AdapterMintOutcome };
+
 async function sendToWorker<T = any>(message: any): Promise<T> {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(message, (response: T) => {
@@ -55,6 +72,7 @@ export function useAgentActions() {
       return sendToWorker<{
         ok?: boolean;
         error?: string;
+        result?: AgentRunResult;
       }>({
         type: "WEBGPT_START_AGENT",
         tabId,
@@ -98,6 +116,7 @@ export function useAgentActions() {
     return sendToWorker<{
       ok?: boolean;
       error?: string;
+      result?: AgentRunResult;
     }>({
       type: "WEBGPT_PROVIDE_HINT",
       tabId,

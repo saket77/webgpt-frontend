@@ -57,7 +57,7 @@ function resolveFetch(fetchImpl) {
 async function postJson(
   url,
   body,
-  { fetchImpl, headers, signal, plannerContext = false } = {},
+  { fetchImpl, headers, signal, plannerContext = false, mint = false } = {},
 ) {
   const requestOptions = {
     method: "POST",
@@ -65,6 +65,7 @@ async function postJson(
     body: JSON.stringify(body),
   };
   if (signal) requestOptions.signal = signal;
+  if (mint) requestOptions.redirect = "error";
 
   const response = await resolveFetch(fetchImpl)(url, requestOptions);
 
@@ -90,12 +91,13 @@ async function postJson(
   return json;
 }
 
-async function getJson(url, { fetchImpl, headers, signal } = {}) {
+async function getJson(url, { fetchImpl, headers, signal, mint = false } = {}) {
   const requestOptions = {
     method: "GET",
     headers: buildJsonHeaders(headers),
   };
   if (signal) requestOptions.signal = signal;
+  if (mint) requestOptions.redirect = "error";
 
   const response = await resolveFetch(fetchImpl)(url, requestOptions);
 
@@ -240,6 +242,7 @@ export function createWebGptApiClient({
   resolveBaseUrl,
   accessToken = "",
   resolveAccessToken,
+  resolveMintToken,
   headers = {},
   fetchImpl = globalThis.fetch,
 } = {}) {
@@ -282,10 +285,17 @@ export function createWebGptApiClient({
     return requestHeaders;
   }
 
-  async function getJsonFromApi(path) {
+  async function mintHeaders(baseUrl) {
+    const token = await resolveMintToken?.(baseUrl);
+    if (!token) throw new Error("The local mint credential is unavailable.");
+    return { Authorization: `Bearer ${token}` };
+  }
+
+  async function getJsonFromApi(path, mint = false) {
     const resolvedBaseUrl = await resolveApiBaseUrl();
     return getJson(`${resolvedBaseUrl}${path}`, {
       fetchImpl,
+      ...(mint && { mint, headers: await mintHeaders(resolvedBaseUrl) }),
     });
   }
 
@@ -302,6 +312,12 @@ export function createWebGptApiClient({
           method: "POST",
         })
       : undefined;
+    const mint = body?.browserContext?.mintProtocol === 1;
+    if (mint) {
+      return postJson(`${resolvedBaseUrl}${path}`, body, {
+        fetchImpl, headers: await mintHeaders(resolvedBaseUrl), signal, mint,
+      });
+    }
     return postJson(`${resolvedBaseUrl}${path}`, body, {
       fetchImpl,
       headers: requestHeaders,
@@ -455,8 +471,8 @@ export function createWebGptApiClient({
       };
     },
 
-    async getRun({ runId }) {
-      const json = await getJsonFromApi(`/runs/${runId}`);
+    async getRun({ runId, browserContext }) {
+      const json = await getJsonFromApi(`/runs/${runId}`, browserContext?.mintProtocol === 1);
 
       if (!json?.ok || !json?.run) {
         throw new Error(json?.error || "Get run returned no run.");
@@ -480,6 +496,7 @@ export function createWebGptApiClient({
       navigationInfo = {},
       batchResult = null,
       navigationInterrupted = false,
+      mintObservation,
     }) {
       const json = await postJsonToApi(`/runs/${runId}/command-result`, {
         type,
@@ -495,6 +512,7 @@ export function createWebGptApiClient({
         navigationInfo,
         batchResult,
         navigationInterrupted,
+        ...(mintObservation && { mintObservation }),
       });
 
       if (!json?.ok || !json?.command) {
@@ -513,10 +531,12 @@ export function createWebGptApiClient({
       runId,
       hint = "",
       browserContext = {},
+      promptId,
     }) {
       const json = await postJsonToApi(`/runs/${runId}/provide-hint`, {
         hint,
         browserContext,
+        ...(promptId && { promptId }),
       });
 
       if (!json?.ok) {
@@ -526,8 +546,10 @@ export function createWebGptApiClient({
       return json;
     },
 
-    async confirmRunSuccess({ runId }) {
-      const json = await postJsonToApi(`/runs/${runId}/confirm-success`, {});
+    async confirmRunSuccess({ runId, browserContext }) {
+      const json = await postJsonToApi(`/runs/${runId}/confirm-success`, {
+        ...(browserContext?.mintProtocol === 1 && { browserContext }),
+      });
 
       if (!json?.ok) {
         throw new Error(json?.error || "confirm-success failed.");
@@ -536,9 +558,10 @@ export function createWebGptApiClient({
       return json;
     },
 
-    async rejectRunSuccess({ runId, hint = "" }) {
+    async rejectRunSuccess({ runId, hint = "", browserContext }) {
       const json = await postJsonToApi(`/runs/${runId}/reject-success`, {
         hint,
+        ...(browserContext?.mintProtocol === 1 && { browserContext }),
       });
 
       if (!json?.ok) {
@@ -577,11 +600,13 @@ export function createWebGptApiClient({
       reason = "stopped_by_user",
       message = "",
       deleteRun = false,
+      browserContext,
     }) {
       const json = await postJsonToApi(`/runs/${runId}/stop`, {
         reason,
         message,
         deleteRun,
+        ...(browserContext?.mintProtocol === 1 && { browserContext }),
       });
 
       if (!json?.ok) {

@@ -3,6 +3,7 @@ import {
   getBackendConfiguration,
   resetStoredBackendBaseUrl,
   setStoredBackendBaseUrl,
+  setStoredLocalMintToken,
 } from "./settings/backendConfig.js";
 import {
   getMicrosoftExcelConfiguration,
@@ -55,7 +56,7 @@ async function getActiveTabId() {
 }
 
 export function registerMessageHandlers() {
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       await ensureHydrated();
 
@@ -157,6 +158,19 @@ export function registerMessageHandlers() {
 
       if (message?.type === "WEBGPT_RESET_BACKEND_CONFIG") {
         const config = await resetStoredBackendBaseUrl();
+        sendResponse({ ok: true, config });
+        return;
+      }
+
+      if (message?.type === "WEBGPT_SET_LOCAL_MINT_TOKEN") {
+        if (sender?.id !== chrome.runtime.id ||
+            sender?.url?.split(/[?#]/u, 1)[0] !== chrome.runtime.getURL("sidepanel.html")) {
+          throw new Error("Open WebGPT Settings to manage the local mint token.");
+        }
+        const config = await setStoredLocalMintToken({
+          baseUrl: message.baseUrl,
+          token: message.token,
+        });
         sendResponse({ ok: true, config });
         return;
       }
